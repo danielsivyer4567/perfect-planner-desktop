@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#0b0f17] text-slate-100 antialiased;
+    font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  }
+
+  code, pre, .font-mono {
+    font-family: "Fira Code", monospace;
+  }
+}
+
+/* Custom modern scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(51, 65, 85, 0.8);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.8);
+}
+
+/* Glowing effects and spine lines */
+.spine-line {
+  background: linear-gradient(180deg, #6366f1 0%, #38bdf8 50%, #10b981 100%);
+  box-shadow: 0 0 15px rgba(99, 102, 241, 0.4);
+}
+
+.branch-line {
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.3) 0%, rgba(56, 189, 248, 0.6) 100%);
+}
+
+.glass-card {
+  background: rgba(22, 27, 34, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(48, 54, 61, 0.8);
+}
+
+.glass-card:hover {
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4), 0 0 15px rgba(99, 102, 241, 0.1);
+}
