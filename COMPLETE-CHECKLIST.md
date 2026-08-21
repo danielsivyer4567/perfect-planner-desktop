@@ -315,3 +315,5 @@
 <!-- PP-EVENT bda9cec3f6a4e55c09d473daa5d9671e58b7cf67a3447fef2c93005681bd98aa -->
 | 2026-08-21T17:37:30.846Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | done | B18 | gpt-5.6-sol | s-57522136 |  | f4838931f15a* | 127/127 native tests green; independent reviewer accepted; production collector stays unavailable until B04 killable child |  |
 <!-- PP-EVENT 20b82c29897c357ac64535c77406e14400eb5d7f4134e61cd4e859eae0931b9f -->
+| 2026-08-21T17:39:15.142Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-sol | s-a1b7589d |  | 0f5a2cc4da9a* | AMBER: B04 manifest hardened before restart. Real census must run in fixed current-executable child mode with nonce-bound pipes and timeout kill/wait; in-process privileged collector threads are prohibited. |  |
+<!-- PP-EVENT f2fa2a4ca581f644ebab9253a73f89660eafc0149047b76f942a010378e77db8 -->

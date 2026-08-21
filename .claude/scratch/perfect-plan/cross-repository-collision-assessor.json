@@ -1709,24 +1709,29 @@
       },
       "files": [
         "src-tauri/src/collision_assessor/discovery.rs",
+        "src-tauri/src/collision_assessor/collector_process.rs",
+        "src-tauri/src/collision_assessor/api.rs",
+        "src-tauri/src/collision_assessor/mod.rs",
         "src-tauri/src/lib.rs",
+        "src-tauri/src/main.rs",
         "src/services/boards.ts",
         "src-tauri/tests/collision_census_contract.rs"
       ],
       "resources": [
         "host:configured-repository-census",
-        "protocol:metadata-only-plan-census"
+        "protocol:metadata-only-plan-census",
+        "process:collision-census-helper"
       ],
-      "notes": "Replanned after RED review: board HTTP is display-only and is never an assessor authority. The native collector receives no caller-supplied path, root, URL, port or endpoint. It reads only exact registry-addressed plan metadata beneath configured roots through the single-use capability, projects a strict bounded DTO immediately, revalidates generation and digest after collection, and returns UNKNOWN on every omission, mismatch, alias or parse defect.",
+      "notes": "Replanned after RED review: board HTTP is display-only and is never an assessor authority. The native collector receives no caller-supplied path, root, URL, port or endpoint. Real collection runs once in a fixed internal child mode of the exact current executable, receives a nonce-bound bounded request through an anonymous stdin pipe, writes a bounded metadata-only response to stdout, and is killed then waited on at deadline so no privileged reader survives capability revocation. The helper reads only exact registry-addressed Planner metadata beneath configured roots, projects a strict DTO immediately, and the parent revalidates generation, digest, filesystem identity and observation time before acceptance. Missing, extra, duplicate, stale, aliased, timed-out or inconsistent input is UNKNOWN.",
       "checklist": [
         {
-          "text": "Collect every registered active Planner and configured-root plan manifest through registry-addressed native metadata reads without trusting board HTTP",
+          "text": "Collect every registered active Planner and configured-root manifest in a nonce-bound killable child process; timeout must kill and wait with zero surviving reader",
           "built": false,
           "tested": false,
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
         },
         {
-          "text": "Collect only repository identity, branch, worktree, plan/node IDs, file/resource manifests, leases and freshness evidence",
+          "text": "Emit only bounded repository identity, branch, worktree, plan/node IDs, file/resource manifests, leases and freshness evidence; never raw plan, notes, proofs, refs, commands or source text",
           "built": false,
           "tested": false,
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
@@ -1738,7 +1743,7 @@
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
         },
         {
-          "text": "Prove collectors cannot read source contents or escape the registered plan and repository metadata boundary",
+          "text": "Prove the helper cannot escape configured roots, accept caller paths/endpoints, reuse a nonce, leak raw plan content or continue after kill/wait",
           "built": false,
           "tested": false,
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
