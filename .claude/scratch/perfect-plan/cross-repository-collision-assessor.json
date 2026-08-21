@@ -2966,30 +2966,30 @@
       "title": "Deterministic collision graph",
       "status": "pending",
       "dependsOn": [
-        "B04",
-        "B05"
+        "B19"
       ],
       "est": {
         "tokens": 80000,
         "minutes": 120
       },
       "files": [
-        "src-tauri/src/collision_assessor/analyzer.rs"
+        "src-tauri/src/collision_assessor/analyzer.rs",
+        "src-tauri/src/collision_assessor/mod.rs"
       ],
       "resources": [
         "protocol:collision-graph",
         "protocol:assessor-verdict"
       ],
-      "notes": "The analyzer is a pure deterministic function over a frozen census. It must never mutate plans or infer that missing data means free capacity.",
+      "notes": "The analyzer is a pure deterministic function over the B19 canonical claim snapshot. It never reads the filesystem, trusts caller paths or invents a disposition. Exact-file, directory-prefix and canonical resource collisions are evaluated from opaque typed keys. Glob claims are a hard UNKNOWN in v1. WAIT, REPLAN and USER_DECISION are emitted only when the frozen trusted disposition contract explicitly authorizes that result; missing or contradictory policy is UNKNOWN.",
       "checklist": [
         {
-          "text": "Intersect exact logical file keys, directory and glob expansions, and declared resource keys across every plan and active lease",
+          "text": "Intersect canonical exact-file keys, directory-tree segment prefixes and declared resource keys across every plan and active lease; reject every glob claim as UNKNOWN",
           "built": false,
           "tested": false,
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
         },
         {
-          "text": "Classify collisions as ordering WAIT, invalid-assumption REPLAN, ambiguous USER_DECISION or incomplete UNKNOWN",
+          "text": "Classify collisions as WAIT, REPLAN or USER_DECISION only from the trusted per-claim disposition and active-lease contract; otherwise return UNKNOWN",
           "built": false,
           "tested": false,
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
@@ -3006,7 +3006,8 @@
           "tested": false,
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
         }
-      ]
+      ],
+      "startSha": "dcf083c7df8244b715b81718baf623f6cbb4ff0a"
     },
     {
       "id": "B07",
@@ -4796,6 +4797,67 @@
         "at": "2026-08-21T17:37:30.846Z",
         "forced": false
       }
+    },
+    {
+      "id": "B19",
+      "spineId": "P3",
+      "side": "L",
+      "title": "Canonical claim snapshot and disposition contract",
+      "status": "pending",
+      "dependsOn": [
+        "B04",
+        "B05"
+      ],
+      "est": {
+        "tokens": 80000,
+        "minutes": 120
+      },
+      "files": [
+        "docs/collision-assessor-guarantee.md",
+        "src-tauri/src/collision_assessor/model.rs",
+        "src-tauri/src/collision_assessor/identity.rs",
+        "src-tauri/src/collision_assessor/registry.rs",
+        "src-tauri/src/collision_assessor/discovery.rs",
+        "src-tauri/tests/collision_claim_contract.rs"
+      ],
+      "resources": [
+        "protocol:canonical-claim-snapshot",
+        "protocol:trusted-conflict-disposition",
+        "git:common-directory-identity"
+      ],
+      "notes": "Corrective prerequisite created after B06 RED review. Native census code derives repository equality from the real linked-worktree .git metadata and a share-restricted handle to the resolved Git common directory; caller repository IDs and paths are never equality authority. It freezes opaque typed ExactFile, DirectoryTree and Resource claims plus active lease/fence/dependency/disposition evidence before discovery is revoked. Directory claims use logical segment-prefix ownership and include future children. Globs are deliberately unsupported in v1 and force UNKNOWN rather than a guessed expansion. Every typed claim, source manifest digest, physical alias edge and disposition is bound into the census/input digest.",
+      "checklist": [
+        {
+          "text": "Derive one opaque repository identity from real .git gitdir and commondir metadata plus a restricted Windows handle, and prove sibling worktrees converge while unrelated repositories do not",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Project every file and resource declaration into a bounded typed ExactFile, DirectoryTree or Resource claim with canonical logical keys and physical alias evidence; every glob is UNKNOWN",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Persist a trusted per-claim conflict disposition and active-node lease contract containing run, node, worker, fence, state, dependencies and assumption evidence; missing or contradictory policy is UNKNOWN",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Bind sorted claims, alias edges, lease/disposition evidence and their source manifests into the attested census digest and reject any handle, inventory or manifest drift before persistence and on restart",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Prove Git common-dir, hardlink, case, verbatim, UNC, SUBST, reparse, directory-boundary, resource-namespace, duplicate, permutation and glob-UNKNOWN adversarial cases",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        }
+      ]
     }
   ]
 }

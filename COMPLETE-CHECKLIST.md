@@ -347,3 +347,15 @@
 <!-- PP-EVENT c16d54804393780c119f615bebe1f0042cfb0cd9fdffc1ded8c4bab71fbf7595 -->
 | 2026-08-21T18:26:53.609Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | done | B04 | gpt-5.6-sol | s-816bfb35 |  | 9b76abcf883a* |  |  |
 <!-- PP-EVENT 698d5d9d4715a6680c6423b2a54a869a142411cfda91d05a41e297e970dbf4b7 -->
+| 2026-08-21T18:29:29.684Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-sol | s-ce80ce23 |  | dcf083c7df82 | session start |  |
+<!-- PP-EVENT 78d000635be4890e47b20ac18b66312e8e37bf272bd3f310a3c706a92515adbb -->
+| 2026-08-21T18:29:37.709Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | start | B06 | danielsivyer4567 | s-ce80ce23 |  | dcf083c7df82* |  |  |
+<!-- PP-EVENT feac81d7e018c22678baa2090a4b5d0ee4c952c6feee27441ad38224dcd2edd9 -->
+| 2026-08-21T18:30:41.089Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-sol | s-ce80ce23 |  | dcf083c7df82* | RED: B06 cannot truthfully analyze raw untyped census paths. Native collection must first persist canonical logical file keys plus bounded exact directory/glob expansions, and a trusted conflict-disposition input must define when overlap is WAIT, REPLAN or USER_DECISION. |  |
+<!-- PP-EVENT f2b975edaaf3882cd6d9d00ddccc4ff4aae5c1ac0f17fff49999762792627050 -->
+| 2026-08-21T18:30:41.919Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | block | B06:0 | gpt-5.6-sol | s-ce80ce23 |  | dcf083c7df82* | Intersect exact logical file keys, directory and glob expansions, and declared resource keys across every plan and active lease |  |
+<!-- PP-EVENT 28263e7b87f24feb433d0c2c79512db80c5b0c7ac0ef19f3ef7e8c279370a918 -->
+| 2026-08-21T18:32:51.806Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | unblock | B06:0 | danielsivyer4567 | s-a1b7589d |  | dcf083c7df82* | Replanned behind B19 canonical claim snapshot: Git common-dir authority, typed exact/directory/resource claims, trusted disposition contract, and glob-as-UNKNOWN are explicit prerequisites. |  |
+<!-- PP-EVENT 888f552ef9ef0668bbfc867fd269c1b243196d639e555d897efe67ffd3d3f85b -->
+| 2026-08-21T18:32:54.119Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-sol | s-a1b7589d |  | dcf083c7df82* | AMBER: B06 RED resolved by prerequisite B19, not inference. Analyzer now depends on an attested canonical claim/disposition snapshot; v1 glob claims are UNKNOWN. |  |
+<!-- PP-EVENT 20b58691b6a530fbc7cfb500751f3e3d283d3272d65ea94c1afd5d1f180ddd97 -->
