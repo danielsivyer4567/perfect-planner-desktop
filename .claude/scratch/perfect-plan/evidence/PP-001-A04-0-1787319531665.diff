@@ -1,0 +1,1309 @@
+diff --git a/src/App.tsx b/src/App.tsx
+index c4068cd..e48789d 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -18,6 +18,7 @@ import {
+   PlanManifestSnapshot,
+ } from "./services/boards";
+ import { LocalOutputWitness } from "./components/LocalOutputWitness";
++import { OrchestratorMessenger } from "./components/OrchestratorMessenger";
+ import { PlanSnapshot } from "./types/plan";
+ import { alarmDurationMs, playRisingAlarm } from "./services/stallAlarm";
+ import {
+@@ -34,6 +35,7 @@ import {
+   sessionLeaseKey,
+   SupervisorSnapshot,
+ } from "./services/sessionSupervisor";
++import { ControlPlaneScope } from "./services/controlPlane";
+ 
+ const SOUND_KEY = "perfect-planner:stall-sound";
+ const VOLUME_KEY = "perfect-planner:stall-volume";
+@@ -357,6 +359,39 @@ export const App: React.FC = () => {
+       lease.disposition === "CLEARED" &&
+       (!activeRepository || lease.organizationId === activeRepository.id)
+   ).length || 0;
++  const controlPlaneScope = useMemo<ControlPlaneScope | null>(() => {
++    if (!active || !activeRepository || !orchestratorId) return null;
++    const normalizedPlanPath = active.planPath.replace(/\\/g, "/");
++    const planDirectoryMarker = "/.claude/scratch/perfect-plan/";
++    const markerIndex = normalizedPlanPath.toLocaleLowerCase().indexOf(planDirectoryMarker);
++    const worktreePath = markerIndex >= 0
++      ? normalizedPlanPath.slice(0, markerIndex)
++      : active.repoRoot;
++    return {
++      organizationId: activeRepository.id,
++      repositoryId: activeRepository.id,
++      repositoryRoot: active.repoRoot,
++      worktreePath,
++      branch: active.branch,
++      planId: stableEntityId("plan", active.planPath.toLocaleLowerCase()),
++      planPath: active.planPath,
++      nodeId: null,
++      itemId: null,
++      workerId: null,
++      orchestratorId,
++    };
++  }, [active, activeRepository, orchestratorId]);
++  const controlPlaneWorkers = useMemo(
++    () => visibleWorkerReports
++      .filter((report) => report.planPath === active?.planPath)
++      .map((report) => ({
++        id: report.worker.session,
++        nodeId: report.worker.vertebra,
++        label: `${report.worker.session} · ${report.worker.vertebra}`,
++        state: report.worker.state === "ACTIVE" ? "LIVE" : report.disposition,
++      })),
++    [active?.planPath, visibleWorkerReports]
++  );
+ 
+   const toggleSound = () => {
+     const next = !soundEnabledRef.current;
+@@ -701,6 +736,11 @@ export const App: React.FC = () => {
+               );
+             })}
+           </div>
++          <OrchestratorMessenger
++            scope={controlPlaneScope}
++            orchestratorId={orchestratorId}
++            workers={controlPlaneWorkers}
++          />
+         </section>
+ 
+         {active ? (
+diff --git a/src/components/OrchestratorMessenger.tsx b/src/components/OrchestratorMessenger.tsx
+new file mode 100644
+index 0000000..635bc75
+--- /dev/null
++++ b/src/components/OrchestratorMessenger.tsx
+@@ -0,0 +1,621 @@
++import {
++  FormEvent,
++  useCallback,
++  useEffect,
++  useMemo,
++  useRef,
++  useState,
++} from "react";
++import {
++  acknowledgeControlMessage,
++  claimControlDeliveries,
++  getControlPlaneSnapshot,
++  postControlMessage,
++  recordControlDelivery,
++  type ControlMessage,
++  type ControlPlaneScope,
++} from "../services/controlPlane";
++
++export interface OrchestratorWorker {
++  id: string;
++  nodeId: string;
++  label: string;
++  state: string;
++}
++
++export interface OrchestratorMessengerProps {
++  scope: ControlPlaneScope | null;
++  orchestratorId: string | null;
++  workers: OrchestratorWorker[];
++  refreshToken?: number;
++  chatDestination?: {
++    registrationId?: string;
++    address?: string;
++    enabled?: boolean;
++    label?: string;
++    requiresAcknowledgement?: boolean;
++    maxAttempts?: number;
++    retryBaseMs?: number;
++    registeredAtMs?: number;
++    metadata?: Record<string, string>;
++  };
++}
++
++type Snapshot = Awaited<ReturnType<typeof getControlPlaneSnapshot>>;
++type UnknownRecord = Record<string, unknown>;
++
++interface RetryEnvelope {
++  fingerprint: string;
++  correlationId: string;
++  noteKey: string;
++  escalationKey: string;
++}
++
++const DELIVERY_STATES = [
++  "QUEUED",
++  "UNROUTED",
++  "CLAIMED",
++  "DELIVERED",
++  "ACKNOWLEDGED",
++  "DEAD_LETTER",
++] as const;
++
++function asRecord(value: unknown): UnknownRecord {
++  return value && typeof value === "object" ? value as UnknownRecord : {};
++}
++
++function stringValue(value: unknown): string {
++  return typeof value === "string" ? value : value == null ? "" : String(value);
++}
++
++function messageField(message: ControlMessage, field: string): unknown {
++  return asRecord(message)[field];
++}
++
++function messageId(message: ControlMessage): string {
++  return stringValue(messageField(message, "id") || messageField(message, "messageId"));
++}
++
++function messageAuthor(message: ControlMessage): string {
++  return stringValue(messageField(message, "authorId") || messageField(message, "sourceActorId")) || "unknown actor";
++}
++
++function messageBody(message: ControlMessage): string {
++  return stringValue(messageField(message, "body") || messageField(message, "text"));
++}
++
++function messageKind(message: ControlMessage): string {
++  return stringValue(messageField(message, "kind")) || "status";
++}
++
++function messageScope(message: ControlMessage): UnknownRecord {
++  return asRecord(messageField(message, "scope"));
++}
++
++function messageTimestamp(message: ControlMessage): number {
++  const value = messageField(message, "createdAtMs") ?? messageField(message, "createdAt");
++  if (typeof value === "number") return value;
++  const parsed = Date.parse(stringValue(value));
++  return Number.isFinite(parsed) ? parsed : 0;
++}
++
++function deliveryState(message: ControlMessage): typeof DELIVERY_STATES[number] | string {
++  const raw = stringValue(messageField(message, "state")) || "queued";
++  const collapsed = raw.replace(/[\s_-]+/g, "").toLowerCase();
++  if (collapsed === "queued") return "QUEUED";
++  if (collapsed === "unrouted") return "UNROUTED";
++  if (collapsed === "claimed") return "CLAIMED";
++  if (collapsed === "delivered") return "DELIVERED";
++  if (collapsed === "acknowledged") return "ACKNOWLEDGED";
++  if (collapsed === "deadletter" || collapsed === "deadlettered") return "DEAD_LETTER";
++  return raw.replace(/([a-z])([A-Z])/g, "$1_$2").replace(/[\s-]+/g, "_").toUpperCase();
++}
++
++function formatKind(kind: string): string {
++  return kind.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").toUpperCase();
++}
++
++function formatTime(timestamp: number): string {
++  if (!timestamp) return "time not recorded";
++  return new Date(timestamp).toLocaleString();
++}
++
++function domToken(value: string): string {
++  return value.replace(/[^A-Za-z0-9_-]/g, (character) => `-${character.codePointAt(0)?.toString(16) || "x"}-`);
++}
++
++function newKey(prefix: string): string {
++  const random = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
++    ? crypto.randomUUID()
++    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
++  return `${prefix}:${random}`;
++}
++
++function primitiveScopeEntries(scope: ControlPlaneScope): Array<[string, string | number | boolean]> {
++  return Object.entries(asRecord(scope)).filter((entry): entry is [string, string | number | boolean] => {
++    // The orchestrator process ID is intentionally ephemeral. Durable worker notes must
++    // remain visible after a head-orchestrator restart, while repository/plan/node/worker
++    // identity continues to provide the hard isolation boundary.
++    if (entry[0] === "orchestratorId") return false;
++    const value = entry[1];
++    return value !== undefined && value !== null && (typeof value === "string" || typeof value === "number" || typeof value === "boolean");
++  });
++}
++
++function belongsToScope(message: ControlMessage, scope: ControlPlaneScope): boolean {
++  const actual = messageScope(message);
++  return primitiveScopeEntries(scope).every(([key, value]) => actual[key] === value);
++}
++
++export function OrchestratorMessenger({
++  scope,
++  orchestratorId,
++  workers,
++  refreshToken,
++  chatDestination,
++}: OrchestratorMessengerProps) {
++  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
++  const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
++  const [draft, setDraft] = useState("");
++  const [escalate, setEscalate] = useState(false);
++  const [loading, setLoading] = useState(false);
++  const [acknowledgingId, setAcknowledgingId] = useState<string | null>(null);
++  const [error, setError] = useState<string | null>(null);
++  const [syncError, setSyncError] = useState<string | null>(null);
++  const [notice, setNotice] = useState<string | null>(null);
++  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
++  const panelRef = useRef<HTMLElement | null>(null);
++  const returnFocusRef = useRef<HTMLButtonElement | null>(null);
++  const retryEnvelopeRef = useRef<RetryEnvelope | null>(null);
++  const refreshRunningRef = useRef(false);
++
++  const selectedWorker = useMemo(
++    () => workers.find((worker) => worker.id === selectedWorkerId) || null,
++    [selectedWorkerId, workers],
++  );
++
++  const refresh = useCallback(async () => {
++    if (!scope) {
++      setSnapshot(null);
++      return;
++    }
++    if (refreshRunningRef.current) return;
++    refreshRunningRef.current = true;
++    try {
++      let next = await getControlPlaneSnapshot({
++        repositoryId: scope.repositoryId,
++        organizationId: scope.organizationId,
++      });
++      if (orchestratorId) {
++        const claimed = await claimControlDeliveries({
++          repositoryId: scope.repositoryId,
++          organizationId: scope.organizationId,
++          consumerId: orchestratorId,
++          destinationKinds: ["localUi"],
++          limit: 50,
++          leaseMs: 15_000,
++          filter: { planId: scope.planId },
++        });
++        for (const message of claimed) {
++          const attempt = [...message.attempts]
++            .reverse()
++            .find((candidate) => candidate.state === "claimed");
++          if (!attempt) continue;
++          await recordControlDelivery({
++            repositoryId: scope.repositoryId,
++            messageId: message.id,
++            attemptId: attempt.attemptId,
++            consumerId: orchestratorId,
++            outcome: "delivered",
++          });
++        }
++        if (claimed.length) {
++          next = await getControlPlaneSnapshot({
++            repositoryId: scope.repositoryId,
++            organizationId: scope.organizationId,
++          });
++        }
++      }
++      setSnapshot(next);
++      setSyncError(null);
++    } catch (cause) {
++      setSyncError(cause instanceof Error ? cause.message : String(cause));
++    } finally {
++      refreshRunningRef.current = false;
++    }
++  }, [orchestratorId, scope]);
++
++  useEffect(() => {
++    void refresh();
++    const timer = window.setInterval(() => void refresh(), 4_000);
++    return () => window.clearInterval(timer);
++  }, [refresh, refreshToken]);
++
++  useEffect(() => {
++    if (selectedWorkerId && !selectedWorker) setSelectedWorkerId(null);
++  }, [selectedWorker, selectedWorkerId]);
++
++  useEffect(() => {
++    if (!selectedWorker) return;
++    const onKeyDown = (event: KeyboardEvent) => {
++      if (event.key === "Escape") {
++        setSelectedWorkerId(null);
++        window.setTimeout(() => returnFocusRef.current?.focus(), 0);
++        return;
++      }
++      if (event.key !== "Tab" || !panelRef.current) return;
++      const focusable = [...panelRef.current.querySelectorAll<HTMLElement>(
++        "button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex='-1'])",
++      )].filter((element) => !element.hasAttribute("hidden"));
++      if (!focusable.length) return;
++      const first = focusable[0];
++      const last = focusable[focusable.length - 1];
++      if (event.shiftKey && document.activeElement === first) {
++        event.preventDefault();
++        last.focus();
++      } else if (!event.shiftKey && document.activeElement === last) {
++        event.preventDefault();
++        first.focus();
++      }
++    };
++    window.addEventListener("keydown", onKeyDown);
++    window.setTimeout(() => textAreaRef.current?.focus(), 0);
++    return () => window.removeEventListener("keydown", onKeyDown);
++  }, [selectedWorker]);
++
++  const messages = useMemo(
++    () => [...(snapshot?.messages || [])].sort((left, right) => messageTimestamp(right) - messageTimestamp(left)),
++    [snapshot],
++  );
++  const effectiveChatDestination = useMemo(
++    () => chatDestination || snapshot?.registrations.find(
++      (registration) =>
++        registration.kind === "codexChat" &&
++        registration.enabled &&
++        Boolean(registration.registrationId && registration.address)
++    ),
++    [chatDestination, snapshot]
++  );
++
++  const scopedMessages = useMemo(
++    () => scope ? messages.filter((message) => belongsToScope(message, scope)) : [],
++    [messages, scope],
++  );
++
++  const inboxCount = scopedMessages.filter((message) =>
++    messageAuthor(message) !== orchestratorId && deliveryState(message) !== "ACKNOWLEDGED"
++  ).length;
++  const outboxCount = scopedMessages.filter((message) =>
++    messageAuthor(message) === orchestratorId && deliveryState(message) !== "ACKNOWLEDGED"
++  ).length;
++
++  const workerScope = useMemo(() => {
++    if (!scope || !selectedWorker) return null;
++    return {
++      ...scope,
++      workerId: selectedWorker.id,
++      nodeId: selectedWorker.nodeId,
++    } as ControlPlaneScope;
++  }, [scope, selectedWorker]);
++
++  const workerMessages = useMemo(() => {
++    if (!workerScope) return [];
++    return messages.filter((message) => belongsToScope(message, workerScope));
++  }, [messages, workerScope]);
++
++  const closePanel = useCallback(() => {
++    setSelectedWorkerId(null);
++    setError(null);
++    setNotice(null);
++    window.setTimeout(() => returnFocusRef.current?.focus(), 0);
++  }, []);
++
++  const updateDraft = (value: string) => {
++    setDraft(value);
++    retryEnvelopeRef.current = null;
++  };
++
++  const updateEscalation = (value: boolean) => {
++    setEscalate(value);
++    retryEnvelopeRef.current = null;
++  };
++
++  const submitNote = async (event: FormEvent<HTMLFormElement>) => {
++    event.preventDefault();
++    const body = draft.trim();
++    if (!workerScope || !selectedWorker || !orchestratorId || !body || loading) return;
++
++    const targetFingerprint = JSON.stringify(effectiveChatDestination || {});
++    const fingerprint = `${selectedWorker.id}\u0000${selectedWorker.nodeId}\u0000${body}\u0000${escalate}\u0000${targetFingerprint}`;
++    let envelope = retryEnvelopeRef.current;
++    if (!envelope || envelope.fingerprint !== fingerprint) {
++      const correlationId = newKey("pp-correlation");
++      envelope = {
++        fingerprint,
++        correlationId,
++        noteKey: `${correlationId}:worker-note`,
++        escalationKey: `${correlationId}:chat-notification`,
++      };
++      retryEnvelopeRef.current = envelope;
++    }
++
++    setLoading(true);
++    setError(null);
++    setNotice(null);
++    try {
++      await postControlMessage({
++        scope: workerScope,
++        idempotencyKey: envelope.noteKey,
++        correlationId: envelope.correlationId,
++        kind: "workerNote",
++        authorId: orchestratorId,
++        body,
++        destination: {
++          registrationId: `pp-local-ui:${workerScope.repositoryId}`,
++          kind: "localUi",
++          label: "Perfect Planner orchestrator messenger",
++          address: "pp-region-orchestrator-messenger",
++          enabled: true,
++          requiresAcknowledgement: false,
++          maxAttempts: 1,
++          retryBaseMs: 5_000,
++          registeredAtMs: Date.now(),
++          metadata: {
++            workerId: selectedWorker.id,
++            nodeId: selectedWorker.nodeId,
++          },
++        },
++      });
++
++      if (escalate) {
++        await postControlMessage({
++          scope: workerScope,
++          idempotencyKey: envelope.escalationKey,
++          correlationId: envelope.correlationId,
++          kind: "alert",
++          authorId: orchestratorId,
++          body,
++          destination: {
++            kind: "codexChat",
++            registrationId: effectiveChatDestination?.registrationId || null,
++            label: effectiveChatDestination?.label || "Codex chat notification",
++            address: effectiveChatDestination?.address || null,
++            enabled: effectiveChatDestination?.enabled ?? true,
++            requiresAcknowledgement: effectiveChatDestination?.requiresAcknowledgement ?? true,
++            maxAttempts: effectiveChatDestination?.maxAttempts ?? 3,
++            retryBaseMs: effectiveChatDestination?.retryBaseMs ?? 5_000,
++            registeredAtMs: effectiveChatDestination?.registeredAtMs ?? null,
++            metadata: { ...effectiveChatDestination?.metadata },
++          },
++        });
++      }
++
++      retryEnvelopeRef.current = null;
++      setDraft("");
++      setEscalate(false);
++      setNotice(escalate
++        ? "Worker note recorded. Chat notification created; verify its delivery state below."
++        : "Worker note recorded in the control-plane ledger.");
++      await refresh();
++    } catch (cause) {
++      setError(`${cause instanceof Error ? cause.message : String(cause)} The same idempotency keys will be reused if you retry this unchanged note.`);
++      await refresh();
++    } finally {
++      setLoading(false);
++    }
++  };
++
++  const acknowledge = async (message: ControlMessage) => {
++    const id = messageId(message);
++    if (!id || !orchestratorId || acknowledgingId) return;
++    setAcknowledgingId(id);
++    setError(null);
++    try {
++      await acknowledgeControlMessage({
++        repositoryId: message.scope.repositoryId,
++        messageId: id,
++        acknowledgedBy: orchestratorId,
++      });
++      await refresh();
++    } catch (cause) {
++      setError(cause instanceof Error ? cause.message : String(cause));
++    } finally {
++      setAcknowledgingId(null);
++    }
++  };
++
++  return (
++    <section
++      className="orchestrator-messenger"
++      id="pp-region-orchestrator-messenger"
++      aria-label="Orchestrator messages"
++      data-entity-id={orchestratorId || "unassigned"}
++    >
++      <header className="orchestrator-messenger-header" id="pp-header-orchestrator-messenger">
++        <div className="orchestrator-messenger-title">
++          <span>ORCHESTRATOR MESSAGES</span>
++          <code id="pp-value-orchestrator-message-id">{orchestratorId || "ID UNASSIGNED"}</code>
++        </div>
++        <div className="orchestrator-message-badges" aria-label="Persistent inbox and outbox counts">
++          <span className="orchestrator-message-badge inbox" id="pp-badge-orchestrator-inbox">
++            INBOX <b>{inboxCount}</b>
++          </span>
++          <span className="orchestrator-message-badge outbox" id="pp-badge-orchestrator-outbox">
++            OUTBOX <b>{outboxCount}</b>
++          </span>
++          <span className="orchestrator-message-badge unrouted" id="pp-badge-orchestrator-unrouted">
++            UNROUTED <b>{snapshot?.stateCounts.unrouted || 0}</b>
++          </span>
++        </div>
++      </header>
++      {syncError ? <p className="orchestrator-message-error" id="pp-error-orchestrator-sync" role="alert">SYNC FAILED · {syncError}</p> : null}
++
++      <div className="orchestrator-worker-message-list" id="pp-list-orchestrator-workers" role="list">
++        {workers.map((worker) => {
++          const workerDomId = domToken(worker.id);
++          const workerMessageCount = scope
++            ? messages.filter((message) => belongsToScope(message, {
++              ...scope,
++              workerId: worker.id,
++              nodeId: worker.nodeId,
++            } as ControlPlaneScope)).length
++            : 0;
++          return (
++            <div
++              className="orchestrator-worker-message-item"
++              id={`pp-item-orchestrator-worker-${workerDomId}`}
++              key={`${worker.id}:${worker.nodeId}`}
++              role="listitem"
++              data-worker-id={worker.id}
++              data-node-id={worker.nodeId}
++            >
++              <button
++                className="orchestrator-worker-message-button"
++                id={`pp-btn-open-worker-notes-${workerDomId}`}
++                type="button"
++                aria-haspopup="dialog"
++                aria-controls="pp-panel-worker-notes"
++                onClick={(event) => {
++                  returnFocusRef.current = event.currentTarget;
++                  setSelectedWorkerId(worker.id);
++                  setDraft("");
++                  setEscalate(false);
++                  setError(null);
++                  setNotice(null);
++                  retryEnvelopeRef.current = null;
++                }}
++              >
++                <span className="orchestrator-worker-message-label">{worker.label}</span>
++                <code>{worker.nodeId}</code>
++                <span className="orchestrator-worker-message-state">{worker.state}</span>
++                <span className="orchestrator-worker-message-count" aria-label={`${workerMessageCount} messages`}>
++                  {workerMessageCount}
++                </span>
++              </button>
++            </div>
++          );
++        })}
++        {!workers.length ? <p id="pp-empty-orchestrator-workers">No workers are registered in this scope.</p> : null}
++      </div>
++
++      <div className="orchestrator-delivery-state-legend" id="pp-legend-orchestrator-delivery-states" aria-label="Delivery state legend">
++        {DELIVERY_STATES.map((state) => <span key={state} className={`delivery-state ${state.toLowerCase().replace("_", "-")}`}>{state}</span>)}
++      </div>
++
++      {selectedWorker && workerScope ? (
++        <div className="orchestrator-worker-notes-backdrop" id="pp-backdrop-worker-notes" onMouseDown={(event) => {
++          if (event.target === event.currentTarget) closePanel();
++        }}>
++          <section
++            className="orchestrator-worker-notes-panel"
++            id="pp-panel-worker-notes"
++            ref={panelRef}
++            role="dialog"
++            aria-modal="true"
++            aria-labelledby="pp-title-worker-notes"
++            aria-describedby="pp-description-worker-notes"
++            data-worker-id={selectedWorker.id}
++            data-node-id={selectedWorker.nodeId}
++          >
++            <header className="orchestrator-worker-notes-header">
++              <div>
++                <h2 id="pp-title-worker-notes">{selectedWorker.label}</h2>
++                <p id="pp-description-worker-notes">
++                  Worker <code>{selectedWorker.id}</code> · node <code>{selectedWorker.nodeId}</code> · {selectedWorker.state}
++                </p>
++              </div>
++              <button className="orchestrator-worker-notes-close" id="pp-btn-close-worker-notes" type="button" onClick={closePanel} aria-label="Close worker notes">
++                CLOSE
++              </button>
++            </header>
++
++            <div className="orchestrator-worker-notes-history" id="pp-list-worker-notes" aria-label="Worker note history" aria-live="polite">
++              {workerMessages.map((message) => {
++                const id = messageId(message);
++                const state = deliveryState(message);
++                const safeId = domToken(id || `${messageTimestamp(message)}-${messageAuthor(message)}`);
++                return (
++                  <article
++                    className="orchestrator-worker-note"
++                    id={`pp-message-${safeId}`}
++                    key={id || safeId}
++                    data-message-id={id || "unassigned"}
++                    data-delivery-state={state}
++                  >
++                    <header>
++                      <span className="orchestrator-worker-note-kind">{formatKind(messageKind(message))}</span>
++                      <span className={`delivery-state ${state.toLowerCase().replace("_", "-")}`} id={`pp-status-${safeId}`}>{state}</span>
++                    </header>
++                    <p className="orchestrator-worker-note-body">{messageBody(message)}</p>
++                    <footer>
++                      <span>{messageAuthor(message)}</span>
++                      <time dateTime={messageTimestamp(message) ? new Date(messageTimestamp(message)).toISOString() : undefined}>
++                        {formatTime(messageTimestamp(message))}
++                      </time>
++                      {state === "DELIVERED" && message.destination.requiresAcknowledgement ? (
++                        <button
++                          className="orchestrator-worker-note-acknowledge"
++                          id={`pp-btn-ack-${safeId}`}
++                          type="button"
++                          disabled={!orchestratorId || acknowledgingId !== null}
++                          onClick={() => void acknowledge(message)}
++                        >
++                          {acknowledgingId === id ? "ACKNOWLEDGING…" : "ACKNOWLEDGE"}
++                        </button>
++                      ) : null}
++                    </footer>
++                  </article>
++                );
++              })}
++              {!workerMessages.length ? <p id="pp-empty-worker-notes">No notes or routed messages exist for this exact worker and node.</p> : null}
++            </div>
++
++            <form className="orchestrator-worker-note-form" id="pp-form-worker-note" onSubmit={submitNote}>
++              <label htmlFor="pp-input-worker-note">Leave a worker note</label>
++              <textarea
++                id="pp-input-worker-note"
++                ref={textAreaRef}
++                value={draft}
++                rows={4}
++                maxLength={8_000}
++                disabled={loading || !orchestratorId}
++                aria-describedby="pp-help-worker-note"
++                onChange={(event) => updateDraft(event.currentTarget.value)}
++              />
++              <p id="pp-help-worker-note">
++                This records an immutable, worker-and-node-scoped note. It does not claim a chat notification was sent.
++              </p>
++              <label className="orchestrator-worker-note-escalation" htmlFor="pp-check-escalate-chat">
++                <input
++                  id="pp-check-escalate-chat"
++                  type="checkbox"
++                  checked={escalate}
++                  disabled={loading || !orchestratorId}
++                  onChange={(event) => updateEscalation(event.currentTarget.checked)}
++                />
++                Also create a chat notification delivery
++              </label>
++              {escalate ? (
++                <p className="orchestrator-chat-route-status" id="pp-status-chat-route">
++                  {effectiveChatDestination?.registrationId && effectiveChatDestination?.address && effectiveChatDestination?.enabled !== false
++                    ? "A registered chat destination was supplied. Delivery still requires a DELIVERED state."
++                    : "No chat destination is registered. This notification will remain UNROUTED. Register a connector, then retry the escalation."}
++                </p>
++              ) : null}
++              {error ? <p className="orchestrator-message-error" id="pp-error-worker-note" role="alert">{error}</p> : null}
++              {notice ? <p className="orchestrator-message-notice" id="pp-notice-worker-note" role="status">{notice}</p> : null}
++              <button
++                className="orchestrator-worker-note-submit"
++                id="pp-btn-send-worker-note"
++                type="submit"
++                disabled={loading || !orchestratorId || !draft.trim()}
++              >
++                {loading ? "RECORDING…" : escalate ? "RECORD NOTE + CREATE CHAT DELIVERY" : "RECORD NOTE"}
++              </button>
++            </form>
++          </section>
++        </div>
++      ) : null}
++    </section>
++  );
++}
+diff --git a/src/index.css b/src/index.css
+index 40dcf65..c764af9 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -736,6 +736,372 @@ body {
+   font: 9px var(--mono);
+ }
+ 
++.orchestrator-messenger {
++  display: grid;
++  grid-template-columns: minmax(210px, 0.8fr) minmax(300px, 2fr) auto;
++  align-items: center;
++  gap: 8px;
++  min-height: 38px;
++  padding: 5px 14px 7px;
++  border-top: 1px solid rgba(255, 255, 255, 0.08);
++  background: #1f2823;
++  font-family: var(--mono);
++}
++
++.orchestrator-messenger-header,
++.orchestrator-messenger-title,
++.orchestrator-message-badges,
++.orchestrator-worker-message-list,
++.orchestrator-worker-message-button,
++.orchestrator-delivery-state-legend,
++.orchestrator-worker-note header,
++.orchestrator-worker-note footer {
++  display: flex;
++  align-items: center;
++}
++
++.orchestrator-messenger-header {
++  min-width: 0;
++  gap: 8px;
++}
++
++.orchestrator-messenger-title {
++  min-width: 0;
++  flex-direction: column;
++  align-items: flex-start;
++  color: #a9b9ad;
++  font: 800 8px var(--mono);
++  letter-spacing: 0.7px;
++}
++
++.orchestrator-messenger-title code {
++  max-width: 170px;
++  overflow: hidden;
++  color: #eef3ef;
++  font: 8px var(--mono);
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.orchestrator-message-badges {
++  gap: 4px;
++}
++
++.orchestrator-message-badge,
++.delivery-state {
++  padding: 2px 5px;
++  border: 1px solid #59675d;
++  border-radius: 3px;
++  color: #d8dfda;
++  background: #303b34;
++  font: 800 7.5px var(--mono);
++  letter-spacing: 0.35px;
++  white-space: nowrap;
++}
++
++.orchestrator-message-badge b {
++  color: #fff;
++}
++
++.orchestrator-message-badge.unrouted,
++.delivery-state.unrouted,
++.delivery-state.dead-letter {
++  border-color: #ac7046;
++  color: #ffd0aa;
++  background: #4a3427;
++}
++
++.delivery-state.delivered,
++.delivery-state.acknowledged {
++  border-color: #628e6b;
++  color: #c8eccf;
++  background: #2d4433;
++}
++
++.delivery-state.claimed {
++  border-color: #8a7d50;
++  color: #f3e3a9;
++  background: #403b27;
++}
++
++.orchestrator-worker-message-list {
++  min-width: 0;
++  gap: 5px;
++  overflow-x: auto;
++}
++
++.orchestrator-worker-message-item {
++  flex: none;
++}
++
++.orchestrator-worker-message-button {
++  min-height: 26px;
++  gap: 6px;
++  padding: 3px 7px;
++  border: 1px solid #65736a;
++  border-radius: 4px;
++  color: #edf1ee;
++  background: #344139;
++  font: 8px var(--mono);
++  cursor: pointer;
++}
++
++.orchestrator-worker-message-button:hover,
++.orchestrator-worker-message-button:focus-visible {
++  border-color: #b3cbb9;
++  outline: none;
++  box-shadow: 0 0 0 2px rgba(179, 203, 185, 0.18);
++}
++
++.orchestrator-worker-message-label {
++  max-width: 150px;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.orchestrator-worker-message-button code,
++.orchestrator-worker-message-state {
++  color: #b7c9bc;
++  font: 800 7.5px var(--mono);
++}
++
++.orchestrator-worker-message-count {
++  display: grid;
++  min-width: 16px;
++  height: 16px;
++  place-items: center;
++  border-radius: 50%;
++  color: #172019;
++  background: #b9d1be;
++  font: 800 7px var(--mono);
++}
++
++.orchestrator-delivery-state-legend {
++  max-width: 220px;
++  justify-content: flex-end;
++  gap: 3px;
++  overflow-x: auto;
++}
++
++.orchestrator-delivery-state-legend .delivery-state {
++  font-size: 6.5px;
++}
++
++.orchestrator-message-error,
++.orchestrator-message-notice,
++.orchestrator-chat-route-status {
++  margin: 4px 0;
++  padding: 6px 8px;
++  border-left: 3px solid #b45f58;
++  color: #7a2924;
++  background: #fff0ed;
++  font: 9px/1.5 var(--mono);
++}
++
++.orchestrator-messenger > .orchestrator-message-error {
++  grid-column: 1 / -1;
++  margin: 0;
++}
++
++.orchestrator-message-notice {
++  border-left-color: #598c65;
++  color: #285b34;
++  background: #eef8f0;
++}
++
++.orchestrator-chat-route-status {
++  border-left-color: #bb8339;
++  color: #6e481a;
++  background: #fff7e9;
++}
++
++.orchestrator-worker-notes-backdrop {
++  position: fixed;
++  inset: 0;
++  z-index: 10000;
++  display: flex;
++  align-items: stretch;
++  justify-content: flex-start;
++  padding: 18px;
++  background: rgba(13, 16, 14, 0.58);
++  backdrop-filter: blur(2px);
++}
++
++.orchestrator-worker-notes-panel {
++  display: grid;
++  grid-template-rows: auto minmax(160px, 1fr) auto;
++  width: min(760px, calc(100vw - 36px));
++  min-width: min(560px, calc(100vw - 36px));
++  max-height: calc(100vh - 36px);
++  overflow: hidden;
++  color: #272b28;
++  background: #faf8f2;
++  border: 1px solid #d7d2c7;
++  border-radius: 7px;
++  outline: 5px solid #2b3330;
++  box-shadow:
++    0 0 0 7px #9aa49f,
++    0 18px 60px rgba(0, 0, 0, 0.45);
++}
++
++.orchestrator-worker-notes-header {
++  display: flex;
++  align-items: flex-start;
++  justify-content: space-between;
++  gap: 20px;
++  padding: 16px 18px 13px;
++  color: #f6f4ee;
++  background: #28322c;
++  border-bottom: 3px double #84958b;
++}
++
++.orchestrator-worker-notes-header h2,
++.orchestrator-worker-notes-header p {
++  margin: 0;
++}
++
++.orchestrator-worker-notes-header h2 {
++  font: 800 16px var(--mono);
++}
++
++.orchestrator-worker-notes-header p {
++  margin-top: 5px;
++  color: #b8c4bc;
++  font: 9px var(--mono);
++}
++
++.orchestrator-worker-notes-close,
++.orchestrator-worker-note-submit,
++.orchestrator-worker-note-acknowledge {
++  border: 1px solid #718078;
++  border-radius: 4px;
++  color: #f6f4ee;
++  background: #36443c;
++  font: 800 8px var(--mono);
++  letter-spacing: 0.5px;
++  cursor: pointer;
++}
++
++.orchestrator-worker-notes-close {
++  min-height: 30px;
++  padding: 4px 9px;
++}
++
++.orchestrator-worker-notes-history {
++  overflow: auto;
++  padding: 14px 18px;
++  background: #f1eee6;
++}
++
++.orchestrator-worker-note {
++  margin-bottom: 10px;
++  padding: 11px;
++  border: 1px solid #d5d0c4;
++  border-left: 4px solid #667f6c;
++  border-radius: 4px;
++  background: #fff;
++}
++
++.orchestrator-worker-note header,
++.orchestrator-worker-note footer {
++  justify-content: space-between;
++  gap: 8px;
++}
++
++.orchestrator-worker-note-kind {
++  color: #4f6655;
++  font: 800 8px var(--mono);
++  letter-spacing: 0.6px;
++}
++
++.orchestrator-worker-note-body {
++  margin: 10px 0;
++  color: #2b302c;
++  font: 12px/1.55 var(--sans);
++  white-space: pre-wrap;
++}
++
++.orchestrator-worker-note footer {
++  color: #77736a;
++  font: 8px var(--mono);
++}
++
++.orchestrator-worker-note-acknowledge {
++  margin-left: auto;
++  padding: 4px 7px;
++}
++
++.orchestrator-worker-note-form {
++  display: grid;
++  gap: 7px;
++  padding: 14px 18px 16px;
++  border-top: 1px solid #d1ccbf;
++  background: #fff;
++}
++
++.orchestrator-worker-note-form > label:first-child {
++  color: #445049;
++  font: 800 9px var(--mono);
++  letter-spacing: 0.5px;
++  text-transform: uppercase;
++}
++
++.orchestrator-worker-note-form textarea {
++  width: 100%;
++  resize: vertical;
++  padding: 9px;
++  border: 1px solid #a9a397;
++  border-radius: 4px;
++  color: #242825;
++  background: #fbfaf6;
++  font: 11px/1.5 var(--mono);
++}
++
++.orchestrator-worker-note-form textarea:focus {
++  border-color: #496b53;
++  outline: 3px solid rgba(73, 107, 83, 0.18);
++}
++
++.orchestrator-worker-note-form > p {
++  margin: 0;
++  color: #6f6b63;
++  font: 8px/1.4 var(--mono);
++}
++
++.orchestrator-worker-note-escalation {
++  display: flex;
++  align-items: center;
++  gap: 7px;
++  color: #464b47;
++  font: 9px var(--mono);
++}
++
++.orchestrator-worker-note-submit {
++  justify-self: end;
++  min-height: 34px;
++  padding: 6px 12px;
++  border-color: #385944;
++  background: #385944;
++}
++
++.orchestrator-worker-note-submit:disabled,
++.orchestrator-worker-note-acknowledge:disabled {
++  cursor: not-allowed;
++  opacity: 0.5;
++}
++
++@media (max-width: 1050px) {
++  .orchestrator-messenger {
++    grid-template-columns: 1fr;
++  }
++
++  .orchestrator-delivery-state-legend {
++    max-width: none;
++    justify-content: flex-start;
++  }
++}
++
+ .stage-bar {
+   display: flex;
+   align-items: center;
+diff --git a/tests/control_plane_e2e.py b/tests/control_plane_e2e.py
+new file mode 100644
+index 0000000..105fc38
+--- /dev/null
++++ b/tests/control_plane_e2e.py
+@@ -0,0 +1,227 @@
++from pathlib import Path
++import os
++from urllib.parse import urlparse
++
++from playwright.sync_api import expect, sync_playwright
++
++
++ROOT = Path(__file__).resolve().parents[1]
++APP_URL = os.environ.get("PP_APP_URL", "http://127.0.0.1:5180/")
++SCREENSHOT = ROOT / "artifacts" / "orchestrator-messaging-after.png"
++
++BOARDS = {
++    5230: {
++        "planPath": r"C:\repos\looplet-worktrees\repo-a-work\.claude\scratch\perfect-plan\a.json",
++        "number": "PP-101",
++        "topic": "Orchestrator messaging",
++        "repoName": "Repository Alpha",
++        "repoRoot": r"C:\repos\repository-alpha",
++        "project": "Repository Alpha",
++        "worktreeName": "repo-a-work",
++        "branch": "feature/orchestrator-messaging",
++        "worker": "s-worker-alpha",
++    },
++    5231: {
++        "planPath": r"C:\repos\looplet-worktrees\repo-b-work\.claude\scratch\perfect-plan\b.json",
++        "number": "PP-101",
++        "topic": "Unrelated repository",
++        "repoName": "Repository Beta",
++        "repoRoot": r"C:\repos\repository-beta",
++        "project": "Repository Beta",
++        "worktreeName": "repo-b-work",
++        "branch": "feature/unrelated",
++        "worker": "s-worker-beta",
++    },
++}
++
++
++def main():
++    SCREENSHOT.parent.mkdir(parents=True, exist_ok=True)
++    with sync_playwright() as playwright:
++        # The user selected Chrome for visual verification. Keep it headless so this proof
++        # never steals focus or consumes a visible desktop window.
++        browser = playwright.chromium.launch(channel="chrome", headless=True)
++        context = browser.new_context(
++            viewport={"width": 1440, "height": 900},
++            device_scale_factor=2,
++        )
++        page = context.new_page()
++        console_errors = []
++        page.on(
++            "console",
++            lambda message: console_errors.append(message.text)
++            if message.type == "error"
++            else None,
++        )
++
++        def mock_probe(route):
++            parsed = urlparse(route.request.url)
++            parts = parsed.path.strip("/").split("/")
++            if len(parts) != 3 or parts[0] != "board-probe":
++                route.fulfill(status=404, json={"ok": False})
++                return
++            board = BOARDS.get(int(parts[1]))
++            if not board:
++                route.fulfill(status=200, json={"ok": False})
++                return
++            endpoint = parts[2]
++            if endpoint == "whoami":
++                route.fulfill(
++                    status=200,
++                    json={
++                        "ok": True,
++                        **{key: value for key, value in board.items() if key != "worker"},
++                        "approved": "yes @ test",
++                        "awaiting": None,
++                        "port": int(parts[1]),
++                        "pid": 9000 + int(parts[1]),
++                    },
++                )
++            elif endpoint == "workers":
++                route.fulfill(
++                    status=200,
++                    json={
++                        "workers": {
++                            "A01": {
++                                "vertebra": "A01",
++                                "session": board["worker"],
++                                "state": "ACTIVE",
++                                "model": "gpt-5",
++                                "user": "test-worker",
++                            }
++                        }
++                    },
++                )
++            elif endpoint == "plan":
++                route.fulfill(
++                    status=200,
++                    json={
++                        "spine": [{"id": "P1", "title": "Control plane"}],
++                        "vertebrae": [
++                            {
++                                "id": "A01",
++                                "spineId": "P1",
++                                "title": "Worker notes",
++                                "files": ["src/control.ts"],
++                                "resources": ["runtime:control-plane"],
++                                "checklist": [],
++                            }
++                        ],
++                    },
++                )
++            else:
++                route.fulfill(status=404, json={"ok": False})
++
++        page.route("**/board-probe/**", mock_probe)
++        for port in BOARDS:
++            page.route(
++                f"http://127.0.0.1:{port}/",
++                lambda route: route.fulfill(body="<html><title>planner board</title></html>"),
++            )
++
++        page.goto(APP_URL)
++        page.wait_for_load_state("networkidle")
++        alpha = page.locator(
++            '.rail-item[data-repository-name="Repository Alpha"][data-board-port="5230"]'
++        )
++        expect(alpha).to_be_visible()
++        alpha.click()
++
++        messenger = page.locator("#pp-region-orchestrator-messenger")
++        expect(messenger).to_be_visible()
++        expect(page.locator("#pp-badge-orchestrator-inbox")).to_contain_text("0")
++        expect(page.locator("#pp-badge-orchestrator-outbox")).to_contain_text("0")
++        worker_button = page.locator("#pp-btn-open-worker-notes-s-worker-alpha")
++        expect(worker_button).to_be_visible()
++        worker_button.click()
++        panel = page.locator("#pp-panel-worker-notes")
++        expect(panel).to_be_visible()
++        expect(panel).to_have_attribute("data-worker-id", "s-worker-alpha")
++        expect(panel).to_have_attribute("data-node-id", "A01")
++
++        page.locator("#pp-input-worker-note").fill(
++            "Provider access is blocked; the orchestrator must decide whether to use the export fallback."
++        )
++        page.locator("#pp-check-escalate-chat").check()
++        expect(page.locator("#pp-status-chat-route")).to_contain_text("No chat destination")
++        page.locator("#pp-btn-send-worker-note").click()
++        expect(page.locator("#pp-notice-worker-note")).to_contain_text("Worker note recorded")
++        expect(page.locator("#pp-list-worker-notes article")).to_have_count(2)
++        expect(page.locator('[data-delivery-state="DELIVERED"]')).to_have_count(1)
++        expect(page.locator('[data-delivery-state="UNROUTED"]')).to_have_count(1)
++        expect(page.locator("#pp-badge-orchestrator-unrouted")).to_contain_text("1")
++        assert page.get_by_text("SENT", exact=True).count() == 0, (
++            "the UI claimed a delivery was sent without connector proof"
++        )
++
++        # Simulate a real worker process using the same typed control-plane contract. The local
++        # UI is the consumer: its next poll must claim and deliver the note before ACK appears.
++        incoming_id = page.evaluate(
++            """
++            async () => {
++              const api = await import('/src/services/controlPlane.ts');
++              const stored = Object.keys(localStorage)
++                .filter((key) => key.startsWith('perfect-planner:control-plane:v1:'))
++                .map((key) => JSON.parse(localStorage.getItem(key)))
++                .find((value) => value?.messages?.some((message) => message.scope?.workerId === 's-worker-alpha'));
++              const scope = stored.messages.find((message) => message.scope.workerId === 's-worker-alpha').scope;
++              const message = await api.postControlMessage({
++                idempotencyKey: 'worker-alpha:handoff:1',
++                correlationId: 'worker-alpha:blocker',
++                kind: 'workerNote',
++                scope,
++                authorId: 's-worker-alpha',
++                body: 'Worker note: OAuth consent is required before this node can continue.',
++                destination: {
++                  registrationId: `pp-local-ui:${scope.repositoryId}`,
++                  kind: 'localUi',
++                  label: 'Head orchestrator inbox',
++                  address: 'pp-region-orchestrator-messenger',
++                  enabled: true,
++                  requiresAcknowledgement: true,
++                  maxAttempts: 3,
++                  retryBaseMs: 5000,
++                  registeredAtMs: Date.now(),
++                  metadata: { source: 'external-worker-test' },
++                },
++              });
++              return message.id;
++            }
++            """
++        )
++        expect(page.get_by_text("Worker note: OAuth consent is required", exact=False)).to_be_visible(
++            timeout=8_000
++        )
++        incoming = page.locator(f'[data-message-id="{incoming_id}"]')
++        expect(incoming).to_have_attribute("data-delivery-state", "DELIVERED")
++        incoming.get_by_role("button", name="ACKNOWLEDGE").click()
++        expect(incoming).to_have_attribute("data-delivery-state", "ACKNOWLEDGED")
++
++        # Same PP number in another repository must not reveal Alpha's notes.
++        page.locator("#pp-btn-close-worker-notes").click()
++        beta = page.locator(
++            '.rail-item[data-repository-name="Repository Beta"][data-board-port="5231"]'
++        )
++        beta.click()
++        expect(page.locator("#pp-badge-orchestrator-inbox")).to_contain_text("0")
++        expect(page.locator("#pp-badge-orchestrator-outbox")).to_contain_text("0")
++        page.locator("#pp-btn-open-worker-notes-s-worker-beta").click()
++        expect(page.locator("#pp-list-worker-notes article")).to_have_count(0)
++
++        page.locator("#pp-btn-close-worker-notes").click()
++        alpha.click()
++        page.locator("#pp-btn-open-worker-notes-s-worker-alpha").click()
++        expect(page.locator("#pp-list-worker-notes article")).to_have_count(3)
++        page.screenshot(path=str(SCREENSHOT), full_page=True)
++        assert not console_errors, f"browser console errors: {console_errors}"
++
++        context.close()
++        browser.close()
++
++    print("control_plane_e2e: PASS")
++    print("proved: scoped notes, UNROUTED truth, local delivery, worker-originated note, ack, repo isolation")
++    print(f"screenshot: {SCREENSHOT}")
++
++
++if __name__ == "__main__":
++    main()

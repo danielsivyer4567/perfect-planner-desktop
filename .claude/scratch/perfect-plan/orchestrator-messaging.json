@@ -92,19 +92,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T13:07:34.177Z",
-            "model": "gpt-5",
+            "at": "2026-08-21T13:38:41.204Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-05f8c444",
-            "note": "ran `cargo test control_plane` → exit 0 in 1261ms",
-            "log": "PP-001-A01-0-1787317651937.log",
-            "sha256": "dc14db7442a6aed2ef5422485638e7e972a02689ac4100068213346043ce2ffb",
+            "note": "reverify of: Persist worker notes and orchestrator messages in an append-only local ledger",
+            "log": "PP-001-A01-0-1787319519416.log",
+            "sha256": "c74e465ef2719b18930be4eec97ed3cf2196dba6938b6b2fb8abe00534469d16",
             "exit": 0,
-            "durationMs": 1261,
+            "durationMs": 1089,
             "git": {
-              "sha": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+              "sha": "1412c800a89f6a42bc36ddc6e72557bfb01e08ff",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test control_plane",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935\\src-tauri",
@@ -160,19 +160,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T13:07:36.930Z",
-            "model": "gpt-5",
+            "at": "2026-08-21T13:38:42.546Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-05f8c444",
-            "note": "ran `cargo test control_plane` → exit 0 in 769ms",
-            "log": "PP-001-A01-1-1787317655701.log",
-            "sha256": "01f9dc1b1acc1a46ecfab197b5b4b1ddbb8964da0a345dce065404174f2d7ff3",
+            "note": "reverified via the shared run of `cargo test control_plane` proven at A01:0",
+            "log": "PP-001-A01-0-1787319519416.log",
+            "sha256": "c74e465ef2719b18930be4eec97ed3cf2196dba6938b6b2fb8abe00534469d16",
             "exit": 0,
             "durationMs": 769,
             "git": {
-              "sha": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+              "sha": "1412c800a89f6a42bc36ddc6e72557bfb01e08ff",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test control_plane",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935\\src-tauri",
@@ -194,7 +194,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "A01:0"
           }
         },
         {
@@ -228,19 +229,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T13:07:39.978Z",
-            "model": "gpt-5",
+            "at": "2026-08-21T13:38:42.553Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-05f8c444",
-            "note": "ran `cargo test control_plane` → exit 0 in 781ms",
-            "log": "PP-001-A01-2-1787317658339.log",
-            "sha256": "14856670d7887de56a5243dcd3f9f65dd17f0bba8e4c940c86c304500e93a778",
+            "note": "reverified via the shared run of `cargo test control_plane` proven at A01:0",
+            "log": "PP-001-A01-0-1787319519416.log",
+            "sha256": "c74e465ef2719b18930be4eec97ed3cf2196dba6938b6b2fb8abe00534469d16",
             "exit": 0,
             "durationMs": 781,
             "git": {
-              "sha": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+              "sha": "1412c800a89f6a42bc36ddc6e72557bfb01e08ff",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test control_plane",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935\\src-tauri",
@@ -262,7 +263,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "A01:0"
           }
         }
       ],
@@ -352,17 +354,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T13:14:12.923Z",
-            "model": "gpt-5",
+            "at": "2026-08-21T13:38:44.389Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-05f8c444",
-            "note": "ran `cargo test` → exit 0 in 7609ms",
-            "log": "PP-001-A02-0-1787318044764.log",
-            "sha256": "e5d95f438e0b527bda0c11e43d7106c430ccea65167a11cbbcf58c9cfda9204b",
+            "note": "reverify of: Expose scoped post, snapshot, claim, result and acknowledgement commands",
+            "log": "PP-001-A02-0-1787319522559.log",
+            "sha256": "59175b6f455441d7394fe372868ef0a8304dd21e490dfacd56282dc5f94430d6",
             "exit": 0,
-            "durationMs": 7609,
+            "durationMs": 1318,
             "git": {
-              "sha": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+              "sha": "1412c800a89f6a42bc36ddc6e72557bfb01e08ff",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -442,17 +444,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T13:14:16.447Z",
-            "model": "gpt-5",
+            "at": "2026-08-21T13:38:46.918Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-05f8c444",
-            "note": "ran `cargo check` → exit 0 in 1751ms",
-            "log": "PP-001-A02-1-1787318054169.log",
-            "sha256": "993b77f95e4c7d13ed3ad4a115fb0f46596a633d4d04df145276103afc0373d8",
+            "note": "reverify of: Grant only the named control-plane commands to the main window",
+            "log": "PP-001-A02-1-1787319525398.log",
+            "sha256": "5affadf0a06df10a080bcc249624b9359761a17315c50e7ccd675d768d47007d",
             "exit": 0,
-            "durationMs": 1751,
+            "durationMs": 942,
             "git": {
-              "sha": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+              "sha": "1412c800a89f6a42bc36ddc6e72557bfb01e08ff",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -566,17 +568,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T13:02:58.884Z",
-            "model": "gpt-5",
+            "at": "2026-08-21T13:38:51.045Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-05f8c444",
-            "note": "ran `npm run build` → exit 0 in 2664ms",
-            "log": "PP-001-A03-0-1787317375349.log",
-            "sha256": "0c568e14a3a78427ef1ba5181861c889eb5f337bcd9990afee3c43a3eb79dea9",
+            "note": "reverify of: Map the Rust snapshot and commands into strict TypeScript types",
+            "log": "PP-001-A03-0-1787319527664.log",
+            "sha256": "d38f9f693c4f5447d010c7c41921613a0d4746db9d56f3f8aa94a3c997dbb973",
             "exit": 0,
-            "durationMs": 2664,
+            "durationMs": 2846,
             "git": {
-              "sha": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+              "sha": "1412c800a89f6a42bc36ddc6e72557bfb01e08ff",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -592,6 +594,12 @@
               },
               "osRelease": "10.0.26200"
             },
+            "diff": "PP-001-A03-0-1787319527664.diff",
+            "diffSha256": "aa41356e6b93604058b24b2e57cede51d3355092fabfd2874944b715b09caa2f",
+            "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+            "diffFiles": [
+              "src/services/controlPlane.ts"
+            ],
             "tokensEst": 3000,
             "loc": {
               "baseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
@@ -651,17 +659,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T13:11:57.777Z",
-            "model": "gpt-5",
+            "at": "2026-08-21T13:38:51.659Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-05f8c444",
-            "note": "ran `npm run build` → exit 0 in 8117ms",
-            "log": "PP-001-A03-1-1787317909298.log",
-            "sha256": "cbf36030d7ec593d77b497c17f696d4a3a4deca7bf949e84c8576d5a825b2a49",
+            "note": "reverified via the shared run of `npm run build` proven at A03:0",
+            "log": "PP-001-A03-0-1787319527664.log",
+            "sha256": "d38f9f693c4f5447d010c7c41921613a0d4746db9d56f3f8aa94a3c997dbb973",
             "exit": 0,
             "durationMs": 8117,
             "git": {
-              "sha": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+              "sha": "1412c800a89f6a42bc36ddc6e72557bfb01e08ff",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -695,7 +703,8 @@
               "fileCount": 1,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "A03:0"
           }
         }
       ],
@@ -797,17 +806,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T13:18:42.709Z",
-            "model": "gpt-5",
+            "at": "2026-08-21T13:38:58.660Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-05f8c444",
-            "note": "ran `python tests/control_plane_e2e.py` → exit 0 in 6040ms",
-            "log": "PP-001-A04-0-1787318315837.log",
-            "sha256": "4899aa46c3a8020438c544d39fc1dbd27e993f0dde8a874aa90b447aa54977c2",
+            "note": "reverify of: Worker cards open a fully scoped notes panel and can append a note",
+            "log": "PP-001-A04-0-1787319531665.log",
+            "sha256": "94065594a5d41717e61392479a7a3436d418e16422c193e3876a3286bb8e5bf9",
             "exit": 0,
-            "durationMs": 6040,
+            "durationMs": 6420,
             "git": {
-              "sha": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+              "sha": "1412c800a89f6a42bc36ddc6e72557bfb01e08ff",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -866,6 +875,34 @@
               "expectedText": [],
               "alarms": []
             },
+            "diff": "PP-001-A04-0-1787319531665.diff",
+            "diffSha256": "fcc5ba3c2a0f02b8ef8e6721b9951ace56ac63eb0d001ee33596e4b899fbf968",
+            "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/components/OrchestratorMessenger.tsx",
+              "src/index.css",
+              "tests/control_plane_e2e.py"
+            ],
+            "screenshot": "PP-001-A04-0-1787318315837.png",
+            "screenshotSha256": "44f8aad10aa65908e818937e9296148c2ce7be4eb1d8dc292773d0fbb9f93667",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 2880,
+              "height": 1800,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3503,
+              "uniqueColors": 127,
+              "stddev": {
+                "r": 82.035,
+                "g": 80.479,
+                "b": 80.682
+              },
+              "reason": null,
+              "samples": 41200
+            },
+            "shotNote": "High-resolution headless Chrome capture shows the exact s-worker-alpha / A01 modal expanded inside a distinct double chrome frame, with scoped history and the worker and node IDs visible.",
             "screenshotOcr": {
               "status": "clear",
               "role": "derived-warning-only",
@@ -890,32 +927,6 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A04-0-1787318315837.diff",
-            "diffSha256": "e28bef9e2499e6def54e75ea9c7b858d74d0c5bfa8b6a57a8460e3940fe96f69",
-            "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
-            "diffFiles": [
-              "src/App.tsx",
-              "src/index.css"
-            ],
-            "screenshot": "PP-001-A04-0-1787318315837.png",
-            "screenshotSha256": "44f8aad10aa65908e818937e9296148c2ce7be4eb1d8dc292773d0fbb9f93667",
-            "screenshotCheck": {
-              "ok": true,
-              "width": 2880,
-              "height": 1800,
-              "bitDepth": 8,
-              "colorType": 2,
-              "blankScore": 0.3503,
-              "uniqueColors": 127,
-              "stddev": {
-                "r": 82.035,
-                "g": 80.479,
-                "b": 80.682
-              },
-              "reason": null,
-              "samples": 41200
-            },
-            "shotNote": "High-resolution headless Chrome capture shows the exact s-worker-alpha / A01 modal expanded inside a distinct double chrome frame, with scoped history and the worker and node IDs visible.",
             "tokensEst": 4000,
             "loc": {
               "baseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
@@ -1008,17 +1019,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T13:18:52.548Z",
-            "model": "gpt-5",
+            "at": "2026-08-21T13:39:06.108Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-05f8c444",
-            "note": "ran `python tests/control_plane_e2e.py` → exit 0 in 6004ms",
-            "log": "PP-001-A04-1-1787318325573.log",
-            "sha256": "fc5af120bb93b5fd265abd92d0fb4e700a29270f6b2f3d96e76c36443dfc2996",
+            "note": "reverify of: The head orchestrator lists pending messages with explicit delivery and acknowledgement state",
+            "log": "PP-001-A04-1-1787319539383.log",
+            "sha256": "c0c51969db681bb854a31bc62efb035100286195e31a30fddfc35bbaa55374ae",
             "exit": 0,
-            "durationMs": 6004,
+            "durationMs": 6186,
             "git": {
-              "sha": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+              "sha": "1412c800a89f6a42bc36ddc6e72557bfb01e08ff",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -1077,6 +1088,34 @@
               "expectedText": [],
               "alarms": []
             },
+            "diff": "PP-001-A04-1-1787319539383.diff",
+            "diffSha256": "fcc5ba3c2a0f02b8ef8e6721b9951ace56ac63eb0d001ee33596e4b899fbf968",
+            "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/components/OrchestratorMessenger.tsx",
+              "src/index.css",
+              "tests/control_plane_e2e.py"
+            ],
+            "screenshot": "PP-001-A04-1-1787318325573.png",
+            "screenshotSha256": "936d219c87ed81712116438f5f67d4bcde9277f82d44c06e8007360dbab0a456",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 2880,
+              "height": 1800,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3503,
+              "uniqueColors": 128,
+              "stddev": {
+                "r": 82.036,
+                "g": 80.48,
+                "b": 80.683
+              },
+              "reason": null,
+              "samples": 41200
+            },
+            "shotNote": "The expanded orchestrator modal visibly distinguishes ACKNOWLEDGED and DELIVERED local notes from the orange UNROUTED chat alert; no unsupported sent state appears.",
             "screenshotOcr": {
               "status": "clear",
               "role": "derived-warning-only",
@@ -1101,32 +1140,6 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A04-1-1787318325573.diff",
-            "diffSha256": "e28bef9e2499e6def54e75ea9c7b858d74d0c5bfa8b6a57a8460e3940fe96f69",
-            "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
-            "diffFiles": [
-              "src/App.tsx",
-              "src/index.css"
-            ],
-            "screenshot": "PP-001-A04-1-1787318325573.png",
-            "screenshotSha256": "936d219c87ed81712116438f5f67d4bcde9277f82d44c06e8007360dbab0a456",
-            "screenshotCheck": {
-              "ok": true,
-              "width": 2880,
-              "height": 1800,
-              "bitDepth": 8,
-              "colorType": 2,
-              "blankScore": 0.3503,
-              "uniqueColors": 128,
-              "stddev": {
-                "r": 82.036,
-                "g": 80.48,
-                "b": 80.683
-              },
-              "reason": null,
-              "samples": 41200
-            },
-            "shotNote": "The expanded orchestrator modal visibly distinguishes ACKNOWLEDGED and DELIVERED local notes from the orange UNROUTED chat alert; no unsupported sent state appears.",
             "tokensEst": 4000,
             "loc": {
               "baseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
@@ -1219,17 +1232,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T13:19:02.493Z",
-            "model": "gpt-5",
+            "at": "2026-08-21T13:39:13.820Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-05f8c444",
-            "note": "ran `python tests/control_plane_e2e.py` → exit 0 in 5981ms",
-            "log": "PP-001-A04-2-1787318335680.log",
-            "sha256": "3fdd26c7b4020cb1cbe52aeba0b9d2c64f49a3fbdc1a566a7139da577c7c9b42",
+            "note": "reverify of: Keyboard and screen-reader paths can open, write, close and acknowledge notes",
+            "log": "PP-001-A04-2-1787319546629.log",
+            "sha256": "9fa258f51680c818855c2c92843dab6ccf68a595635192e828d0a8d085b1dc46",
             "exit": 0,
-            "durationMs": 5981,
+            "durationMs": 6419,
             "git": {
-              "sha": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+              "sha": "1412c800a89f6a42bc36ddc6e72557bfb01e08ff",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -1288,6 +1301,34 @@
               "expectedText": [],
               "alarms": []
             },
+            "diff": "PP-001-A04-2-1787319546629.diff",
+            "diffSha256": "fcc5ba3c2a0f02b8ef8e6721b9951ace56ac63eb0d001ee33596e4b899fbf968",
+            "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/components/OrchestratorMessenger.tsx",
+              "src/index.css",
+              "tests/control_plane_e2e.py"
+            ],
+            "screenshot": "PP-001-A04-2-1787318335680.png",
+            "screenshotSha256": "423642cb627fc4b5fa1199eba56fce46eeb43017894eb4cd99302bc212c55de4",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 2880,
+              "height": 1800,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3503,
+              "uniqueColors": 127,
+              "stddev": {
+                "r": 82.037,
+                "g": 80.481,
+                "b": 80.684
+              },
+              "reason": null,
+              "samples": 41200
+            },
+            "shotNote": "The capture shows the full-width readable modal, close control, note composer, checkbox, and stable state labels; the headless interaction log proves focus trap, Escape, submit, acknowledge, and repository switch paths.",
             "screenshotOcr": {
               "status": "clear",
               "role": "derived-warning-only",
@@ -1312,32 +1353,6 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A04-2-1787318335680.diff",
-            "diffSha256": "e28bef9e2499e6def54e75ea9c7b858d74d0c5bfa8b6a57a8460e3940fe96f69",
-            "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
-            "diffFiles": [
-              "src/App.tsx",
-              "src/index.css"
-            ],
-            "screenshot": "PP-001-A04-2-1787318335680.png",
-            "screenshotSha256": "423642cb627fc4b5fa1199eba56fce46eeb43017894eb4cd99302bc212c55de4",
-            "screenshotCheck": {
-              "ok": true,
-              "width": 2880,
-              "height": 1800,
-              "bitDepth": 8,
-              "colorType": 2,
-              "blankScore": 0.3503,
-              "uniqueColors": 127,
-              "stddev": {
-                "r": 82.037,
-                "g": 80.481,
-                "b": 80.684
-              },
-              "reason": null,
-              "samples": 41200
-            },
-            "shotNote": "The capture shows the full-width readable modal, close control, note composer, checkbox, and stable state labels; the headless interaction log proves focus trap, Escape, submit, acknowledge, and repository switch paths.",
             "tokensEst": 4000,
             "loc": {
               "baseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
@@ -1554,17 +1569,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T13:35:35.004Z",
-            "model": "gpt-5",
+            "at": "2026-08-21T13:39:15.430Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-05f8c444",
-            "note": "ran `node scripts/pp-control.mjs self-test` → exit 0 in 152ms",
-            "log": "PP-001-A05-0-1787319333805.log",
-            "sha256": "9dee4fa1815aa0b9d586e36172e8c59ac7e57094799b402e390fa9978274d44c",
+            "note": "reverify of: External workers can atomically leave scoped notes without sharing the ledger file",
+            "log": "PP-001-A05-0-1787319554464.log",
+            "sha256": "906ccef4a3b71086d6deaf00aa796c2ca3b5a43ada823c22e6359002b9a3a2e8",
             "exit": 0,
-            "durationMs": 152,
+            "durationMs": 369,
             "git": {
-              "sha": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+              "sha": "1412c800a89f6a42bc36ddc6e72557bfb01e08ff",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -1623,13 +1638,16 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A05-0-1787319333805.diff",
-            "diffSha256": "e66b09da1025fd25988f165917a4c30348153d118795818fa950ec2df550a432",
+            "diff": "PP-001-A05-0-1787319554464.diff",
+            "diffSha256": "2439a1a0a046648dc06cf2d42ffc4886dd0a77704e19b010b3dbec308ad3c5c3",
             "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
             "diffFiles": [
               ".gitignore",
               "package.json",
-              "src-tauri/src/lib.rs"
+              "scripts/pp-control.mjs",
+              "src-tauri/src/connectors.rs",
+              "src-tauri/src/lib.rs",
+              "tests/control_connector_e2e.py"
             ],
             "tokensEst": 4000,
             "loc": {
@@ -1760,17 +1778,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T13:35:39.561Z",
-            "model": "gpt-5",
+            "at": "2026-08-21T13:39:17.881Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-05f8c444",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml connectors` → exit 0 in 1926ms",
-            "log": "PP-001-A05-1-1787319336916.log",
-            "sha256": "f49c34dcf4c32a950aa9e98c8e5f1cb51f25fa64838857a33d077e72e3d8e97c",
+            "note": "reverify of: Only an explicitly registered Codex destination can trigger a bounded hidden resume delivery",
+            "log": "PP-001-A05-1-1787319556063.log",
+            "sha256": "f6b2af0aace29e499e0e4ddab87b259c74d7a0480709629fe8925f672fa7faaf",
             "exit": 0,
-            "durationMs": 1926,
+            "durationMs": 821,
             "git": {
-              "sha": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+              "sha": "1412c800a89f6a42bc36ddc6e72557bfb01e08ff",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -1829,13 +1847,16 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A05-1-1787319336916.diff",
-            "diffSha256": "e66b09da1025fd25988f165917a4c30348153d118795818fa950ec2df550a432",
+            "diff": "PP-001-A05-1-1787319556063.diff",
+            "diffSha256": "2439a1a0a046648dc06cf2d42ffc4886dd0a77704e19b010b3dbec308ad3c5c3",
             "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
             "diffFiles": [
               ".gitignore",
               "package.json",
-              "src-tauri/src/lib.rs"
+              "scripts/pp-control.mjs",
+              "src-tauri/src/connectors.rs",
+              "src-tauri/src/lib.rs",
+              "tests/control_connector_e2e.py"
             ],
             "tokensEst": 6000,
             "loc": {
@@ -1967,17 +1988,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T13:35:48.784Z",
-            "model": "gpt-5",
+            "at": "2026-08-21T13:39:24.872Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-05f8c444",
-            "note": "ran `python tests/control_plane_e2e.py` → exit 0 in 5895ms",
-            "log": "PP-001-A05-2-1787319342015.log",
-            "sha256": "1c3b129e8bdfd0cb32a5dfdb3adc37818a189267b9e4395fe0bbdf61f09e8e27",
+            "note": "reverify of: Headless UI test proves note creation, repository isolation, failure visibility and acknowledgement",
+            "log": "PP-001-A05-2-1787319558357.log",
+            "sha256": "a5e89d60e86f81dcb965b1e4e455f519e531a647f211e129ed853c2ba3f27659",
             "exit": 0,
-            "durationMs": 5895,
+            "durationMs": 6029,
             "git": {
-              "sha": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+              "sha": "1412c800a89f6a42bc36ddc6e72557bfb01e08ff",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -2036,6 +2057,37 @@
               "expectedText": [],
               "alarms": []
             },
+            "diff": "PP-001-A05-2-1787319558357.diff",
+            "diffSha256": "79ab63eb48cc6f272134def362728a6201533b28f9f5db8e563cceca8a181bf2",
+            "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+            "diffFiles": [
+              ".gitignore",
+              "package.json",
+              "scripts/pp-control.mjs",
+              "src-tauri/src/connectors.rs",
+              "src-tauri/src/lib.rs",
+              "tests/control_connector_e2e.py",
+              "tests/control_plane_e2e.py"
+            ],
+            "screenshot": "PP-001-A05-2-1787319342015.png",
+            "screenshotSha256": "a4018edb1d64652cd462776bcadce46f9271fa3007d2ce9019410463bae2edbc",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 2880,
+              "height": 1800,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3503,
+              "uniqueColors": 131,
+              "stddev": {
+                "r": 82.015,
+                "g": 80.39,
+                "b": 80.651
+              },
+              "reason": null,
+              "samples": 41200
+            },
+            "shotNote": "Viewed at 2880x1800: exact s-worker-alpha and A01 scope are visible with ACKNOWLEDGED, DELIVERED and UNROUTED cards; the wide chromed worker-note modal and composer are distinct from the board.",
             "screenshotOcr": {
               "status": "clear",
               "role": "derived-warning-only",
@@ -2060,33 +2112,6 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A05-2-1787319342015.diff",
-            "diffSha256": "e66b09da1025fd25988f165917a4c30348153d118795818fa950ec2df550a432",
-            "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
-            "diffFiles": [
-              ".gitignore",
-              "package.json",
-              "src-tauri/src/lib.rs"
-            ],
-            "screenshot": "PP-001-A05-2-1787319342015.png",
-            "screenshotSha256": "a4018edb1d64652cd462776bcadce46f9271fa3007d2ce9019410463bae2edbc",
-            "screenshotCheck": {
-              "ok": true,
-              "width": 2880,
-              "height": 1800,
-              "bitDepth": 8,
-              "colorType": 2,
-              "blankScore": 0.3503,
-              "uniqueColors": 131,
-              "stddev": {
-                "r": 82.015,
-                "g": 80.39,
-                "b": 80.651
-              },
-              "reason": null,
-              "samples": 41200
-            },
-            "shotNote": "Viewed at 2880x1800: exact s-worker-alpha and A01 scope are visible with ACKNOWLEDGED, DELIVERED and UNROUTED cards; the wide chromed worker-note modal and composer are distinct from the board.",
             "tokensEst": 5000,
             "loc": {
               "baseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
@@ -2216,17 +2241,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T13:36:29.260Z",
-            "model": "gpt-5",
+            "at": "2026-08-21T13:39:57.568Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-05f8c444",
-            "note": "ran `npm run build && npm run test:e2e && cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 29826ms",
-            "log": "PP-001-A05-3-1787319358621.log",
-            "sha256": "f77da27ae41e1b1d396af7566f49e1e09c0cfada2f28668877b6398b5aad6963",
+            "note": "reverify of: Existing build, Rust tests and browser regression suite remain green",
+            "log": "PP-001-A05-3-1787319565391.log",
+            "sha256": "d6d1ccb348932e02ea3f1fb3a5c49cb67210d4b7bd6d7a60ef3d769e589a4433",
             "exit": 0,
-            "durationMs": 29826,
+            "durationMs": 31488,
             "git": {
-              "sha": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+              "sha": "1412c800a89f6a42bc36ddc6e72557bfb01e08ff",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -2285,13 +2310,16 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A05-3-1787319358621.diff",
-            "diffSha256": "e66b09da1025fd25988f165917a4c30348153d118795818fa950ec2df550a432",
+            "diff": "PP-001-A05-3-1787319565391.diff",
+            "diffSha256": "2439a1a0a046648dc06cf2d42ffc4886dd0a77704e19b010b3dbec308ad3c5c3",
             "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
             "diffFiles": [
               ".gitignore",
               "package.json",
-              "src-tauri/src/lib.rs"
+              "scripts/pp-control.mjs",
+              "src-tauri/src/connectors.rs",
+              "src-tauri/src/lib.rs",
+              "tests/control_connector_e2e.py"
             ],
             "tokensEst": 6000,
             "loc": {

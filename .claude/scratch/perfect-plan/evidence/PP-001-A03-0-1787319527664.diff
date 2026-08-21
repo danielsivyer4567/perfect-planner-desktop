@@ -1,0 +1,639 @@
+diff --git a/src/services/controlPlane.ts b/src/services/controlPlane.ts
+new file mode 100644
+index 0000000..d019626
+--- /dev/null
++++ b/src/services/controlPlane.ts
+@@ -0,0 +1,633 @@
++export type ControlMessageKind =
++  | "workerNote"
++  | "workerReport"
++  | "orchestratorInstruction"
++  | "decisionRequest"
++  | "decisionResponse"
++  | "alert"
++  | "handoff"
++  | "status";
++
++export type ControlDestinationKind =
++  | "orchestrator"
++  | "worker"
++  | "codexChat"
++  | "ide"
++  | "localUi";
++
++export type ControlMessageState =
++  | "unrouted"
++  | "queued"
++  | "claimed"
++  | "delivered"
++  | "acknowledged"
++  | "deadLetter";
++
++export type DeliveryAttemptState = "claimed" | "delivered" | "failed" | "expired";
++
++/**
++ * Every message carries its complete ownership boundary. Nullable leaf identities are explicit:
++ * a repository-level alert has no node/item, while a worker note normally has both. Callers must
++ * never infer repository, branch, or plan identity from a display label.
++ */
++export interface ControlPlaneScope {
++  organizationId: string;
++  repositoryId: string;
++  repositoryRoot: string;
++  worktreePath: string;
++  branch: string;
++  planId: string;
++  planPath: string;
++  nodeId: string | null;
++  itemId: string | null;
++  workerId: string | null;
++  orchestratorId: string | null;
++}
++
++/** A destination is routable only when its registration is enabled and addressable. */
++export interface ControlDestinationRegistration {
++  registrationId: string | null;
++  kind: ControlDestinationKind;
++  label: string;
++  address: string | null;
++  enabled: boolean;
++  requiresAcknowledgement: boolean;
++  maxAttempts: number;
++  retryBaseMs: number;
++  registeredAtMs: number | null;
++  metadata: Record<string, string>;
++}
++
++export interface DeliveryAttempt {
++  attemptId: string;
++  messageId: string;
++  consumerId: string;
++  state: DeliveryAttemptState;
++  attemptNumber: number;
++  claimedAtMs: number;
++  leaseExpiresAtMs: number;
++  completedAtMs: number | null;
++  retryAtMs: number | null;
++  error: string | null;
++}
++
++export interface MessageAcknowledgement {
++  acknowledgedBy: string;
++  acknowledgedAtMs: number;
++  note: string | null;
++}
++
++export interface ControlMessage {
++  id: string;
++  idempotencyKey: string;
++  correlationId: string;
++  kind: ControlMessageKind;
++  scope: ControlPlaneScope;
++  authorId: string;
++  body: string;
++  destination: ControlDestinationRegistration;
++  state: ControlMessageState;
++  attempts: DeliveryAttempt[];
++  acknowledgement: MessageAcknowledgement | null;
++  createdAtMs: number;
++  updatedAtMs: number;
++}
++
++export interface PostControlMessageRequest {
++  idempotencyKey: string;
++  correlationId?: string | null;
++  kind: ControlMessageKind;
++  scope: ControlPlaneScope;
++  authorId: string;
++  body: string;
++  destination: ControlDestinationRegistration;
++  /** Used by deterministic browser tests. Native persistence may ignore this value. */
++  nowMs?: number;
++}
++
++export interface ControlMessageFilter {
++  organizationId?: string;
++  branch?: string;
++  planId?: string;
++  nodeId?: string | null;
++  itemId?: string | null;
++  workerId?: string | null;
++  orchestratorId?: string | null;
++  kinds?: ControlMessageKind[];
++  states?: ControlMessageState[];
++  destinationKinds?: ControlDestinationKind[];
++}
++
++export interface ControlPlaneSnapshotRequest {
++  /** Required repository fence: a browser caller cannot accidentally list every repository. */
++  repositoryId: string;
++  /** Optional organization fence for installations that host more than one organization. */
++  organizationId?: string;
++  filter?: ControlMessageFilter;
++  /** Used by deterministic browser tests. Native persistence may ignore this value. */
++  nowMs?: number;
++}
++
++export interface ClaimControlDeliveriesRequest {
++  repositoryId: string;
++  organizationId?: string;
++  consumerId: string;
++  destinationKinds?: ControlDestinationKind[];
++  limit?: number;
++  leaseMs?: number;
++  filter?: Omit<ControlMessageFilter, "organizationId" | "states" | "destinationKinds">;
++  /** Used by deterministic browser tests. Native persistence may ignore this value. */
++  nowMs?: number;
++}
++
++export type RecordDeliveryOutcome = "delivered" | "failed";
++
++export interface RecordControlDeliveryRequest {
++  repositoryId: string;
++  messageId: string;
++  attemptId: string;
++  consumerId: string;
++  outcome: RecordDeliveryOutcome;
++  error?: string | null;
++  retryAfterMs?: number;
++  /** Used by deterministic browser tests. Native persistence may ignore this value. */
++  nowMs?: number;
++}
++
++export interface AcknowledgeControlMessageRequest {
++  repositoryId: string;
++  messageId: string;
++  acknowledgedBy: string;
++  note?: string | null;
++  /** Used by deterministic browser tests. Native persistence may ignore this value. */
++  nowMs?: number;
++}
++
++export interface ControlPlaneStateCounts {
++  unrouted: number;
++  queued: number;
++  claimed: number;
++  delivered: number;
++  acknowledged: number;
++  deadLetter: number;
++}
++
++export interface ControlPlaneSnapshot {
++  repositoryId: string;
++  organizationId: string | null;
++  nowMs: number;
++  messages: ControlMessage[];
++  registrations: ControlDestinationRegistration[];
++  stateCounts: ControlPlaneStateCounts;
++  pendingAcknowledgementCount: number;
++  failedAttemptCount: number;
++  nextRetryAtMs: number | null;
++  lastUpdatedAtMs: number | null;
++}
++
++interface FallbackStore {
++  version: 1;
++  repositoryId: string;
++  messages: ControlMessage[];
++}
++
++const FALLBACK_STORAGE_PREFIX = "perfect-planner:control-plane:v1";
++const DEFAULT_LEASE_MS = 30_000;
++const DEFAULT_RETRY_MS = 5_000;
++const fallbackMemory = new Map<string, FallbackStore>();
++const externalDestinations = new Set<ControlDestinationKind>(["codexChat", "ide"]);
++
++const inTauri = (): boolean =>
++  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
++
++function requireText(value: string, name: string): string {
++  const normalized = value.trim();
++  if (!normalized) throw new Error(`${name} is required`);
++  return normalized;
++}
++
++function positiveInteger(value: number | undefined, fallback: number): number {
++  return Number.isSafeInteger(value) && (value || 0) > 0 ? (value as number) : fallback;
++}
++
++function eventTime(value?: number): number {
++  return Number.isFinite(value) && (value || 0) >= 0 ? (value as number) : Date.now();
++}
++
++function stableHash(source: string): string {
++  let hash = 0x811c9dc5;
++  for (let index = 0; index < source.length; index += 1) {
++    hash ^= source.charCodeAt(index);
++    hash = Math.imul(hash, 0x01000193);
++  }
++  return (hash >>> 0).toString(36);
++}
++
++function clone<T>(value: T): T {
++  return JSON.parse(JSON.stringify(value)) as T;
++}
++
++function storageKey(repositoryId: string): string {
++  return `${FALLBACK_STORAGE_PREFIX}:${stableHash(repositoryId)}`;
++}
++
++function loadFallbackStore(repositoryId: string): FallbackStore {
++  const id = requireText(repositoryId, "repositoryId");
++  const key = storageKey(id);
++  let parsed: unknown;
++  if (typeof window !== "undefined") {
++    try {
++      parsed = JSON.parse(window.localStorage.getItem(key) || "null") as unknown;
++    } catch {
++      parsed = null;
++    }
++  }
++  if (
++    parsed &&
++    typeof parsed === "object" &&
++    !Array.isArray(parsed) &&
++    (parsed as Partial<FallbackStore>).version === 1 &&
++    (parsed as Partial<FallbackStore>).repositoryId === id &&
++    Array.isArray((parsed as Partial<FallbackStore>).messages)
++  ) {
++    const stored = parsed as FallbackStore;
++    // localStorage is an untrusted cache. Keep the repository fence even if another tab, an old
++    // build, or manual browser tooling wrote malformed cross-repository records into this key.
++    stored.messages = stored.messages.filter(
++      (message) =>
++        !!message &&
++        typeof message === "object" &&
++        message.scope?.repositoryId === id &&
++        typeof message.id === "string" &&
++        typeof message.idempotencyKey === "string"
++    );
++    fallbackMemory.set(key, stored);
++    return stored;
++  }
++  const remembered = fallbackMemory.get(key);
++  if (remembered) {
++    if (remembered.repositoryId !== id) throw new Error("repository storage-key collision");
++    return remembered;
++  }
++  const created: FallbackStore = { version: 1, repositoryId: id, messages: [] };
++  fallbackMemory.set(key, created);
++  return created;
++}
++
++function saveFallbackStore(store: FallbackStore): void {
++  const key = storageKey(store.repositoryId);
++  fallbackMemory.set(key, store);
++  if (typeof window === "undefined") return;
++  try {
++    window.localStorage.setItem(key, JSON.stringify(store));
++  } catch {
++    // Hardened browsers can disable storage. The current session remains deterministic in memory.
++  }
++}
++
++function validateScope(scope: ControlPlaneScope): ControlPlaneScope {
++  return {
++    organizationId: requireText(scope.organizationId, "scope.organizationId"),
++    repositoryId: requireText(scope.repositoryId, "scope.repositoryId"),
++    repositoryRoot: requireText(scope.repositoryRoot, "scope.repositoryRoot"),
++    worktreePath: requireText(scope.worktreePath, "scope.worktreePath"),
++    branch: requireText(scope.branch, "scope.branch"),
++    planId: requireText(scope.planId, "scope.planId"),
++    planPath: requireText(scope.planPath, "scope.planPath"),
++    nodeId: scope.nodeId === null ? null : requireText(scope.nodeId, "scope.nodeId"),
++    itemId: scope.itemId === null ? null : requireText(scope.itemId, "scope.itemId"),
++    workerId: scope.workerId === null ? null : requireText(scope.workerId, "scope.workerId"),
++    orchestratorId:
++      scope.orchestratorId === null
++        ? null
++        : requireText(scope.orchestratorId, "scope.orchestratorId"),
++  };
++}
++
++function normalizeDestination(
++  destination: ControlDestinationRegistration
++): ControlDestinationRegistration {
++  return {
++    ...destination,
++    registrationId: destination.registrationId?.trim() || null,
++    label: requireText(destination.label, "destination.label"),
++    address: destination.address?.trim() || null,
++    maxAttempts: positiveInteger(destination.maxAttempts, 1),
++    retryBaseMs: positiveInteger(destination.retryBaseMs, DEFAULT_RETRY_MS),
++    registeredAtMs:
++      destination.registeredAtMs !== null && Number.isFinite(destination.registeredAtMs)
++        ? destination.registeredAtMs
++        : null,
++    metadata: { ...(destination.metadata || {}) },
++  };
++}
++
++function destinationIsRouted(destination: ControlDestinationRegistration): boolean {
++  if (!externalDestinations.has(destination.kind)) return true;
++  return Boolean(destination.enabled && destination.registrationId && destination.address);
++}
++
++function attemptLimit(message: ControlMessage): number {
++  return positiveInteger(message.destination.maxAttempts, 1);
++}
++
++function expireClaims(store: FallbackStore, nowMs: number): void {
++  let changed = false;
++  for (const message of store.messages) {
++    if (message.state !== "claimed") continue;
++    const attempt = [...message.attempts]
++      .reverse()
++      .find((candidate) => candidate.state === "claimed");
++    if (!attempt || attempt.leaseExpiresAtMs > nowMs) continue;
++    attempt.state = "expired";
++    attempt.completedAtMs = nowMs;
++    attempt.error = "delivery claim lease expired";
++    if (message.attempts.length >= attemptLimit(message)) {
++      attempt.retryAtMs = null;
++      message.state = "deadLetter";
++    } else {
++      attempt.retryAtMs = nowMs + message.destination.retryBaseMs;
++      message.state = "queued";
++    }
++    message.updatedAtMs = nowMs;
++    changed = true;
++  }
++  if (changed) saveFallbackStore(store);
++}
++
++function matchesFilter(message: ControlMessage, filter?: ControlMessageFilter): boolean {
++  if (!filter) return true;
++  const scope = message.scope;
++  if (filter.organizationId !== undefined && scope.organizationId !== filter.organizationId) {
++    return false;
++  }
++  if (filter.branch !== undefined && scope.branch !== filter.branch) return false;
++  if (filter.planId !== undefined && scope.planId !== filter.planId) return false;
++  if (filter.nodeId !== undefined && scope.nodeId !== filter.nodeId) return false;
++  if (filter.itemId !== undefined && scope.itemId !== filter.itemId) return false;
++  if (filter.workerId !== undefined && scope.workerId !== filter.workerId) return false;
++  if (
++    filter.orchestratorId !== undefined &&
++    scope.orchestratorId !== filter.orchestratorId
++  ) {
++    return false;
++  }
++  if (filter.kinds?.length && !filter.kinds.includes(message.kind)) return false;
++  if (filter.states?.length && !filter.states.includes(message.state)) return false;
++  if (
++    filter.destinationKinds?.length &&
++    !filter.destinationKinds.includes(message.destination.kind)
++  ) {
++    return false;
++  }
++  return true;
++}
++
++function fallbackPost(request: PostControlMessageRequest): ControlMessage {
++  const scope = validateScope(request.scope);
++  const idempotencyKey = requireText(request.idempotencyKey, "idempotencyKey");
++  const authorId = requireText(request.authorId, "authorId");
++  const body = requireText(request.body, "body");
++  const store = loadFallbackStore(scope.repositoryId);
++  const existing = store.messages.find(
++    (message) =>
++      message.scope.repositoryId === scope.repositoryId &&
++      message.idempotencyKey === idempotencyKey
++  );
++  if (existing) return clone(existing);
++
++  const nowMs = eventTime(request.nowMs);
++  const id = `cp-msg-${stableHash(`${scope.repositoryId}\u0000${idempotencyKey}`)}`;
++  const collision = store.messages.find((message) => message.id === id);
++  if (collision) throw new Error("deterministic message ID collision");
++  const destination = normalizeDestination(request.destination);
++  const message: ControlMessage = {
++    id,
++    idempotencyKey,
++    correlationId: request.correlationId?.trim() || id,
++    kind: request.kind,
++    scope,
++    authorId,
++    body,
++    destination,
++    state: destinationIsRouted(destination) ? "queued" : "unrouted",
++    attempts: [],
++    acknowledgement: null,
++    createdAtMs: nowMs,
++    updatedAtMs: nowMs,
++  };
++  store.messages.push(message);
++  saveFallbackStore(store);
++  return clone(message);
++}
++
++function fallbackSnapshot(request: ControlPlaneSnapshotRequest): ControlPlaneSnapshot {
++  const repositoryId = requireText(request.repositoryId, "repositoryId");
++  const nowMs = eventTime(request.nowMs);
++  const store = loadFallbackStore(repositoryId);
++  expireClaims(store, nowMs);
++  const filter: ControlMessageFilter = {
++    ...request.filter,
++    organizationId: request.organizationId ?? request.filter?.organizationId,
++  };
++  const messages = store.messages
++    .filter((message) => message.scope.repositoryId === repositoryId && matchesFilter(message, filter))
++    .sort((left, right) => left.createdAtMs - right.createdAtMs || left.id.localeCompare(right.id));
++  const stateCounts: ControlPlaneStateCounts = {
++    unrouted: 0,
++    queued: 0,
++    claimed: 0,
++    delivered: 0,
++    acknowledged: 0,
++    deadLetter: 0,
++  };
++  for (const message of messages) stateCounts[message.state] += 1;
++  const registrations = new Map<string, ControlDestinationRegistration>();
++  for (const message of messages) {
++    const destination = message.destination;
++    const key = destination.registrationId || `${destination.kind}:unregistered`;
++    if (!registrations.has(key)) registrations.set(key, clone(destination));
++  }
++  const retryTimes = messages.flatMap((message) =>
++    message.attempts
++      .map((attempt) => attempt.retryAtMs)
++      .filter((retryAtMs): retryAtMs is number => retryAtMs !== null && retryAtMs > nowMs)
++  );
++  return {
++    repositoryId,
++    organizationId: request.organizationId || null,
++    nowMs,
++    messages: clone(messages),
++    registrations: [...registrations.values()],
++    stateCounts,
++    pendingAcknowledgementCount: messages.filter((message) => message.state === "delivered")
++      .length,
++    failedAttemptCount: messages.reduce(
++      (count, message) =>
++        count +
++        message.attempts.filter(
++          (attempt) => attempt.state === "failed" || attempt.state === "expired"
++        ).length,
++      0
++    ),
++    nextRetryAtMs: retryTimes.length ? Math.min(...retryTimes) : null,
++    lastUpdatedAtMs: messages.length
++      ? Math.max(...messages.map((message) => message.updatedAtMs))
++      : null,
++  };
++}
++
++function fallbackClaim(request: ClaimControlDeliveriesRequest): ControlMessage[] {
++  const repositoryId = requireText(request.repositoryId, "repositoryId");
++  const consumerId = requireText(request.consumerId, "consumerId");
++  const nowMs = eventTime(request.nowMs);
++  const store = loadFallbackStore(repositoryId);
++  expireClaims(store, nowMs);
++  const limit = positiveInteger(request.limit, 20);
++  const leaseMs = positiveInteger(request.leaseMs, DEFAULT_LEASE_MS);
++  const filter: ControlMessageFilter = {
++    ...request.filter,
++    organizationId: request.organizationId,
++    destinationKinds: request.destinationKinds,
++  };
++  const claimable = store.messages
++    .filter((message) => {
++      if (message.scope.repositoryId !== repositoryId || message.state !== "queued") return false;
++      if (!destinationIsRouted(message.destination) || !matchesFilter(message, filter)) return false;
++      const retryAtMs = [...message.attempts]
++        .reverse()
++        .find((attempt) => attempt.retryAtMs !== null)?.retryAtMs;
++      return retryAtMs === undefined || retryAtMs === null || retryAtMs <= nowMs;
++    })
++    .sort((left, right) => left.createdAtMs - right.createdAtMs || left.id.localeCompare(right.id))
++    .slice(0, limit);
++
++  for (const message of claimable) {
++    const attemptNumber = message.attempts.length + 1;
++    const attempt: DeliveryAttempt = {
++      attemptId: `cp-attempt-${stableHash(`${message.id}\u0000${attemptNumber}`)}`,
++      messageId: message.id,
++      consumerId,
++      state: "claimed",
++      attemptNumber,
++      claimedAtMs: nowMs,
++      leaseExpiresAtMs: nowMs + leaseMs,
++      completedAtMs: null,
++      retryAtMs: null,
++      error: null,
++    };
++    message.attempts.push(attempt);
++    message.state = "claimed";
++    message.updatedAtMs = nowMs;
++  }
++  if (claimable.length) saveFallbackStore(store);
++  return clone(claimable);
++}
++
++function fallbackRecord(request: RecordControlDeliveryRequest): ControlMessage {
++  const repositoryId = requireText(request.repositoryId, "repositoryId");
++  const consumerId = requireText(request.consumerId, "consumerId");
++  const nowMs = eventTime(request.nowMs);
++  const store = loadFallbackStore(repositoryId);
++  expireClaims(store, nowMs);
++  const message = store.messages.find(
++    (candidate) =>
++      candidate.id === request.messageId && candidate.scope.repositoryId === repositoryId
++  );
++  if (!message) throw new Error("control message not found in repository");
++  const attempt = message.attempts.find(
++    (candidate) => candidate.attemptId === request.attemptId
++  );
++  if (!attempt || attempt.state !== "claimed") throw new Error("active delivery attempt not found");
++  if (attempt.consumerId !== consumerId) throw new Error("delivery attempt belongs to another consumer");
++
++  attempt.completedAtMs = nowMs;
++  if (request.outcome === "delivered") {
++    attempt.state = "delivered";
++    attempt.retryAtMs = null;
++    attempt.error = null;
++    // Delivery and acknowledgement are deliberately separate states. A successful adapter call
++    // is not proof that a human, IDE, or chat has acted on the message.
++    message.state = "delivered";
++  } else {
++    attempt.state = "failed";
++    attempt.error = request.error?.trim() || "delivery failed without an error message";
++    if (message.attempts.length >= attemptLimit(message)) {
++      attempt.retryAtMs = null;
++      message.state = "deadLetter";
++    } else {
++      attempt.retryAtMs =
++        nowMs + positiveInteger(request.retryAfterMs, message.destination.retryBaseMs);
++      message.state = "queued";
++    }
++  }
++  message.updatedAtMs = nowMs;
++  saveFallbackStore(store);
++  return clone(message);
++}
++
++function fallbackAcknowledge(request: AcknowledgeControlMessageRequest): ControlMessage {
++  const repositoryId = requireText(request.repositoryId, "repositoryId");
++  const acknowledgedBy = requireText(request.acknowledgedBy, "acknowledgedBy");
++  const nowMs = eventTime(request.nowMs);
++  const store = loadFallbackStore(repositoryId);
++  expireClaims(store, nowMs);
++  const message = store.messages.find(
++    (candidate) =>
++      candidate.id === request.messageId && candidate.scope.repositoryId === repositoryId
++  );
++  if (!message) throw new Error("control message not found in repository");
++  if (message.state === "acknowledged") return clone(message);
++  if (message.state !== "delivered") {
++    throw new Error(`control message must be delivered before acknowledgement (is ${message.state})`);
++  }
++  message.acknowledgement = {
++    acknowledgedBy,
++    acknowledgedAtMs: nowMs,
++    note: request.note?.trim() || null,
++  };
++  message.state = "acknowledged";
++  message.updatedAtMs = nowMs;
++  saveFallbackStore(store);
++  return clone(message);
++}
++
++export async function postControlMessage(
++  request: PostControlMessageRequest
++): Promise<ControlMessage> {
++  if (!inTauri()) return fallbackPost(request);
++  const { invoke } = await import("@tauri-apps/api/core");
++  return invoke<ControlMessage>("post_control_message", { request });
++}
++
++export async function getControlPlaneSnapshot(
++  request: ControlPlaneSnapshotRequest
++): Promise<ControlPlaneSnapshot> {
++  if (!inTauri()) return fallbackSnapshot(request);
++  const { invoke } = await import("@tauri-apps/api/core");
++  return invoke<ControlPlaneSnapshot>("control_plane_snapshot", { request });
++}
++
++export async function claimControlDeliveries(
++  request: ClaimControlDeliveriesRequest
++): Promise<ControlMessage[]> {
++  if (!inTauri()) return fallbackClaim(request);
++  const { invoke } = await import("@tauri-apps/api/core");
++  return invoke<ControlMessage[]>("claim_control_deliveries", { request });
++}
++
++export async function recordControlDelivery(
++  request: RecordControlDeliveryRequest
++): Promise<ControlMessage> {
++  if (!inTauri()) return fallbackRecord(request);
++  const { invoke } = await import("@tauri-apps/api/core");
++  return invoke<ControlMessage>("record_control_delivery", { request });
++}
++
++export async function acknowledgeControlMessage(
++  request: AcknowledgeControlMessageRequest
++): Promise<ControlMessage> {
++  if (!inTauri()) return fallbackAcknowledge(request);
++  const { invoke } = await import("@tauri-apps/api/core");
++  return invoke<ControlMessage>("acknowledge_control_message", { request });
++}
