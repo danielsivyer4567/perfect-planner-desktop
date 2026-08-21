@@ -1,8 +1,11 @@
 pub(crate) mod analyzer;
 pub mod api;
 pub mod capability;
+pub(crate) mod clearance;
 pub mod collector_process;
 pub mod discovery;
 pub mod identity;
+pub(crate) mod journal;
 pub mod model;
 pub mod registry;
+pub(crate) mod snapshot;
