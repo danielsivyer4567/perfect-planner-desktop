@@ -115,6 +115,42 @@ interface RawWorkerSnapshot {
 
 type RawPlanSnapshot = Partial<PlanSnapshot>;
 
+export type CollisionCensusUnknownCode =
+  | "REGISTRY_UNAVAILABLE"
+  | "CAPABILITY_REJECTED"
+  | "CAPABILITY_EXPIRED"
+  | "CLOCK_ROLLBACK"
+  | "COLLECTOR_UNAVAILABLE"
+  | "COLLECTION_TIMEOUT"
+  | "PARSE_FAILED"
+  | "METADATA_LIMIT_EXCEEDED"
+  | "IDENTITY_CHANGED"
+  | "OBSERVATION_TIME_INVALID"
+  | "COLLECTION_FAILED"
+  | "REGISTRY_DRIFT"
+  | "PERSISTENCE_FAILED"
+  | "NATIVE_WORKER_UNAVAILABLE";
+
+export interface CollisionCensusUnknown {
+  status: "UNKNOWN";
+  code: CollisionCensusUnknownCode;
+}
+
+export interface IssuedCollisionCensusCapability {
+  token: string;
+  runId: string;
+  issuedAtMs: number;
+  expiresAtMs: number;
+}
+
+export interface RecordedCollisionCensus {
+  status: "RECORDED";
+  capturedAtMs: number;
+  expiresAtMs: number;
+  rootCount: number;
+  observedPlannerCount: number;
+}
+
 interface RawEvidenceArtifact {
   name?: string;
   mime?: string;
@@ -124,6 +160,40 @@ interface RawEvidenceArtifact {
 
 const inTauri = (): boolean =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/** Native-only assessor transport. Board HTTP and the development proxy are display surfaces and
+ * can never issue or satisfy the global census capability. */
+export async function issueCollisionCensusCapability(
+  runId: string
+): Promise<IssuedCollisionCensusCapability> {
+  if (!inTauri()) throw new Error("native collision assessor unavailable");
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<IssuedCollisionCensusCapability>(
+    "collision_assessor_issue_discovery_capability",
+    { request: { runId } }
+  );
+}
+
+export async function collectCollisionCensus(
+  runId: string,
+  token: string
+): Promise<RecordedCollisionCensus> {
+  if (!inTauri()) throw new Error("native collision assessor unavailable");
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<RecordedCollisionCensus>("collision_assessor_collect_census", {
+    request: { runId, token },
+  });
+}
+
+export async function revokeCollisionCensusCapability(token: string): Promise<boolean> {
+  if (!inTauri()) throw new Error("native collision assessor unavailable");
+  const { invoke } = await import("@tauri-apps/api/core");
+  const response = await invoke<{ revoked: boolean }>(
+    "collision_assessor_revoke_discovery_capability",
+    { request: { token } }
+  );
+  return response.revoked === true;
+}
 
 function toBoard(port: number, who: WhoAmI): Board | null {
   if (!who || who.ok !== true) return null;

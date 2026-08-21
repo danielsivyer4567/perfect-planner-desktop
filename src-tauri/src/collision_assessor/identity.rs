@@ -6,7 +6,8 @@
 //! resolved through the operating system before a repository-relative key is issued.
 
 use std::fmt;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 const ACCEPTED_RESOURCE_NAMESPACES: &[&str] = &[
@@ -193,6 +194,237 @@ pub(crate) fn physical_path_identity(
     }
     reject_reparse_ancestors(path)?;
     platform_physical_path_identity(path, expected)
+}
+
+/// A share-restricted authority handle. Identity is derived from this exact open handle before
+/// any bytes are read and can be rechecked from the same handle after the read. On Windows the
+/// handle denies write/delete sharing for its full lifetime, closing swap-and-restore races.
+pub(crate) struct RestrictedAuthorityHandle {
+    file: File,
+    expected: PhysicalPathIdentity,
+    kind: PhysicalPathKind,
+}
+
+impl RestrictedAuthorityHandle {
+    pub(crate) fn open(
+        path: &Path,
+        kind: PhysicalPathKind,
+        expected: &PhysicalPathIdentity,
+    ) -> Result<Self, IdentityError> {
+        Self::open_with_before_open(path, kind, expected, || {})
+    }
+
+    fn open_with_before_open<F>(
+        path: &Path,
+        kind: PhysicalPathKind,
+        expected: &PhysicalPathIdentity,
+        before_open: F,
+    ) -> Result<Self, IdentityError>
+    where
+        F: FnOnce(),
+    {
+        let current = physical_path_identity(path, kind)?;
+        if current != *expected {
+            return Err(IdentityError::AmbiguousPhysicalIdentity(
+                "authority identity changed before restricted open".into(),
+            ));
+        }
+        before_open();
+        let file = open_share_restricted(path, kind)?;
+        let opened = identity_from_open_handle(&file, kind, &current.canonical_path)?;
+        if opened != *expected {
+            return Err(IdentityError::AmbiguousPhysicalIdentity(
+                "restricted handle opened a different authority identity".into(),
+            ));
+        }
+        Ok(Self {
+            file,
+            expected: expected.clone(),
+            kind,
+        })
+    }
+
+    pub(crate) fn read_bounded(&mut self, maximum: u64) -> Result<Vec<u8>, IdentityError> {
+        if self.kind != PhysicalPathKind::RegularFile {
+            return Err(IdentityError::UnexpectedPhysicalType);
+        }
+        self.revalidate()?;
+        self.file.seek(SeekFrom::Start(0)).map_err(|_| {
+            IdentityError::AmbiguousPhysicalIdentity("authority handle cannot seek".into())
+        })?;
+        let mut bytes = Vec::new();
+        self.file
+            .by_ref()
+            .take(maximum.saturating_add(1))
+            .read_to_end(&mut bytes)
+            .map_err(|_| {
+                IdentityError::AmbiguousPhysicalIdentity("authority handle cannot read".into())
+            })?;
+        if bytes.len() as u64 > maximum {
+            return Err(IdentityError::AmbiguousPhysicalIdentity(
+                "authority metadata exceeds the bounded read limit".into(),
+            ));
+        }
+        self.revalidate()?;
+        Ok(bytes)
+    }
+
+    pub(crate) fn revalidate(&self) -> Result<(), IdentityError> {
+        let current =
+            identity_from_open_handle(&self.file, self.kind, &self.expected.canonical_path)?;
+        if current == self.expected {
+            Ok(())
+        } else {
+            Err(IdentityError::AmbiguousPhysicalIdentity(
+                "open authority handle identity changed".into(),
+            ))
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn open_restricted_with_before_open<F>(
+    path: &Path,
+    kind: PhysicalPathKind,
+    expected: &PhysicalPathIdentity,
+    before_open: F,
+) -> Result<RestrictedAuthorityHandle, IdentityError>
+where
+    F: FnOnce(),
+{
+    RestrictedAuthorityHandle::open_with_before_open(path, kind, expected, before_open)
+}
+
+#[cfg(windows)]
+fn open_share_restricted(path: &Path, kind: PhysicalPathKind) -> Result<File, IdentityError> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const GENERIC_READ: u32 = 0x8000_0000;
+    const FILE_READ_ATTRIBUTES: u32 = 0x0000_0080;
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    OpenOptions::new()
+        .access_mode(if kind == PhysicalPathKind::RegularFile {
+            GENERIC_READ
+        } else {
+            FILE_READ_ATTRIBUTES
+        })
+        .share_mode(FILE_SHARE_READ)
+        .custom_flags(if kind == PhysicalPathKind::Directory {
+            FILE_FLAG_BACKUP_SEMANTICS
+        } else {
+            0
+        })
+        .open(path)
+        .map_err(|_| {
+            IdentityError::AmbiguousPhysicalIdentity(
+                "authority cannot be opened with write/delete sharing denied".into(),
+            )
+        })
+}
+
+#[cfg(not(windows))]
+fn open_share_restricted(_path: &Path, _kind: PhysicalPathKind) -> Result<File, IdentityError> {
+    Err(IdentityError::AmbiguousPhysicalIdentity(
+        "share-restricted authority handles are unavailable on this platform".into(),
+    ))
+}
+
+#[cfg(windows)]
+fn identity_from_open_handle(
+    file: &File,
+    expected: PhysicalPathKind,
+    canonical_path: &Path,
+) -> Result<PhysicalPathIdentity, IdentityError> {
+    use std::os::windows::io::AsRawHandle;
+    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+    const FILE_ID_INFO_CLASS: i32 = 18;
+    #[repr(C)]
+    struct FileTime {
+        low: u32,
+        high: u32,
+    }
+    #[repr(C)]
+    struct ByHandleFileInformation {
+        attributes: u32,
+        creation_time: FileTime,
+        last_access_time: FileTime,
+        last_write_time: FileTime,
+        volume_serial_number: u32,
+        file_size_high: u32,
+        file_size_low: u32,
+        number_of_links: u32,
+        file_index_high: u32,
+        file_index_low: u32,
+    }
+    #[repr(C)]
+    struct FileIdInfo {
+        volume_serial_number: u64,
+        file_id: [u8; 16],
+    }
+    #[link(name = "Kernel32")]
+    unsafe extern "system" {
+        fn GetFileInformationByHandle(
+            handle: *mut std::ffi::c_void,
+            information: *mut ByHandleFileInformation,
+        ) -> i32;
+        fn GetFileInformationByHandleEx(
+            handle: *mut std::ffi::c_void,
+            information_class: i32,
+            information: *mut std::ffi::c_void,
+            size: u32,
+        ) -> i32;
+    }
+    let handle = file.as_raw_handle() as *mut std::ffi::c_void;
+    let mut basic = std::mem::MaybeUninit::<ByHandleFileInformation>::zeroed();
+    if unsafe { GetFileInformationByHandle(handle, basic.as_mut_ptr()) } == 0 {
+        return Err(IdentityError::AmbiguousPhysicalIdentity(
+            "open handle metadata identity is unavailable".into(),
+        ));
+    }
+    let basic = unsafe { basic.assume_init() };
+    if basic.attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        || (basic.attributes & FILE_ATTRIBUTE_DIRECTORY != 0)
+            != (expected == PhysicalPathKind::Directory)
+    {
+        return Err(IdentityError::UnexpectedPhysicalType);
+    }
+    let mut id = std::mem::MaybeUninit::<FileIdInfo>::zeroed();
+    if unsafe {
+        GetFileInformationByHandleEx(
+            handle,
+            FILE_ID_INFO_CLASS,
+            id.as_mut_ptr().cast(),
+            std::mem::size_of::<FileIdInfo>() as u32,
+        )
+    } == 0
+    {
+        return Err(IdentityError::AmbiguousPhysicalIdentity(
+            "open handle 128-bit file identity is unavailable".into(),
+        ));
+    }
+    let id = unsafe { id.assume_init() };
+    if id.volume_serial_number == 0 || id.file_id == [0; 16] {
+        return Err(IdentityError::AmbiguousPhysicalIdentity(
+            "open handle returned a zero identity".into(),
+        ));
+    }
+    Ok(PhysicalPathIdentity {
+        canonical_path: canonical_path.to_path_buf(),
+        volume_id: id.volume_serial_number,
+        file_id: id.file_id,
+    })
+}
+
+#[cfg(not(windows))]
+fn identity_from_open_handle(
+    _file: &File,
+    _expected: PhysicalPathKind,
+    _canonical_path: &Path,
+) -> Result<PhysicalPathIdentity, IdentityError> {
+    Err(IdentityError::AmbiguousPhysicalIdentity(
+        "open-handle identity is unavailable on this platform".into(),
+    ))
 }
 
 /// Turn a read-only Git `--git-common-dir` result into the machine-local repository identity.
@@ -802,7 +1034,7 @@ fn normalized_native_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
     static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -1157,6 +1389,110 @@ mod tests {
         assert!(matches!(
             physical_path_identity(&alias, PhysicalPathKind::Directory),
             Err(IdentityError::AmbiguousPhysicalIdentity(_))
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn restricted_registered_plan_handle_rejects_swap_before_attacker_bytes_are_read() {
+        let fixture = Fixture::new();
+        let authority = fixture.root.join("registered-plan.json");
+        let attacker = fixture.root.join("attacker-plan.json");
+        let backup = fixture.root.join("registered-plan.backup");
+        let sentinel = "B04-SENTINEL-MUST-NEVER-BE-READ";
+        fs::write(&authority, b"trusted").unwrap();
+        fs::write(&attacker, sentinel.as_bytes()).unwrap();
+        let expected = physical_path_identity(&authority, PhysicalPathKind::RegularFile).unwrap();
+        let read_started = AtomicBool::new(false);
+
+        let result = open_restricted_with_before_open(
+            &authority,
+            PhysicalPathKind::RegularFile,
+            &expected,
+            || {
+                fs::rename(&authority, &backup).unwrap();
+                fs::rename(&attacker, &authority).unwrap();
+            },
+        )
+        .and_then(|mut handle| {
+            read_started.store(true, Ordering::Release);
+            handle.read_bounded(1024)
+        });
+
+        fs::rename(&authority, &attacker).unwrap();
+        fs::rename(&backup, &authority).unwrap();
+        assert!(matches!(
+            &result,
+            Err(IdentityError::AmbiguousPhysicalIdentity(_))
+        ));
+        assert!(!read_started.load(Ordering::Acquire));
+        assert!(!format!("{result:?}").contains(sentinel));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn restricted_inventory_entry_handle_rejects_swap_before_attacker_bytes_are_read() {
+        let fixture = Fixture::new();
+        let authority = fixture.root.join("inventory-entry.json");
+        let attacker = fixture.root.join("inventory-attacker.json");
+        let backup = fixture.root.join("inventory-entry.backup");
+        let sentinel = "B04-INVENTORY-SENTINEL-MUST-NEVER-BE-READ";
+        fs::write(&authority, b"trusted inventory").unwrap();
+        fs::write(&attacker, sentinel.as_bytes()).unwrap();
+        let expected = physical_path_identity(&authority, PhysicalPathKind::RegularFile).unwrap();
+        let read_started = AtomicBool::new(false);
+
+        let result = open_restricted_with_before_open(
+            &authority,
+            PhysicalPathKind::RegularFile,
+            &expected,
+            || {
+                fs::rename(&authority, &backup).unwrap();
+                fs::rename(&attacker, &authority).unwrap();
+            },
+        )
+        .and_then(|mut handle| {
+            read_started.store(true, Ordering::Release);
+            handle.read_bounded(1024)
+        });
+
+        fs::rename(&authority, &attacker).unwrap();
+        fs::rename(&backup, &authority).unwrap();
+        assert!(matches!(
+            &result,
+            Err(IdentityError::AmbiguousPhysicalIdentity(_))
+        ));
+        assert!(!read_started.load(Ordering::Acquire));
+        assert!(!format!("{result:?}").contains(sentinel));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn restricted_directory_handle_rejects_junction_swap_and_restore() {
+        let fixture = Fixture::new();
+        let authority = fixture.root.join("inventory-directory");
+        let backup = fixture.root.join("inventory-directory.backup");
+        let outside = fixture.root.join("outside-directory");
+        fs::create_dir_all(&authority).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        let expected = physical_path_identity(&authority, PhysicalPathKind::Directory).unwrap();
+
+        let result = open_restricted_with_before_open(
+            &authority,
+            PhysicalPathKind::Directory,
+            &expected,
+            || {
+                fs::rename(&authority, &backup).unwrap();
+                create_directory_alias(&authority, &outside);
+            },
+        );
+
+        fs::remove_dir(&authority).unwrap();
+        fs::rename(&backup, &authority).unwrap();
+        assert!(matches!(
+            result,
+            Err(IdentityError::AmbiguousPhysicalIdentity(_))
+                | Err(IdentityError::UnexpectedPhysicalType)
         ));
     }
 

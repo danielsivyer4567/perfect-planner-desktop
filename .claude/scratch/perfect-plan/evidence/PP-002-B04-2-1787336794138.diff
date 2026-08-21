@@ -1,0 +1,1588 @@
+diff --git a/docs/collision-assessor-guarantee.md b/docs/collision-assessor-guarantee.md
+index c421549..7106172 100644
+--- a/docs/collision-assessor-guarantee.md
++++ b/docs/collision-assessor-guarantee.md
+@@ -40,6 +40,18 @@ worktree root and plan file to the operating system's volume and file identity.
+ issue a private first-census snapshot. Missing, malformed, oversized, aliased or unresolvable
+ authority yields `UNKNOWN`; it never yields an empty snapshot.
+ 
++Configured-root coverage is exact, not recursive and not advisory. Each configured discovery
++root must have the same stable physical identity as one registered worktree root. A worktree may
++contain multiple live Planner registrations, but every one must name a distinct plan JSON directly
++inside that worktree's fixed `.claude/scratch/perfect-plan` directory. Every JSON in that directory
++must be represented by exactly one live registration. A broad container such as `C:\repos`, a
++nested or sibling worktree, a missing or duplicate registration, an unregistered plan JSON, or a
++root matching zero or multiple physical worktrees forces `UNKNOWN`.
++
++Operators migrating from broad search roots must register each physical worktree separately before
++enabling managed-worker admission. The assessor deliberately refuses an unbounded recursive crawl:
++bounded exact roots make census completeness both deterministic and independently testable.
++
+ The snapshot carries a domain-separated SHA-256 digest over the registry schema and generation,
+ sorted configured-root identities, sorted registration authority, lease generations, canonical
+ node/file/resource manifests, and physical root/plan identities. Registry update timestamps and
+@@ -53,10 +65,25 @@ physical identity and writes only if the input is unchanged. A concurrent heartb
+ mutation, root change, delete/recreate, mapping change or stale duplicate result is rejected.
+ 
+ On Windows, stable local volume/file IDs are equality authority; path spelling is not. Two stable
+-hardlinks therefore identify the same object and must collide. Junctions, symbolic links, reparse
++hardlinks therefore identify the same object and must collide. A second directory entry for the
++same registered plan object does not invent an extra plan, but two live registrations claiming
++that one plan identity are duplicate participants and force `UNKNOWN`. Junctions, symbolic links, reparse
+ points, SUBST drives, mapped/remote drives, unsupported or zero file IDs, and identities that
+ change during validation force `UNKNOWN` instead of falling back to lower-cased path text.
+ 
++Plan bytes and fixed-directory inventory bytes are read only from the same share-restricted
++Windows handle whose volume/file identity was compared with the registry authority before the
++first byte. That handle denies write/delete sharing and is revalidated after the bounded read;
++root and fixed-plan-directory handles remain held while inventory is enumerated. A swap,
++swap-and-restore or reparse substitution therefore fails before substituted bytes can become
++census input.
++
++The census helper runs inside a one-process Windows Job with kill-on-close. Completion is accepted
++only after the exact child is confirmed exited by a bounded process-handle wait, the Job reports
++zero active processes, and the Job handle closes successfully. Termination, wait, accounting or
++handle-close failure is not returned to the renderer as an ordinary recoverable result: the
++desktop process fails closed so operating-system handle teardown removes any residual reader.
++
+ ## Three separate authorities
+ 
+ The system deliberately separates authority:
+diff --git a/src-tauri/src/collision_assessor/api.rs b/src-tauri/src/collision_assessor/api.rs
+index 04c5edc..40e3d36 100644
+--- a/src-tauri/src/collision_assessor/api.rs
++++ b/src-tauri/src/collision_assessor/api.rs
+@@ -2,6 +2,7 @@ use super::capability::{
+     validate_run_id, CapabilityError, CapabilityStore, DiscoveryCancellation, DiscoveryScope,
+     IssuedDiscoveryCapability,
+ };
++use super::collector_process::NativeProcessCollector;
+ use super::registry::{CensusInputSnapshot, DiscoveryCensus, PlannerRegistryStore, RegistryError};
+ use crate::supervisor::unix_ms;
+ use serde::{Deserialize, Serialize};
+@@ -137,19 +138,6 @@ impl CensusClock for SystemCensusClock {
+     }
+ }
+ 
+-struct UnavailableMetadataCollector;
+-
+-impl MetadataCensusCollector for UnavailableMetadataCollector {
+-    fn collect(
+-        &self,
+-        _input: CensusInputSnapshot,
+-        _capability_deadline_ms: u64,
+-        _cancellation: DiscoveryCancellation,
+-    ) -> Result<DiscoveryCensus, CensusCollectionFailure> {
+-        Err(CensusCollectionFailure::Unavailable)
+-    }
+-}
+-
+ pub struct CensusCommandState {
+     registry: PlannerRegistryStore,
+     collector: Arc<dyn MetadataCensusCollector>,
+@@ -157,9 +145,11 @@ pub struct CensusCommandState {
+ }
+ 
+ impl CensusCommandState {
+-    /// Fail closed until B04 supplies the audited native metadata collector during app setup.
+-    pub(crate) fn unavailable(registry: PlannerRegistryStore) -> Self {
+-        Self::with_native_collector(registry, Arc::new(UnavailableMetadataCollector))
++    pub(crate) fn native(registry: PlannerRegistryStore) -> Result<Self, CensusCollectionFailure> {
++        Ok(Self::with_native_collector(
++            registry,
++            Arc::new(NativeProcessCollector::for_current_executable()?),
++        ))
+     }
+ 
+     pub(crate) fn with_native_collector(
+@@ -430,11 +420,10 @@ mod tests {
+             let sequence = FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+             let root = std::env::temp_dir()
+                 .join(format!("pp-b18-{label}-{}-{sequence}", std::process::id()));
+-            let discovery_root = root.join("discovery");
+             let repository_root = root.join("repository");
+             let worktree_root = root.join("worktree");
++            let discovery_root = worktree_root.clone();
+             let plan_path = worktree_root.join(".claude/scratch/perfect-plan/plan.json");
+-            fs::create_dir_all(&discovery_root).unwrap();
+             fs::create_dir_all(&repository_root).unwrap();
+             fs::create_dir_all(plan_path.parent().unwrap()).unwrap();
+             fs::write(&plan_path, b"{}\n").unwrap();
+@@ -505,6 +494,8 @@ mod tests {
+     }
+ 
+     fn observed_census(input: &CensusInputSnapshot, now_ms: u64) -> DiscoveryCensus {
++        let inventories =
++            super::super::registry::snapshot_root_inventory_attestations(input).unwrap();
+         let planner_ids = input
+             .registrations
+             .iter()
+@@ -515,6 +506,7 @@ mod tests {
+             input_digest: "0".repeat(64),
+             captured_at_ms: now_ms,
+             expires_at_ms: now_ms + 5_000,
++            planners: super::super::registry::test_census_metadata(input).unwrap(),
+             roots: input
+                 .configured_roots
+                 .iter()
+@@ -527,6 +519,8 @@ mod tests {
+                     } else {
+                         Vec::new()
+                     },
++                    plan_file_count: inventories[&root.root_id].plan_file_count,
++                    inventory_digest: inventories[&root.root_id].inventory_digest.clone(),
+                     failure: None,
+                 })
+                 .collect(),
+@@ -961,8 +955,15 @@ mod tests {
+             _cancellation: DiscoveryCancellation,
+         ) -> Result<DiscoveryCensus, CensusCollectionFailure> {
+             let census = observed_census(&input, self.clock.now_ms());
+-            fs::remove_dir(&self.root).unwrap();
+-            fs::create_dir(&self.root).unwrap();
++            let backup = self.root.with_extension("pre-swap");
++            fs::rename(&self.root, &backup).unwrap();
++            let plan_directory = self.root.join(".claude/scratch/perfect-plan");
++            fs::create_dir_all(&plan_directory).unwrap();
++            fs::copy(
++                backup.join(".claude/scratch/perfect-plan/plan.json"),
++                plan_directory.join("plan.json"),
++            )
++            .unwrap();
+             Ok(census)
+         }
+     }
+diff --git a/src-tauri/src/collision_assessor/identity.rs b/src-tauri/src/collision_assessor/identity.rs
+index 96b673a..2c5633e 100644
+--- a/src-tauri/src/collision_assessor/identity.rs
++++ b/src-tauri/src/collision_assessor/identity.rs
+@@ -6,7 +6,8 @@
+ //! resolved through the operating system before a repository-relative key is issued.
+ 
+ use std::fmt;
+-use std::fs;
++use std::fs::{self, File, OpenOptions};
++use std::io::{Read, Seek, SeekFrom};
+ use std::path::{Path, PathBuf};
+ 
+ const ACCEPTED_RESOURCE_NAMESPACES: &[&str] = &[
+@@ -195,6 +196,237 @@ pub(crate) fn physical_path_identity(
+     platform_physical_path_identity(path, expected)
+ }
+ 
++/// A share-restricted authority handle. Identity is derived from this exact open handle before
++/// any bytes are read and can be rechecked from the same handle after the read. On Windows the
++/// handle denies write/delete sharing for its full lifetime, closing swap-and-restore races.
++pub(crate) struct RestrictedAuthorityHandle {
++    file: File,
++    expected: PhysicalPathIdentity,
++    kind: PhysicalPathKind,
++}
++
++impl RestrictedAuthorityHandle {
++    pub(crate) fn open(
++        path: &Path,
++        kind: PhysicalPathKind,
++        expected: &PhysicalPathIdentity,
++    ) -> Result<Self, IdentityError> {
++        Self::open_with_before_open(path, kind, expected, || {})
++    }
++
++    fn open_with_before_open<F>(
++        path: &Path,
++        kind: PhysicalPathKind,
++        expected: &PhysicalPathIdentity,
++        before_open: F,
++    ) -> Result<Self, IdentityError>
++    where
++        F: FnOnce(),
++    {
++        let current = physical_path_identity(path, kind)?;
++        if current != *expected {
++            return Err(IdentityError::AmbiguousPhysicalIdentity(
++                "authority identity changed before restricted open".into(),
++            ));
++        }
++        before_open();
++        let file = open_share_restricted(path, kind)?;
++        let opened = identity_from_open_handle(&file, kind, &current.canonical_path)?;
++        if opened != *expected {
++            return Err(IdentityError::AmbiguousPhysicalIdentity(
++                "restricted handle opened a different authority identity".into(),
++            ));
++        }
++        Ok(Self {
++            file,
++            expected: expected.clone(),
++            kind,
++        })
++    }
++
++    pub(crate) fn read_bounded(&mut self, maximum: u64) -> Result<Vec<u8>, IdentityError> {
++        if self.kind != PhysicalPathKind::RegularFile {
++            return Err(IdentityError::UnexpectedPhysicalType);
++        }
++        self.revalidate()?;
++        self.file.seek(SeekFrom::Start(0)).map_err(|_| {
++            IdentityError::AmbiguousPhysicalIdentity("authority handle cannot seek".into())
++        })?;
++        let mut bytes = Vec::new();
++        self.file
++            .by_ref()
++            .take(maximum.saturating_add(1))
++            .read_to_end(&mut bytes)
++            .map_err(|_| {
++                IdentityError::AmbiguousPhysicalIdentity("authority handle cannot read".into())
++            })?;
++        if bytes.len() as u64 > maximum {
++            return Err(IdentityError::AmbiguousPhysicalIdentity(
++                "authority metadata exceeds the bounded read limit".into(),
++            ));
++        }
++        self.revalidate()?;
++        Ok(bytes)
++    }
++
++    pub(crate) fn revalidate(&self) -> Result<(), IdentityError> {
++        let current =
++            identity_from_open_handle(&self.file, self.kind, &self.expected.canonical_path)?;
++        if current == self.expected {
++            Ok(())
++        } else {
++            Err(IdentityError::AmbiguousPhysicalIdentity(
++                "open authority handle identity changed".into(),
++            ))
++        }
++    }
++}
++
++#[cfg(test)]
++pub(crate) fn open_restricted_with_before_open<F>(
++    path: &Path,
++    kind: PhysicalPathKind,
++    expected: &PhysicalPathIdentity,
++    before_open: F,
++) -> Result<RestrictedAuthorityHandle, IdentityError>
++where
++    F: FnOnce(),
++{
++    RestrictedAuthorityHandle::open_with_before_open(path, kind, expected, before_open)
++}
++
++#[cfg(windows)]
++fn open_share_restricted(path: &Path, kind: PhysicalPathKind) -> Result<File, IdentityError> {
++    use std::os::windows::fs::OpenOptionsExt;
++    const GENERIC_READ: u32 = 0x8000_0000;
++    const FILE_READ_ATTRIBUTES: u32 = 0x0000_0080;
++    const FILE_SHARE_READ: u32 = 0x0000_0001;
++    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
++    OpenOptions::new()
++        .access_mode(if kind == PhysicalPathKind::RegularFile {
++            GENERIC_READ
++        } else {
++            FILE_READ_ATTRIBUTES
++        })
++        .share_mode(FILE_SHARE_READ)
++        .custom_flags(if kind == PhysicalPathKind::Directory {
++            FILE_FLAG_BACKUP_SEMANTICS
++        } else {
++            0
++        })
++        .open(path)
++        .map_err(|_| {
++            IdentityError::AmbiguousPhysicalIdentity(
++                "authority cannot be opened with write/delete sharing denied".into(),
++            )
++        })
++}
++
++#[cfg(not(windows))]
++fn open_share_restricted(_path: &Path, _kind: PhysicalPathKind) -> Result<File, IdentityError> {
++    Err(IdentityError::AmbiguousPhysicalIdentity(
++        "share-restricted authority handles are unavailable on this platform".into(),
++    ))
++}
++
++#[cfg(windows)]
++fn identity_from_open_handle(
++    file: &File,
++    expected: PhysicalPathKind,
++    canonical_path: &Path,
++) -> Result<PhysicalPathIdentity, IdentityError> {
++    use std::os::windows::io::AsRawHandle;
++    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
++    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
++    const FILE_ID_INFO_CLASS: i32 = 18;
++    #[repr(C)]
++    struct FileTime {
++        low: u32,
++        high: u32,
++    }
++    #[repr(C)]
++    struct ByHandleFileInformation {
++        attributes: u32,
++        creation_time: FileTime,
++        last_access_time: FileTime,
++        last_write_time: FileTime,
++        volume_serial_number: u32,
++        file_size_high: u32,
++        file_size_low: u32,
++        number_of_links: u32,
++        file_index_high: u32,
++        file_index_low: u32,
++    }
++    #[repr(C)]
++    struct FileIdInfo {
++        volume_serial_number: u64,
++        file_id: [u8; 16],
++    }
++    #[link(name = "Kernel32")]
++    unsafe extern "system" {
++        fn GetFileInformationByHandle(
++            handle: *mut std::ffi::c_void,
++            information: *mut ByHandleFileInformation,
++        ) -> i32;
++        fn GetFileInformationByHandleEx(
++            handle: *mut std::ffi::c_void,
++            information_class: i32,
++            information: *mut std::ffi::c_void,
++            size: u32,
++        ) -> i32;
++    }
++    let handle = file.as_raw_handle() as *mut std::ffi::c_void;
++    let mut basic = std::mem::MaybeUninit::<ByHandleFileInformation>::zeroed();
++    if unsafe { GetFileInformationByHandle(handle, basic.as_mut_ptr()) } == 0 {
++        return Err(IdentityError::AmbiguousPhysicalIdentity(
++            "open handle metadata identity is unavailable".into(),
++        ));
++    }
++    let basic = unsafe { basic.assume_init() };
++    if basic.attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
++        || (basic.attributes & FILE_ATTRIBUTE_DIRECTORY != 0)
++            != (expected == PhysicalPathKind::Directory)
++    {
++        return Err(IdentityError::UnexpectedPhysicalType);
++    }
++    let mut id = std::mem::MaybeUninit::<FileIdInfo>::zeroed();
++    if unsafe {
++        GetFileInformationByHandleEx(
++            handle,
++            FILE_ID_INFO_CLASS,
++            id.as_mut_ptr().cast(),
++            std::mem::size_of::<FileIdInfo>() as u32,
++        )
++    } == 0
++    {
++        return Err(IdentityError::AmbiguousPhysicalIdentity(
++            "open handle 128-bit file identity is unavailable".into(),
++        ));
++    }
++    let id = unsafe { id.assume_init() };
++    if id.volume_serial_number == 0 || id.file_id == [0; 16] {
++        return Err(IdentityError::AmbiguousPhysicalIdentity(
++            "open handle returned a zero identity".into(),
++        ));
++    }
++    Ok(PhysicalPathIdentity {
++        canonical_path: canonical_path.to_path_buf(),
++        volume_id: id.volume_serial_number,
++        file_id: id.file_id,
++    })
++}
++
++#[cfg(not(windows))]
++fn identity_from_open_handle(
++    _file: &File,
++    _expected: PhysicalPathKind,
++    _canonical_path: &Path,
++) -> Result<PhysicalPathIdentity, IdentityError> {
++    Err(IdentityError::AmbiguousPhysicalIdentity(
++        "open-handle identity is unavailable on this platform".into(),
++    ))
++}
++
+ /// Turn a read-only Git `--git-common-dir` result into the machine-local repository identity.
+ /// The full canonical path remains part of the equality key; no lossy hash is trusted for
+ /// collision decisions.
+@@ -802,7 +1034,7 @@ fn normalized_native_path(path: &Path) -> String {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+-    use std::sync::atomic::{AtomicU64, Ordering};
++    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+ 
+     static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+ 
+@@ -1160,6 +1392,110 @@ mod tests {
+         ));
+     }
+ 
++    #[cfg(windows)]
++    #[test]
++    fn restricted_registered_plan_handle_rejects_swap_before_attacker_bytes_are_read() {
++        let fixture = Fixture::new();
++        let authority = fixture.root.join("registered-plan.json");
++        let attacker = fixture.root.join("attacker-plan.json");
++        let backup = fixture.root.join("registered-plan.backup");
++        let sentinel = "B04-SENTINEL-MUST-NEVER-BE-READ";
++        fs::write(&authority, b"trusted").unwrap();
++        fs::write(&attacker, sentinel.as_bytes()).unwrap();
++        let expected = physical_path_identity(&authority, PhysicalPathKind::RegularFile).unwrap();
++        let read_started = AtomicBool::new(false);
++
++        let result = open_restricted_with_before_open(
++            &authority,
++            PhysicalPathKind::RegularFile,
++            &expected,
++            || {
++                fs::rename(&authority, &backup).unwrap();
++                fs::rename(&attacker, &authority).unwrap();
++            },
++        )
++        .and_then(|mut handle| {
++            read_started.store(true, Ordering::Release);
++            handle.read_bounded(1024)
++        });
++
++        fs::rename(&authority, &attacker).unwrap();
++        fs::rename(&backup, &authority).unwrap();
++        assert!(matches!(
++            &result,
++            Err(IdentityError::AmbiguousPhysicalIdentity(_))
++        ));
++        assert!(!read_started.load(Ordering::Acquire));
++        assert!(!format!("{result:?}").contains(sentinel));
++    }
++
++    #[cfg(windows)]
++    #[test]
++    fn restricted_inventory_entry_handle_rejects_swap_before_attacker_bytes_are_read() {
++        let fixture = Fixture::new();
++        let authority = fixture.root.join("inventory-entry.json");
++        let attacker = fixture.root.join("inventory-attacker.json");
++        let backup = fixture.root.join("inventory-entry.backup");
++        let sentinel = "B04-INVENTORY-SENTINEL-MUST-NEVER-BE-READ";
++        fs::write(&authority, b"trusted inventory").unwrap();
++        fs::write(&attacker, sentinel.as_bytes()).unwrap();
++        let expected = physical_path_identity(&authority, PhysicalPathKind::RegularFile).unwrap();
++        let read_started = AtomicBool::new(false);
++
++        let result = open_restricted_with_before_open(
++            &authority,
++            PhysicalPathKind::RegularFile,
++            &expected,
++            || {
++                fs::rename(&authority, &backup).unwrap();
++                fs::rename(&attacker, &authority).unwrap();
++            },
++        )
++        .and_then(|mut handle| {
++            read_started.store(true, Ordering::Release);
++            handle.read_bounded(1024)
++        });
++
++        fs::rename(&authority, &attacker).unwrap();
++        fs::rename(&backup, &authority).unwrap();
++        assert!(matches!(
++            &result,
++            Err(IdentityError::AmbiguousPhysicalIdentity(_))
++        ));
++        assert!(!read_started.load(Ordering::Acquire));
++        assert!(!format!("{result:?}").contains(sentinel));
++    }
++
++    #[cfg(windows)]
++    #[test]
++    fn restricted_directory_handle_rejects_junction_swap_and_restore() {
++        let fixture = Fixture::new();
++        let authority = fixture.root.join("inventory-directory");
++        let backup = fixture.root.join("inventory-directory.backup");
++        let outside = fixture.root.join("outside-directory");
++        fs::create_dir_all(&authority).unwrap();
++        fs::create_dir_all(&outside).unwrap();
++        let expected = physical_path_identity(&authority, PhysicalPathKind::Directory).unwrap();
++
++        let result = open_restricted_with_before_open(
++            &authority,
++            PhysicalPathKind::Directory,
++            &expected,
++            || {
++                fs::rename(&authority, &backup).unwrap();
++                create_directory_alias(&authority, &outside);
++            },
++        );
++
++        fs::remove_dir(&authority).unwrap();
++        fs::rename(&backup, &authority).unwrap();
++        assert!(matches!(
++            result,
++            Err(IdentityError::AmbiguousPhysicalIdentity(_))
++                | Err(IdentityError::UnexpectedPhysicalType)
++        ));
++    }
++
+     #[cfg(windows)]
+     fn create_directory_alias(link: &Path, target: &Path) {
+         let output = std::process::Command::new("cmd")
+diff --git a/src-tauri/src/collision_assessor/mod.rs b/src-tauri/src/collision_assessor/mod.rs
+index 5bffc63..82fbe85 100644
+--- a/src-tauri/src/collision_assessor/mod.rs
++++ b/src-tauri/src/collision_assessor/mod.rs
+@@ -1,5 +1,7 @@
+ pub mod api;
+ pub mod capability;
++pub mod collector_process;
++pub mod discovery;
+ pub mod identity;
+ pub mod model;
+ pub mod registry;
+diff --git a/src-tauri/src/collision_assessor/registry.rs b/src-tauri/src/collision_assessor/registry.rs
+index 86672d2..86b1bcf 100644
+--- a/src-tauri/src/collision_assessor/registry.rs
++++ b/src-tauri/src/collision_assessor/registry.rs
+@@ -7,12 +7,12 @@
+ 
+ use super::identity::{
+     canonical_declared_path, canonical_resource_identity, physical_path_identity,
+-    PhysicalPathIdentity, PhysicalPathKind,
++    PhysicalPathIdentity, PhysicalPathKind, RestrictedAuthorityHandle,
+ };
+ use serde::{Deserialize, Serialize};
+ use serde_json::Value;
+ use sha2::{Digest, Sha256};
+-use std::collections::BTreeSet;
++use std::collections::{BTreeMap, BTreeSet};
+ use std::error::Error;
+ use std::ffi::OsString;
+ use std::fmt;
+@@ -28,6 +28,7 @@ pub const REGISTRY_SCHEMA_VERSION: u32 = 1;
+ pub const REGISTRY_RELATIVE_PATH: &str = "collision-assessor/registry-v1.json";
+ const DEFAULT_LOCK_TIMEOUT: Duration = Duration::from_secs(5);
+ const MAX_REGISTRY_BYTES: u64 = 8 * 1024 * 1024;
++const MAX_PLAN_BYTES: u64 = 4 * 1024 * 1024;
+ const MIN_LEASE_MS: u64 = 1_000;
+ const MAX_LEASE_MS: u64 = 24 * 60 * 60 * 1_000;
+ const MAX_CENSUS_TTL_MS: u64 = 10 * 60 * 1_000;
+@@ -38,10 +39,11 @@ const MAX_NODES_PER_REGISTRATION: usize = 2_048;
+ const MAX_FILES_PER_MANIFEST: usize = 8_192;
+ const MAX_RESOURCES_PER_MANIFEST: usize = 2_048;
+ const MAX_CENSUS_PLANNERS_PER_ROOT: usize = MAX_REGISTRATIONS;
++pub(crate) const MAX_PLAN_DIRECTORY_ENTRIES: usize = 4_096;
+ const MAX_TOTAL_MANIFEST_ENTRIES: usize = 65_536;
+ static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+ 
+-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+ #[serde(rename_all = "camelCase", deny_unknown_fields)]
+ pub struct PlannerNodeManifest {
+     pub node_id: String,
+@@ -106,10 +108,36 @@ pub struct DiscoveryRootCensus {
+     pub reachable: bool,
+     #[serde(default)]
+     pub planner_ids: Vec<String>,
++    pub plan_file_count: u32,
++    pub inventory_digest: String,
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     pub failure: Option<DiscoveryFailureCode>,
+ }
+ 
++#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase", deny_unknown_fields)]
++pub struct PlannerCensusMetadata {
++    pub planner_id: String,
++    pub repository_id: String,
++    pub repository_identity: String,
++    pub worktree_identity: String,
++    pub branch: String,
++    pub plan_id: String,
++    pub plan_content_digest: String,
++    pub manifest_digest: String,
++    #[serde(default)]
++    pub files: Vec<String>,
++    #[serde(default)]
++    pub resources: Vec<String>,
++    #[serde(default)]
++    pub nodes: Vec<PlannerNodeManifest>,
++    pub lease_generation: u64,
++    pub registered_at_ms: u64,
++    pub updated_at_ms: u64,
++    pub heartbeat_at_ms: u64,
++    pub lease_expires_at_ms: u64,
++}
++
+ #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+ #[serde(rename_all = "camelCase", deny_unknown_fields)]
+ pub struct DiscoveryCensus {
+@@ -121,6 +149,9 @@ pub struct DiscoveryCensus {
+     pub expires_at_ms: u64,
+     #[serde(default)]
+     pub roots: Vec<DiscoveryRootCensus>,
++    /// Frozen, metadata-only Planner inputs consumed by the deterministic collision graph. This
++    /// field intentionally has no serde default: a legacy root-only census is incomplete.
++    pub planners: Vec<PlannerCensusMetadata>,
+ }
+ 
+ #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+@@ -171,6 +202,12 @@ pub(crate) struct CensusInputSnapshot {
+     pub(crate) registrations: Vec<ValidatedPlannerRegistration>,
+ }
+ 
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub(crate) struct RootInventoryAttestation {
++    pub(crate) plan_file_count: u32,
++    pub(crate) inventory_digest: String,
++}
++
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub enum RegistryIssue {
+     MissingRegistry,
+@@ -201,6 +238,8 @@ pub enum RegistryIssue {
+         census_generation: u64,
+     },
+     CensusInputDigestMismatch,
++    CensusPlannerMetadataMismatch(String),
++    CensusPlanContentMismatch(String),
+     StaleCensus(u64),
+     FutureCensus(u64),
+     MissingRootCensus(String),
+@@ -526,6 +565,8 @@ impl PlannerRegistryStore {
+     ) -> Result<DiscoveryCensus, RegistryError> {
+         let snapshot = self.census_input_snapshot(now_ms)?;
+         census.input_digest = snapshot.attestation.digest_hex();
++        census.planners = test_census_metadata(&snapshot)?;
++        apply_test_root_inventories(&mut census, &snapshot)?;
+         self.record_census_if_unchanged(&snapshot.attestation, census, now_ms)
+     }
+ 
+@@ -536,9 +577,17 @@ impl PlannerRegistryStore {
+     pub(crate) fn record_census_if_unchanged(
+         &self,
+         expected: &CensusInputAttestation,
+-        census: DiscoveryCensus,
++        mut census: DiscoveryCensus,
+         now_ms: u64,
+     ) -> Result<DiscoveryCensus, RegistryError> {
++        let snapshot = self.census_input_snapshot(now_ms)?;
++        if &snapshot.attestation != expected {
++            return Err(RegistryError::Conflict(
++                "registry census authority changed during test collection".into(),
++            ));
++        }
++        census.planners = test_census_metadata(&snapshot)?;
++        apply_test_root_inventories(&mut census, &snapshot)?;
+         self.record_census_if_unchanged_before(expected, census, u64::MAX, || now_ms)
+     }
+ 
+@@ -578,6 +627,7 @@ impl PlannerRegistryStore {
+             )));
+         }
+         validate_census_roots(&census, &current.configured_roots)?;
++        validate_census_root_inventories(&census, &current)?;
+         if document
+             .census
+             .as_ref()
+@@ -588,6 +638,7 @@ impl PlannerRegistryStore {
+             ));
+         }
+         revalidate_snapshot_identities(&current)?;
++        let _plan_guards = guard_census_plans(&current, &census)?;
+         let persistence_now_ms = trusted_now();
+         validate_timestamp("census persistence time", persistence_now_ms)?;
+         if persistence_now_ms < validation_now_ms {
+@@ -608,6 +659,7 @@ impl PlannerRegistryStore {
+             return Err(RegistryError::UnknownState(issues));
+         }
+         persist_document_before(self.path.as_path(), &document, || {
++            validate_census_root_inventories(&census, &current)?;
+             let replace_now_ms = trusted_now();
+             validate_timestamp("census atomic-replace time", replace_now_ms)?;
+             if replace_now_ms < persistence_now_ms {
+@@ -817,17 +869,30 @@ fn validate_completeness(document: &RegistryDocument, now_ms: u64) -> Vec<Regist
+             census_generation: census.registry_generation,
+         });
+     }
+-    match build_census_input_snapshot(document, now_ms) {
++    let input = match build_census_input_snapshot(document, now_ms) {
+         Ok(input) if census.input_digest != input.attestation.digest_hex() => {
+             issues.push(RegistryIssue::CensusInputDigestMismatch);
++            None
+         }
+-        Ok(_) => {}
++        Ok(input) => Some(input),
+         Err(RegistryError::UnknownState(mut authority_issues)) => {
+             issues.append(&mut authority_issues);
++            None
++        }
++        Err(_) => {
++            issues.push(RegistryIssue::InvalidDocument(
++                "census authority input cannot be reconstructed".into(),
++            ));
++            None
++        }
++    };
++    if let Some(input) = input.as_ref() {
++        issues.extend(validate_census_planner_metadata(census, input));
++        if validate_census_root_inventories(census, input).is_err() {
++            issues.push(RegistryIssue::InvalidDocument(
++                "census fixed-directory inventory no longer matches authority".into(),
++            ));
+         }
+-        Err(_) => issues.push(RegistryIssue::InvalidDocument(
+-            "census authority input cannot be reconstructed".into(),
+-        )),
+     }
+     if census.captured_at_ms > now_ms {
+         issues.push(RegistryIssue::FutureCensus(census.captured_at_ms));
+@@ -1066,6 +1131,420 @@ fn revalidate_snapshot_identities(snapshot: &CensusInputSnapshot) -> Result<(),
+     Ok(())
+ }
+ 
++pub(crate) fn planner_census_metadata(
++    registration: &ValidatedPlannerRegistration,
++    plan_content_digest: String,
++) -> PlannerCensusMetadata {
++    let identity = &registration.registration.identity;
++    let mut metadata = PlannerCensusMetadata {
++        planner_id: identity.planner_id.clone(),
++        repository_id: identity.repository_id.clone(),
++        repository_identity: opaque_physical_identity(
++            b"repository",
++            &registration.repository_root_identity,
++        ),
++        worktree_identity: opaque_physical_identity(
++            b"worktree",
++            &registration.worktree_root_identity,
++        ),
++        branch: identity.branch.clone(),
++        plan_id: identity.plan_id.clone(),
++        plan_content_digest,
++        manifest_digest: String::new(),
++        files: identity.files.clone(),
++        resources: identity.resources.clone(),
++        nodes: identity.nodes.clone(),
++        lease_generation: registration.registration.lease_generation,
++        registered_at_ms: registration.registration.registered_at_ms,
++        updated_at_ms: registration.registration.updated_at_ms,
++        heartbeat_at_ms: registration.registration.heartbeat_at_ms,
++        lease_expires_at_ms: registration.registration.lease_expires_at_ms,
++    };
++    metadata.manifest_digest = planner_manifest_digest(&metadata);
++    metadata
++}
++
++fn plan_content_digest_expected(
++    path: &Path,
++    expected: &PhysicalPathIdentity,
++) -> Result<String, RegistryError> {
++    let mut handle = RestrictedAuthorityHandle::open(path, PhysicalPathKind::RegularFile, expected)
++        .map_err(|_| RegistryError::Conflict("census plan authority changed".into()))?;
++    let bytes = handle
++        .read_bounded(MAX_PLAN_BYTES)
++        .map_err(|_| RegistryError::Conflict("census plan cannot be read safely".into()))?;
++    Ok(format!("{:x}", Sha256::digest(bytes)))
++}
++
++#[cfg(test)]
++pub(crate) fn test_census_metadata(
++    snapshot: &CensusInputSnapshot,
++) -> Result<Vec<PlannerCensusMetadata>, RegistryError> {
++    let mut output = snapshot
++        .registrations
++        .iter()
++        .map(|registration| {
++            let digest = plan_content_digest_expected(
++                Path::new(&registration.registration.identity.plan_path),
++                &registration.plan_identity,
++            )?;
++            Ok(planner_census_metadata(registration, digest))
++        })
++        .collect::<Result<Vec<_>, RegistryError>>()?;
++    output.sort();
++    Ok(output)
++}
++
++#[cfg(test)]
++fn apply_test_root_inventories(
++    census: &mut DiscoveryCensus,
++    snapshot: &CensusInputSnapshot,
++) -> Result<(), RegistryError> {
++    let inventories = snapshot_root_inventory_attestations(snapshot)?;
++    for root in &mut census.roots {
++        let inventory = inventories.get(&root.root_id).ok_or_else(|| {
++            RegistryError::Conflict("test census root inventory is incomplete".into())
++        })?;
++        root.plan_file_count = inventory.plan_file_count;
++        root.inventory_digest = inventory.inventory_digest.clone();
++    }
++    Ok(())
++}
++
++pub(crate) fn snapshot_root_inventory_attestations(
++    snapshot: &CensusInputSnapshot,
++) -> Result<BTreeMap<String, RootInventoryAttestation>, RegistryError> {
++    let mut output = BTreeMap::new();
++    let mut assigned_planners = BTreeSet::new();
++    for root in &snapshot.configured_roots {
++        let root_guard = RestrictedAuthorityHandle::open(
++            &root.path,
++            PhysicalPathKind::Directory,
++            &root.identity,
++        )
++        .map_err(|_| RegistryError::Conflict("configured root authority changed".into()))?;
++        let registrations = snapshot
++            .registrations
++            .iter()
++            .filter(|registration| {
++                same_physical_identity(&root.identity, &registration.worktree_root_identity)
++            })
++            .collect::<Vec<_>>();
++        if registrations.is_empty() {
++            return Err(RegistryError::Conflict(
++                "configured root has no exact worktree registration".into(),
++            ));
++        }
++        let plan_directory = root.path.join(".claude/scratch/perfect-plan");
++        let directory_identity =
++            physical_path_identity(&plan_directory, PhysicalPathKind::Directory).map_err(|_| {
++                RegistryError::Conflict("fixed Planner directory is unavailable".into())
++            })?;
++        let directory_guard = RestrictedAuthorityHandle::open(
++            &plan_directory,
++            PhysicalPathKind::Directory,
++            &directory_identity,
++        )
++        .map_err(|_| RegistryError::Conflict("fixed Planner directory changed".into()))?;
++        let mut expected = BTreeSet::new();
++        for registration in &registrations {
++            if !assigned_planners.insert(registration.registration.identity.planner_id.clone()) {
++                return Err(RegistryError::Conflict(
++                    "Planner registration maps to multiple configured roots".into(),
++                ));
++            }
++            let parent = Path::new(&registration.registration.identity.plan_path)
++                .parent()
++                .ok_or_else(|| RegistryError::Conflict("Planner path has no parent".into()))?;
++            let parent_identity = physical_path_identity(parent, PhysicalPathKind::Directory)
++                .map_err(|_| {
++                    RegistryError::Conflict("Planner directory identity changed".into())
++                })?;
++            if !same_physical_identity(&directory_identity, &parent_identity)
++                || !expected.insert((
++                    registration.plan_identity.volume_id,
++                    registration.plan_identity.file_id,
++                ))
++            {
++                return Err(RegistryError::Conflict(
++                    "Planner registrations contain a directory or physical-plan alias".into(),
++                ));
++            }
++        }
++
++        let entries =
++            read_root_inventory(&plan_directory, &expected, &directory_guard, &root_guard)?;
++        let observed = entries
++            .iter()
++            .map(|(volume_id, file_id, _)| (*volume_id, *file_id))
++            .collect::<BTreeSet<_>>();
++        if observed != expected {
++            return Err(RegistryError::Conflict(
++                "fixed Planner directory contains an extra, missing, or replaced plan".into(),
++            ));
++        }
++        output.insert(root.root_id.clone(), inventory_attestation(&entries)?);
++    }
++    if assigned_planners.len() != snapshot.registrations.len() {
++        return Err(RegistryError::Conflict(
++            "not every Planner registration maps to exactly one configured root".into(),
++        ));
++    }
++    Ok(output)
++}
++
++fn validate_census_root_inventories(
++    census: &DiscoveryCensus,
++    snapshot: &CensusInputSnapshot,
++) -> Result<(), RegistryError> {
++    let current = snapshot_root_inventory_attestations(snapshot)?;
++    if census.roots.len() != current.len() {
++        return Err(RegistryError::Conflict(
++            "census root inventory coverage changed".into(),
++        ));
++    }
++    for root in &census.roots {
++        let expected = current.get(&root.root_id).ok_or_else(|| {
++            RegistryError::Conflict("census contains an unexpected root inventory".into())
++        })?;
++        if root.plan_file_count != expected.plan_file_count
++            || root.inventory_digest != expected.inventory_digest
++        {
++            return Err(RegistryError::Conflict(
++                "census root inventory changed before acceptance".into(),
++            ));
++        }
++    }
++    Ok(())
++}
++
++pub(crate) fn inventory_attestation(
++    entries: &[(u64, [u8; 16], String)],
++) -> Result<RootInventoryAttestation, RegistryError> {
++    let mut sorted = entries.to_vec();
++    sorted.sort();
++    sorted.dedup_by(|left, right| left.0 == right.0 && left.1 == right.1);
++    if sorted.is_empty() || sorted.len() > MAX_CENSUS_PLANNERS_PER_ROOT {
++        return Err(RegistryError::Conflict(
++            "root plan inventory is empty or exceeds its bound".into(),
++        ));
++    }
++    let mut encoder = DigestEncoder::new(b"perfect-planner:root-plan-inventory:v1");
++    encoder.u64(sorted.len() as u64);
++    for (volume_id, file_id, content_digest) in &sorted {
++        validate_sha256(content_digest)?;
++        encoder.u64(*volume_id);
++        encoder.bytes(file_id);
++        encoder.text(content_digest);
++    }
++    Ok(RootInventoryAttestation {
++        plan_file_count: u32::try_from(sorted.len()).map_err(|_| {
++            RegistryError::InvalidInput("root plan inventory count overflowed".into())
++        })?,
++        inventory_digest: hex_digest(&encoder.finish()),
++    })
++}
++
++fn read_root_inventory(
++    plan_directory: &Path,
++    expected: &BTreeSet<(u64, [u8; 16])>,
++    directory_guard: &RestrictedAuthorityHandle,
++    root_guard: &RestrictedAuthorityHandle,
++) -> Result<Vec<(u64, [u8; 16], String)>, RegistryError> {
++    read_root_inventory_bounded(
++        plan_directory,
++        expected,
++        directory_guard,
++        root_guard,
++        MAX_PLAN_DIRECTORY_ENTRIES,
++    )
++}
++
++fn read_root_inventory_bounded(
++    plan_directory: &Path,
++    expected: &BTreeSet<(u64, [u8; 16])>,
++    directory_guard: &RestrictedAuthorityHandle,
++    root_guard: &RestrictedAuthorityHandle,
++    maximum_entries: usize,
++) -> Result<Vec<(u64, [u8; 16], String)>, RegistryError> {
++    let mut entries = Vec::new();
++    let directory = fs::read_dir(plan_directory)
++        .map_err(|_| RegistryError::Conflict("cannot enumerate fixed Planner directory".into()))?;
++    for (index, item) in directory.enumerate() {
++        if index >= maximum_entries {
++            return Err(RegistryError::Conflict(
++                "fixed Planner directory exceeds its total-entry bound".into(),
++            ));
++        }
++        let item =
++            item.map_err(|_| RegistryError::Conflict("cannot read fixed Planner entry".into()))?;
++        let path = item.path();
++        let metadata = fs::symlink_metadata(&path)
++            .map_err(|_| RegistryError::Conflict("cannot inspect fixed Planner entry".into()))?;
++        if metadata.file_type().is_symlink() {
++            return Err(RegistryError::Conflict(
++                "fixed Planner directory contains an alias".into(),
++            ));
++        }
++        if !metadata.is_file()
++            || !path
++                .extension()
++                .and_then(|extension| extension.to_str())
++                .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
++        {
++            continue;
++        }
++        let identity = physical_path_identity(&path, PhysicalPathKind::RegularFile)
++            .map_err(|_| RegistryError::Conflict("Planner file identity is ambiguous".into()))?;
++        let physical_key = (identity.volume_id, identity.file_id);
++        if !expected.contains(&physical_key) {
++            return Err(RegistryError::Conflict(
++                "fixed Planner directory contains an unregistered plan identity".into(),
++            ));
++        }
++        entries.push((
++            identity.volume_id,
++            identity.file_id,
++            plan_content_digest_expected(&path, &identity)?,
++        ));
++        if entries.len() > MAX_CENSUS_PLANNERS_PER_ROOT {
++            return Err(RegistryError::Conflict(
++                "fixed Planner directory exceeds its inventory bound".into(),
++            ));
++        }
++    }
++    directory_guard
++        .revalidate()
++        .map_err(|_| RegistryError::Conflict("fixed Planner directory changed".into()))?;
++    root_guard
++        .revalidate()
++        .map_err(|_| RegistryError::Conflict("configured root authority changed".into()))?;
++    Ok(entries)
++}
++
++fn same_physical_identity(left: &PhysicalPathIdentity, right: &PhysicalPathIdentity) -> bool {
++    left.volume_id == right.volume_id && left.file_id == right.file_id
++}
++
++fn validate_census_planner_metadata(
++    census: &DiscoveryCensus,
++    snapshot: &CensusInputSnapshot,
++) -> Vec<RegistryIssue> {
++    if census.planners.len() != snapshot.registrations.len() {
++        return vec![RegistryIssue::InvalidDocument(
++            "census planner metadata does not cover every registration".into(),
++        )];
++    }
++    let mut issues = Vec::new();
++    for (actual, registration) in census.planners.iter().zip(&snapshot.registrations) {
++        let planner_id = &registration.registration.identity.planner_id;
++        let digest = match plan_content_digest_expected(
++            Path::new(&registration.registration.identity.plan_path),
++            &registration.plan_identity,
++        ) {
++            Ok(digest) => digest,
++            Err(_) => {
++                issues.push(RegistryIssue::CensusPlanContentMismatch(planner_id.clone()));
++                continue;
++            }
++        };
++        let expected = planner_census_metadata(registration, digest);
++        if actual.plan_content_digest != expected.plan_content_digest {
++            issues.push(RegistryIssue::CensusPlanContentMismatch(planner_id.clone()));
++        } else if actual != &expected {
++            issues.push(RegistryIssue::CensusPlannerMetadataMismatch(
++                planner_id.clone(),
++            ));
++        }
++    }
++    issues
++}
++
++fn guard_census_plans(
++    snapshot: &CensusInputSnapshot,
++    census: &DiscoveryCensus,
++) -> Result<Vec<RestrictedAuthorityHandle>, RegistryError> {
++    if census.planners.len() != snapshot.registrations.len() {
++        return Err(RegistryError::Conflict(
++            "census planner metadata coverage changed before persistence".into(),
++        ));
++    }
++    let mut guards = Vec::with_capacity(snapshot.registrations.len());
++    for (actual, registration) in census.planners.iter().zip(&snapshot.registrations) {
++        let path = Path::new(&registration.registration.identity.plan_path);
++        let mut guard = RestrictedAuthorityHandle::open(
++            path,
++            PhysicalPathKind::RegularFile,
++            &registration.plan_identity,
++        )
++        .map_err(|_| RegistryError::Conflict("census plan identity changed".into()))?;
++        let bytes = guard
++            .read_bounded(MAX_PLAN_BYTES)
++            .map_err(|_| RegistryError::Conflict("census plan cannot be read safely".into()))?;
++        let digest = format!("{:x}", Sha256::digest(bytes));
++        let expected = planner_census_metadata(registration, digest);
++        if actual != &expected {
++            return Err(RegistryError::Conflict(
++                "census planner metadata or plan content changed before persistence".into(),
++            ));
++        }
++        guards.push(guard);
++    }
++    Ok(guards)
++}
++
++fn opaque_physical_identity(domain: &[u8], identity: &PhysicalPathIdentity) -> String {
++    let mut encoder = DigestEncoder::new(b"perfect-planner:census-physical-identity:v1");
++    encoder.bytes(domain);
++    encoder.physical(identity);
++    hex_digest(&encoder.finish())
++}
++
++pub(crate) fn opaque_identity_from_parts(domain: &[u8], volume_id: u64, file_id: &[u8]) -> String {
++    let mut encoder = DigestEncoder::new(b"perfect-planner:census-physical-identity:v1");
++    encoder.bytes(domain);
++    encoder.u64(volume_id);
++    encoder.bytes(file_id);
++    hex_digest(&encoder.finish())
++}
++
++pub(crate) fn planner_manifest_digest(metadata: &PlannerCensusMetadata) -> String {
++    let mut encoder = DigestEncoder::new(b"perfect-planner:census-manifest:v1");
++    encoder.text(&metadata.planner_id);
++    encoder.text(&metadata.repository_id);
++    encoder.text(&metadata.repository_identity);
++    encoder.text(&metadata.worktree_identity);
++    encoder.text(&metadata.branch);
++    encoder.text(&metadata.plan_id);
++    encoder.text(&metadata.plan_content_digest);
++    encoder.u64(metadata.files.len() as u64);
++    for file in &metadata.files {
++        encoder.text(file);
++    }
++    encoder.u64(metadata.resources.len() as u64);
++    for resource in &metadata.resources {
++        encoder.text(resource);
++    }
++    encoder.u64(metadata.nodes.len() as u64);
++    for node in &metadata.nodes {
++        encoder.text(&node.node_id);
++        encoder.u64(node.files.len() as u64);
++        for file in &node.files {
++            encoder.text(file);
++        }
++        encoder.u64(node.resources.len() as u64);
++        for resource in &node.resources {
++            encoder.text(resource);
++        }
++    }
++    encoder.u64(metadata.lease_generation);
++    encoder.u64(metadata.registered_at_ms);
++    encoder.u64(metadata.updated_at_ms);
++    encoder.u64(metadata.heartbeat_at_ms);
++    encoder.u64(metadata.lease_expires_at_ms);
++    hex_digest(&encoder.finish())
++}
++
+ fn census_input_digest(
+     document: &RegistryDocument,
+     roots: &[ValidatedDiscoveryRoot],
+@@ -1362,6 +1841,54 @@ fn validate_census_shape(census: &DiscoveryCensus) -> Result<(), RegistryError>
+         census.roots.len(),
+         MAX_CONFIGURED_ROOTS,
+     )?;
++    require_bound(
++        "census planner metadata count",
++        census.planners.len(),
++        MAX_REGISTRATIONS,
++    )?;
++    let mut last_planner = None::<&str>;
++    for planner in &census.planners {
++        validate_id("census planner id", &planner.planner_id)?;
++        validate_id("census repository id", &planner.repository_id)?;
++        validate_id("census plan id", &planner.plan_id)?;
++        validate_text("census branch", &planner.branch)?;
++        for digest in [
++            &planner.repository_identity,
++            &planner.worktree_identity,
++            &planner.plan_content_digest,
++            &planner.manifest_digest,
++        ] {
++            validate_sha256(digest)?;
++        }
++        if last_planner.is_some_and(|last| last >= planner.planner_id.as_str()) {
++            return Err(RegistryError::InvalidInput(
++                "census planner metadata must be sorted and unique by planner id".into(),
++            ));
++        }
++        validate_seed(&PlannerRegistrationSeed {
++            planner_id: planner.planner_id.clone(),
++            repository_id: planner.repository_id.clone(),
++            repository_root: "C:\\metadata-only".into(),
++            worktree_root: "C:\\metadata-only".into(),
++            branch: planner.branch.clone(),
++            plan_id: planner.plan_id.clone(),
++            plan_path: "C:\\metadata-only\\plan.json".into(),
++            files: planner.files.clone(),
++            resources: planner.resources.clone(),
++            nodes: planner.nodes.clone(),
++        })?;
++        if planner.lease_generation == 0
++            || planner.registered_at_ms == 0
++            || planner.updated_at_ms < planner.registered_at_ms
++            || planner.heartbeat_at_ms < planner.registered_at_ms
++            || planner.lease_expires_at_ms <= planner.heartbeat_at_ms
++        {
++            return Err(RegistryError::InvalidInput(
++                "census planner lease timeline is invalid".into(),
++            ));
++        }
++        last_planner = Some(planner.planner_id.as_str());
++    }
+     let mut last_root = None::<&str>;
+     for root in &census.roots {
+         validate_id("census root id", &root.root_id)?;
+@@ -1371,6 +1898,15 @@ fn validate_census_shape(census: &DiscoveryCensus) -> Result<(), RegistryError>
+             ));
+         }
+         validate_sorted_unique_ids("census planner ids", &root.planner_ids)?;
++        validate_sha256(&root.inventory_digest)?;
++        if root.plan_file_count == 0
++            || root.plan_file_count as usize > MAX_CENSUS_PLANNERS_PER_ROOT
++            || root.plan_file_count as usize != root.planner_ids.len()
++        {
++            return Err(RegistryError::InvalidInput(
++                "census root inventory count must exactly cover its registered planners".into(),
++            ));
++        }
+         require_bound(
+             "census planner count",
+             root.planner_ids.len(),
+@@ -1395,6 +1931,20 @@ fn validate_census_shape(census: &DiscoveryCensus) -> Result<(), RegistryError>
+     Ok(())
+ }
+ 
++fn validate_sha256(value: &str) -> Result<(), RegistryError> {
++    if value.len() == 64
++        && value
++            .bytes()
++            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
++    {
++        Ok(())
++    } else {
++        Err(RegistryError::InvalidInput(
++            "census metadata digest must be a lowercase SHA-256".into(),
++        ))
++    }
++}
++
+ fn validate_text(label: &str, value: &str) -> Result<(), RegistryError> {
+     if value.trim().is_empty()
+         || value.len() > MAX_TEXT_BYTES
+@@ -1872,8 +2422,9 @@ mod tests {
+     }
+ 
+     fn root(id: &str) -> ConfiguredDiscoveryRoot {
++        let planner_id = id.strip_prefix("root-").unwrap_or(id);
+         let path = std::env::temp_dir().join(format!(
+-            "pp-collision-discovery-{id}-{}",
++            "worktree-planner-{planner_id}-{}",
+             std::process::id()
+         ));
+         fs::create_dir_all(&path).unwrap();
+@@ -1884,8 +2435,9 @@ mod tests {
+     }
+ 
+     fn seed(id: &str) -> PlannerRegistrationSeed {
+-        let worktree = std::env::temp_dir().join(format!("worktree-{id}"));
+-        let repository = std::env::temp_dir().join(format!("repository-{id}"));
++        let worktree = std::env::temp_dir().join(format!("worktree-{id}-{}", std::process::id()));
++        let repository =
++            std::env::temp_dir().join(format!("repository-{id}-{}", std::process::id()));
+         let plan_path = worktree.join(".claude/scratch/perfect-plan/plan.json");
+         fs::create_dir_all(&repository).unwrap();
+         fs::create_dir_all(plan_path.parent().unwrap()).unwrap();
+@@ -1916,11 +2468,14 @@ mod tests {
+             input_digest: "0".repeat(64),
+             captured_at_ms: 2_000,
+             expires_at_ms: 10_000,
++            planners: Vec::new(),
+             roots: root_planners
+                 .into_iter()
+                 .map(|(root_id, planner_ids)| DiscoveryRootCensus {
+                     root_id: root_id.into(),
+                     reachable: true,
++                    plan_file_count: planner_ids.len() as u32,
++                    inventory_digest: "0".repeat(64),
+                     planner_ids,
+                     failure: None,
+                 })
+@@ -2172,17 +2727,22 @@ mod tests {
+                     input_digest: "0".repeat(64),
+                     captured_at_ms: 2_200,
+                     expires_at_ms: 8_000,
++                    planners: Vec::new(),
+                     roots: vec![
+                         DiscoveryRootCensus {
+                             root_id: "root-a".into(),
+                             reachable: true,
+                             planner_ids: vec!["planner-a".into()],
++                            plan_file_count: 1,
++                            inventory_digest: "0".repeat(64),
+                             failure: None,
+                         },
+                         DiscoveryRootCensus {
+                             root_id: "root-b".into(),
+                             reachable: false,
+                             planner_ids: vec!["planner-b".into()],
++                            plan_file_count: 1,
++                            inventory_digest: "0".repeat(64),
+                             failure: Some(DiscoveryFailureCode::AccessDenied),
+                         },
+                     ],
+@@ -2354,6 +2914,7 @@ mod tests {
+             input_digest: "0".repeat(64),
+             captured_at_ms: 1,
+             expires_at_ms: 1 + MAX_CENSUS_TTL_MS + 1,
++            planners: Vec::new(),
+             roots: Vec::new(),
+         };
+         assert!(validate_census_shape(&excessive_census).is_err());
+@@ -2525,15 +3086,18 @@ mod tests {
+         let (fixture, snapshot) = initialized_snapshot("replace-expiry", "planner-replace-expiry");
+         let before = fs::read(fixture.store.path()).unwrap();
+         let mut trusted_times = [2_100_u64, 2_200, 3_000].into_iter();
++        let mut observed = census(
++            snapshot.attestation.registry_generation,
++            vec![(
++                "root-replace-expiry",
++                vec!["planner-replace-expiry".to_string()],
++            )],
++        );
++        observed.planners = test_census_metadata(&snapshot).unwrap();
++        apply_test_root_inventories(&mut observed, &snapshot).unwrap();
+         let result = fixture.store.record_census_if_unchanged_before(
+             &snapshot.attestation,
+-            census(
+-                snapshot.attestation.registry_generation,
+-                vec![(
+-                    "root-replace-expiry",
+-                    vec!["planner-replace-expiry".to_string()],
+-                )],
+-            ),
++            observed,
+             3_000,
+             || {
+                 trusted_times
+@@ -2558,6 +3122,124 @@ mod tests {
+                 .starts_with(&temporary_prefix)));
+     }
+ 
++    #[test]
++    fn extra_plan_created_after_child_scan_is_rejected_before_persistence() {
++        let (fixture, snapshot) = initialized_snapshot("inventory-race", "planner-inventory-race");
++        let mut observed = census(
++            snapshot.attestation.registry_generation,
++            vec![(
++                "root-inventory-race",
++                vec!["planner-inventory-race".to_string()],
++            )],
++        );
++        observed.planners = test_census_metadata(&snapshot).unwrap();
++        apply_test_root_inventories(&mut observed, &snapshot).unwrap();
++        let plan_directory = Path::new(&snapshot.registrations[0].registration.identity.plan_path)
++            .parent()
++            .unwrap();
++        fs::write(plan_directory.join("unregistered.json"), b"{}\n").unwrap();
++
++        assert!(matches!(
++            fixture.store.record_census_if_unchanged_before(
++                &snapshot.attestation,
++                observed,
++                10_000,
++                || 2_000,
++            ),
++            Err(RegistryError::Conflict(_))
++        ));
++        assert!(raw_document(&fixture.store).census.is_none());
++    }
++
++    #[test]
++    fn extra_plan_created_after_persistence_makes_restart_inspection_unknown() {
++        let (fixture, snapshot) =
++            initialized_snapshot("inventory-restart", "planner-inventory-restart");
++        fixture
++            .store
++            .record_census(
++                census(
++                    snapshot.attestation.registry_generation,
++                    vec![(
++                        "root-inventory-restart",
++                        vec!["planner-inventory-restart".to_string()],
++                    )],
++                ),
++                2_000,
++            )
++            .unwrap();
++        let plan_directory = Path::new(&snapshot.registrations[0].registration.identity.plan_path)
++            .parent()
++            .unwrap();
++        fs::write(plan_directory.join("unregistered.json"), b"{}\n").unwrap();
++
++        let restarted = PlannerRegistryStore::new(fixture.store.path().to_path_buf()).unwrap();
++        assert!(matches!(restarted.inspect(2_100), RegistryRead::Unknown(_)));
++    }
++
++    #[cfg(windows)]
++    #[test]
++    fn hardlink_directory_alias_keeps_one_physical_inventory_entry() {
++        let (fixture, snapshot) =
++            initialized_snapshot("inventory-hardlink", "planner-inventory-hardlink");
++        fixture
++            .store
++            .record_census(
++                census(
++                    snapshot.attestation.registry_generation,
++                    vec![(
++                        "root-inventory-hardlink",
++                        vec!["planner-inventory-hardlink".to_string()],
++                    )],
++                ),
++                2_000,
++            )
++            .unwrap();
++        let plan = PathBuf::from(&snapshot.registrations[0].registration.identity.plan_path);
++        fs::hard_link(&plan, plan.parent().unwrap().join("alias.json")).unwrap();
++        assert!(matches!(
++            fixture.store.inspect(2_100),
++            RegistryRead::Complete(_)
++        ));
++    }
++
++    #[test]
++    fn total_directory_entry_bound_counts_non_json_before_filtering() {
++        let fixture = TempRegistry::new("inventory-entry-cap");
++        let directory = fixture.root.join(".claude/scratch/perfect-plan");
++        fs::create_dir_all(&directory).unwrap();
++        for index in 0..4 {
++            fs::write(directory.join(format!("noise-{index}.txt")), b"noise").unwrap();
++        }
++        fs::write(directory.join("late-extra.json"), b"{}\n").unwrap();
++        let root_identity =
++            physical_path_identity(&fixture.root, PhysicalPathKind::Directory).unwrap();
++        let root_guard = RestrictedAuthorityHandle::open(
++            &fixture.root,
++            PhysicalPathKind::Directory,
++            &root_identity,
++        )
++        .unwrap();
++        let directory_identity =
++            physical_path_identity(&directory, PhysicalPathKind::Directory).unwrap();
++        let directory_guard = RestrictedAuthorityHandle::open(
++            &directory,
++            PhysicalPathKind::Directory,
++            &directory_identity,
++        )
++        .unwrap();
++        assert!(matches!(
++            read_root_inventory_bounded(
++                &directory,
++                &BTreeSet::new(),
++                &directory_guard,
++                &root_guard,
++                4,
++            ),
++            Err(RegistryError::Conflict(_))
++        ));
++    }
++
+     #[test]
+     fn digest_encoding_is_domain_and_length_separated() {
+         let digest = |domain: &'static [u8], fields: &[&str]| {
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index 5cc265b..ac593fc 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -308,7 +308,9 @@ pub fn run() {
+             app.manage(CapabilityStore::default());
+             let collision_registry = PlannerRegistryStore::for_app_data(&app_data_dir)
+                 .map_err(|error| format!("cannot bind collision registry: {error}"))?;
+-            app.manage(CensusCommandState::unavailable(collision_registry));
++            let census = CensusCommandState::native(collision_registry)
++                .map_err(|_| "native collision census helper is unavailable")?;
++            app.manage(census);
+             let control_plane_path = app_data_dir.join("control-plane.jsonl");
+             let control_plane = ControlPlaneStore::open(control_plane_path)?;
+             let connectors = ConnectorSupervisor::open(control_plane.clone(), app_data_dir)?;
+diff --git a/src-tauri/src/main.rs b/src-tauri/src/main.rs
+index 0c2f7b0..65f94ee 100644
+--- a/src-tauri/src/main.rs
++++ b/src-tauri/src/main.rs
+@@ -1,5 +1,11 @@
+ #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+ 
+ fn main() {
++    if let Some(exit_code) =
++        perfect_planner_desktop_lib::collision_assessor::collector_process::dispatch_internal_helper(
++        )
++    {
++        std::process::exit(exit_code);
++    }
+     perfect_planner_desktop_lib::run();
+-}
++}
+diff --git a/src/services/boards.ts b/src/services/boards.ts
+index 5de6a59..f3cff61 100644
+--- a/src/services/boards.ts
++++ b/src/services/boards.ts
+@@ -115,6 +115,42 @@ interface RawWorkerSnapshot {
+ 
+ type RawPlanSnapshot = Partial<PlanSnapshot>;
+ 
++export type CollisionCensusUnknownCode =
++  | "REGISTRY_UNAVAILABLE"
++  | "CAPABILITY_REJECTED"
++  | "CAPABILITY_EXPIRED"
++  | "CLOCK_ROLLBACK"
++  | "COLLECTOR_UNAVAILABLE"
++  | "COLLECTION_TIMEOUT"
++  | "PARSE_FAILED"
++  | "METADATA_LIMIT_EXCEEDED"
++  | "IDENTITY_CHANGED"
++  | "OBSERVATION_TIME_INVALID"
++  | "COLLECTION_FAILED"
++  | "REGISTRY_DRIFT"
++  | "PERSISTENCE_FAILED"
++  | "NATIVE_WORKER_UNAVAILABLE";
++
++export interface CollisionCensusUnknown {
++  status: "UNKNOWN";
++  code: CollisionCensusUnknownCode;
++}
++
++export interface IssuedCollisionCensusCapability {
++  token: string;
++  runId: string;
++  issuedAtMs: number;
++  expiresAtMs: number;
++}
++
++export interface RecordedCollisionCensus {
++  status: "RECORDED";
++  capturedAtMs: number;
++  expiresAtMs: number;
++  rootCount: number;
++  observedPlannerCount: number;
++}
++
+ interface RawEvidenceArtifact {
+   name?: string;
+   mime?: string;
+@@ -125,6 +161,40 @@ interface RawEvidenceArtifact {
+ const inTauri = (): boolean =>
+   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+ 
++/** Native-only assessor transport. Board HTTP and the development proxy are display surfaces and
++ * can never issue or satisfy the global census capability. */
++export async function issueCollisionCensusCapability(
++  runId: string
++): Promise<IssuedCollisionCensusCapability> {
++  if (!inTauri()) throw new Error("native collision assessor unavailable");
++  const { invoke } = await import("@tauri-apps/api/core");
++  return invoke<IssuedCollisionCensusCapability>(
++    "collision_assessor_issue_discovery_capability",
++    { request: { runId } }
++  );
++}
++
++export async function collectCollisionCensus(
++  runId: string,
++  token: string
++): Promise<RecordedCollisionCensus> {
++  if (!inTauri()) throw new Error("native collision assessor unavailable");
++  const { invoke } = await import("@tauri-apps/api/core");
++  return invoke<RecordedCollisionCensus>("collision_assessor_collect_census", {
++    request: { runId, token },
++  });
++}
++
++export async function revokeCollisionCensusCapability(token: string): Promise<boolean> {
++  if (!inTauri()) throw new Error("native collision assessor unavailable");
++  const { invoke } = await import("@tauri-apps/api/core");
++  const response = await invoke<{ revoked: boolean }>(
++    "collision_assessor_revoke_discovery_capability",
++    { request: { token } }
++  );
++  return response.revoked === true;
++}
++
+ function toBoard(port: number, who: WhoAmI): Board | null {
+   if (!who || who.ok !== true) return null;
+   const fallback = organizationForPlanPath(who.planPath || "");

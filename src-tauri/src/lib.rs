@@ -308,7 +308,9 @@ pub fn run() {
             app.manage(CapabilityStore::default());
             let collision_registry = PlannerRegistryStore::for_app_data(&app_data_dir)
                 .map_err(|error| format!("cannot bind collision registry: {error}"))?;
-            app.manage(CensusCommandState::unavailable(collision_registry));
+            let census = CensusCommandState::native(collision_registry)
+                .map_err(|_| "native collision census helper is unavailable")?;
+            app.manage(census);
             let control_plane_path = app_data_dir.join("control-plane.jsonl");
             let control_plane = ControlPlaneStore::open(control_plane_path)?;
             let connectors = ConnectorSupervisor::open(control_plane.clone(), app_data_dir)?;

@@ -2,6 +2,7 @@ use super::capability::{
     validate_run_id, CapabilityError, CapabilityStore, DiscoveryCancellation, DiscoveryScope,
     IssuedDiscoveryCapability,
 };
+use super::collector_process::NativeProcessCollector;
 use super::registry::{CensusInputSnapshot, DiscoveryCensus, PlannerRegistryStore, RegistryError};
 use crate::supervisor::unix_ms;
 use serde::{Deserialize, Serialize};
@@ -137,19 +138,6 @@ impl CensusClock for SystemCensusClock {
     }
 }
 
-struct UnavailableMetadataCollector;
-
-impl MetadataCensusCollector for UnavailableMetadataCollector {
-    fn collect(
-        &self,
-        _input: CensusInputSnapshot,
-        _capability_deadline_ms: u64,
-        _cancellation: DiscoveryCancellation,
-    ) -> Result<DiscoveryCensus, CensusCollectionFailure> {
-        Err(CensusCollectionFailure::Unavailable)
-    }
-}
-
 pub struct CensusCommandState {
     registry: PlannerRegistryStore,
     collector: Arc<dyn MetadataCensusCollector>,
@@ -157,9 +145,11 @@ pub struct CensusCommandState {
 }
 
 impl CensusCommandState {
-    /// Fail closed until B04 supplies the audited native metadata collector during app setup.
-    pub(crate) fn unavailable(registry: PlannerRegistryStore) -> Self {
-        Self::with_native_collector(registry, Arc::new(UnavailableMetadataCollector))
+    pub(crate) fn native(registry: PlannerRegistryStore) -> Result<Self, CensusCollectionFailure> {
+        Ok(Self::with_native_collector(
+            registry,
+            Arc::new(NativeProcessCollector::for_current_executable()?),
+        ))
     }
 
     pub(crate) fn with_native_collector(
@@ -430,11 +420,10 @@ mod tests {
             let sequence = FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
             let root = std::env::temp_dir()
                 .join(format!("pp-b18-{label}-{}-{sequence}", std::process::id()));
-            let discovery_root = root.join("discovery");
             let repository_root = root.join("repository");
             let worktree_root = root.join("worktree");
+            let discovery_root = worktree_root.clone();
             let plan_path = worktree_root.join(".claude/scratch/perfect-plan/plan.json");
-            fs::create_dir_all(&discovery_root).unwrap();
             fs::create_dir_all(&repository_root).unwrap();
             fs::create_dir_all(plan_path.parent().unwrap()).unwrap();
             fs::write(&plan_path, b"{}\n").unwrap();
@@ -505,6 +494,8 @@ mod tests {
     }
 
     fn observed_census(input: &CensusInputSnapshot, now_ms: u64) -> DiscoveryCensus {
+        let inventories =
+            super::super::registry::snapshot_root_inventory_attestations(input).unwrap();
         let planner_ids = input
             .registrations
             .iter()
@@ -515,6 +506,7 @@ mod tests {
             input_digest: "0".repeat(64),
             captured_at_ms: now_ms,
             expires_at_ms: now_ms + 5_000,
+            planners: super::super::registry::test_census_metadata(input).unwrap(),
             roots: input
                 .configured_roots
                 .iter()
@@ -527,6 +519,8 @@ mod tests {
                     } else {
                         Vec::new()
                     },
+                    plan_file_count: inventories[&root.root_id].plan_file_count,
+                    inventory_digest: inventories[&root.root_id].inventory_digest.clone(),
                     failure: None,
                 })
                 .collect(),
@@ -961,8 +955,15 @@ mod tests {
             _cancellation: DiscoveryCancellation,
         ) -> Result<DiscoveryCensus, CensusCollectionFailure> {
             let census = observed_census(&input, self.clock.now_ms());
-            fs::remove_dir(&self.root).unwrap();
-            fs::create_dir(&self.root).unwrap();
+            let backup = self.root.with_extension("pre-swap");
+            fs::rename(&self.root, &backup).unwrap();
+            let plan_directory = self.root.join(".claude/scratch/perfect-plan");
+            fs::create_dir_all(&plan_directory).unwrap();
+            fs::copy(
+                backup.join(".claude/scratch/perfect-plan/plan.json"),
+                plan_directory.join("plan.json"),
+            )
+            .unwrap();
             Ok(census)
         }
     }

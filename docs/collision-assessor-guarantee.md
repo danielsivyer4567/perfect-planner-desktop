@@ -40,6 +40,18 @@ worktree root and plan file to the operating system's volume and file identity. 
 issue a private first-census snapshot. Missing, malformed, oversized, aliased or unresolvable
 authority yields `UNKNOWN`; it never yields an empty snapshot.
 
+Configured-root coverage is exact, not recursive and not advisory. Each configured discovery
+root must have the same stable physical identity as one registered worktree root. A worktree may
+contain multiple live Planner registrations, but every one must name a distinct plan JSON directly
+inside that worktree's fixed `.claude/scratch/perfect-plan` directory. Every JSON in that directory
+must be represented by exactly one live registration. A broad container such as `C:\repos`, a
+nested or sibling worktree, a missing or duplicate registration, an unregistered plan JSON, or a
+root matching zero or multiple physical worktrees forces `UNKNOWN`.
+
+Operators migrating from broad search roots must register each physical worktree separately before
+enabling managed-worker admission. The assessor deliberately refuses an unbounded recursive crawl:
+bounded exact roots make census completeness both deterministic and independently testable.
+
 The snapshot carries a domain-separated SHA-256 digest over the registry schema and generation,
 sorted configured-root identities, sorted registration authority, lease generations, canonical
 node/file/resource manifests, and physical root/plan identities. Registry update timestamps and
@@ -53,9 +65,24 @@ physical identity and writes only if the input is unchanged. A concurrent heartb
 mutation, root change, delete/recreate, mapping change or stale duplicate result is rejected.
 
 On Windows, stable local volume/file IDs are equality authority; path spelling is not. Two stable
-hardlinks therefore identify the same object and must collide. Junctions, symbolic links, reparse
+hardlinks therefore identify the same object and must collide. A second directory entry for the
+same registered plan object does not invent an extra plan, but two live registrations claiming
+that one plan identity are duplicate participants and force `UNKNOWN`. Junctions, symbolic links, reparse
 points, SUBST drives, mapped/remote drives, unsupported or zero file IDs, and identities that
 change during validation force `UNKNOWN` instead of falling back to lower-cased path text.
+
+Plan bytes and fixed-directory inventory bytes are read only from the same share-restricted
+Windows handle whose volume/file identity was compared with the registry authority before the
+first byte. That handle denies write/delete sharing and is revalidated after the bounded read;
+root and fixed-plan-directory handles remain held while inventory is enumerated. A swap,
+swap-and-restore or reparse substitution therefore fails before substituted bytes can become
+census input.
+
+The census helper runs inside a one-process Windows Job with kill-on-close. Completion is accepted
+only after the exact child is confirmed exited by a bounded process-handle wait, the Job reports
+zero active processes, and the Job handle closes successfully. Termination, wait, accounting or
+handle-close failure is not returned to the renderer as an ordinary recoverable result: the
+desktop process fails closed so operating-system handle teardown removes any residual reader.
 
 ## Three separate authorities
 
