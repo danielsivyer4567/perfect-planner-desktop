@@ -18,6 +18,7 @@ import {
   PlanManifestSnapshot,
 } from "./services/boards";
 import { LocalOutputWitness } from "./components/LocalOutputWitness";
+import { OrchestratorMessenger } from "./components/OrchestratorMessenger";
 import { PlanSnapshot } from "./types/plan";
 import { alarmDurationMs, playRisingAlarm } from "./services/stallAlarm";
 import {
@@ -34,6 +35,7 @@ import {
   sessionLeaseKey,
   SupervisorSnapshot,
 } from "./services/sessionSupervisor";
+import { ControlPlaneScope } from "./services/controlPlane";
 
 const SOUND_KEY = "perfect-planner:stall-sound";
 const VOLUME_KEY = "perfect-planner:stall-volume";
@@ -357,6 +359,39 @@ export const App: React.FC = () => {
       lease.disposition === "CLEARED" &&
       (!activeRepository || lease.organizationId === activeRepository.id)
   ).length || 0;
+  const controlPlaneScope = useMemo<ControlPlaneScope | null>(() => {
+    if (!active || !activeRepository || !orchestratorId) return null;
+    const normalizedPlanPath = active.planPath.replace(/\\/g, "/");
+    const planDirectoryMarker = "/.claude/scratch/perfect-plan/";
+    const markerIndex = normalizedPlanPath.toLocaleLowerCase().indexOf(planDirectoryMarker);
+    const worktreePath = markerIndex >= 0
+      ? normalizedPlanPath.slice(0, markerIndex)
+      : active.repoRoot;
+    return {
+      organizationId: activeRepository.id,
+      repositoryId: activeRepository.id,
+      repositoryRoot: active.repoRoot,
+      worktreePath,
+      branch: active.branch,
+      planId: stableEntityId("plan", active.planPath.toLocaleLowerCase()),
+      planPath: active.planPath,
+      nodeId: null,
+      itemId: null,
+      workerId: null,
+      orchestratorId,
+    };
+  }, [active, activeRepository, orchestratorId]);
+  const controlPlaneWorkers = useMemo(
+    () => visibleWorkerReports
+      .filter((report) => report.planPath === active?.planPath)
+      .map((report) => ({
+        id: report.worker.session,
+        nodeId: report.worker.vertebra,
+        label: `${report.worker.session} · ${report.worker.vertebra}`,
+        state: report.worker.state === "ACTIVE" ? "LIVE" : report.disposition,
+      })),
+    [active?.planPath, visibleWorkerReports]
+  );
 
   const toggleSound = () => {
     const next = !soundEnabledRef.current;
@@ -701,6 +736,11 @@ export const App: React.FC = () => {
               );
             })}
           </div>
+          <OrchestratorMessenger
+            scope={controlPlaneScope}
+            orchestratorId={orchestratorId}
+            workers={controlPlaneWorkers}
+          />
         </section>
 
         {active ? (

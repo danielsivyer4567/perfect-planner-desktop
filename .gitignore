@@ -1,6 +1,7 @@
 node_modules/
 dist/
 artifacts/
+graphify-out/
 src-tauri/target/
 src-tauri/gen/
 *.log

@@ -1,0 +1,48 @@
+. HEAD ORCHESTRATOR - REPOSITORY A - Looplet CRM
+perfect planning orch-eec23556 EC LEASE + REAPER ACTIVE 6 reports © active 6 grace © cleared © decisions
+boards on 127.0.0.1:5230-5249
+s-7c186e56 BOL GRACE s-3a526bd2 A@1 GRACE s-fb94dclc A@6 GRACE s-b7d7f2f6 C03 GRACE s-d8e64dee C04 GRACE s-a3e534c3 G02 GRACE
+REPOSITORY A
+Looplet CRM E BD Looplet CRM _~ feature/recover-and-assess-claude-desktop-worker-w-20260820-233754-211d60 PP-002 - MCP Vault + invoice documents ..nvoice.json refresh open in browser
+® - feat/mcp-assisted-onboarding-20260821-024643 1 a
+pL < Customer MCP Vault and invoice documents ® synced
+PP-001 STALLED
+[ a | LOOPLET CRM
+ feat/mcp-assisted-onboarding-20260821-024643 Unbuilt Untested ® built @ tested Built 0% Tested 0% integrity: v ok (2 journal entries) Export .md
+Connector onboarding
+Looplet-mcp-assisted-onboarding-20260821-02... Share bundle
+#PP-002 project Looplet CRM ~~ feature/recover-and-assess-claude-desktop-worker-w-20260820-233754-211d60
+® feature/recover-and-assess-claude-desktop- 9
+worker-w-20260820-233754-211d60
+TT DRGERESS 2 topic MCP Vault + invoice documents planned by gpt-5 for danie
+PP-001 [J V approved 2026-08-21 (chat: configure the vault immediately and enable Documents so users can attach them to an invoice)
+[ a | LOOPLET CRM
+_ feature/recover-and-assess-claude-desktop-worker- u 5 i F=3 _ _ : i he A 2
+tama raaieA aiden This plan focuses on: persistent customer Vault Ul, explicit Al-read opt-in, bounded Documents discovery, and guarded atomic document-to-invoice attachment
+Feedback repair worker
+Looplet-recover-and-assess-claude-desktop-w.. . . .
+STALLED 1 worker has stopped moving — claimed but not progressing: Bel Vault and document SQL boundary held by s-7c186e56 no heartbeat for over 1@m
+PP-002 STALLED
+[ » | LOOPLET CRM
+_~ feature/recover-and-assess-claude-desktop-worker-
+wW-20260820-233754-211d60
+MCP Vault + invoice documents Pl — Authoritative data and ‘permissions
+Looplet-recover-and-assess-claude-desktop-w.. Harden the Vault data boundary and add an atomic, RLS-enforced document-
+to-invoice operation that matches Looplet's existing move semantics.
+® ~ integration/consolidate-mcp-xray-drift-20260821 5
+IN PROGRESS 3 f— —
+PP-003 STALLED Vault and document SQL
+BO1 1h - 40k tok 0/3 e/3
+[ 5 | LOOPLET CRM boundary
+LOCAL OUTPUT 24 Bo1-1) Create bounded organisation-scoped document listing w...
+http://localhost:5173/settings/mcp-vault Bo1-2) Create atomic authenticated document-to-invoice attach...
+Be1-3) SQL security tests prove anon denial, cross-tenant denial,...
+P2 — Complete MCP workflow
+Expose bounded document discovery and a guarded idempotent attach-to-
+FLOM J(P2 6/1 J( F301 | Pa ot invoice action with honest receipts and no outbound capability.
+Not shown in captured UI: Bel, Be2, B@e3, Be4
+alarm - gentle rise 6 stalled
+- Hosted MCP Documents
+sound on | test ) CHEE B02 orkflow ih skwk) Ey @E
+rescan 8 boards Be2-1) Register list_ documents with bounded filters, accurate an...
+i i Be ie v

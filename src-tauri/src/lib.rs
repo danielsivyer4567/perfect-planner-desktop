@@ -8,7 +8,16 @@ use std::path::Path;
 use std::time::Duration;
 use tauri::Manager;
 
+mod control_plane;
+mod control_plane_api;
+mod connectors;
 mod supervisor;
+use control_plane::ControlPlaneStore;
+use control_plane_api::{
+    acknowledge_control_message, claim_control_deliveries, control_plane_snapshot,
+    post_control_message, record_control_delivery,
+};
+use connectors::ConnectorSupervisor;
 use supervisor::{unix_ms, SessionObservation, SupervisorSnapshot, SupervisorStore};
 
 /// Loopback window the app is allowed to look in. perfect-planning's default board port is
@@ -257,14 +266,19 @@ fn recover_board_session(
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            let ledger_path = app
+            let app_data_dir = app
                 .path()
                 .app_data_dir()
-                .map_err(|error| format!("cannot resolve supervisor data directory: {error}"))?
-                .join("session-reaper.jsonl");
+                .map_err(|error| format!("cannot resolve app data directory: {error}"))?;
+            let ledger_path = app_data_dir.join("session-reaper.jsonl");
             let supervisor = SupervisorStore::open(ledger_path)?;
             supervisor.spawn_reaper()?;
             app.manage(supervisor);
+            let control_plane_path = app_data_dir.join("control-plane.jsonl");
+            let control_plane = ControlPlaneStore::open(control_plane_path)?;
+            let connectors = ConnectorSupervisor::open(control_plane.clone(), app_data_dir)?;
+            connectors.spawn()?;
+            app.manage(control_plane);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -274,7 +288,12 @@ pub fn run() {
             read_board_evidence,
             reconcile_session_leases,
             supervisor_snapshot,
-            recover_board_session
+            recover_board_session,
+            post_control_message,
+            control_plane_snapshot,
+            claim_control_deliveries,
+            record_control_delivery,
+            acknowledge_control_message
         ])
         .run(tauri::generate_context!())
         .expect("error while running perfect planner desktop");

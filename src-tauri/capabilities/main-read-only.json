@@ -1,10 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-read-only",
-  "description": "Validated board reads plus the app-local fenced session supervisor.",
+  "description": "Validated board reads plus the app-local fenced session supervisor and repository-scoped control plane.",
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "allow-board-discovery"
+    "allow-board-discovery",
+    "allow-control-plane"
   ]
 }

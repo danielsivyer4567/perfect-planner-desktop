@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-control-plane"
+description = "Allows the main Perfect Planner window to append and inspect repository-scoped messages and to record connector delivery evidence."
+commands.allow = ["post_control_message", "control_plane_snapshot", "claim_control_deliveries", "record_control_delivery", "acknowledge_control_message"]
