@@ -2964,7 +2964,7 @@
       "spineId": "P3",
       "side": "R",
       "title": "Deterministic collision graph",
-      "status": "pending",
+      "status": "done",
       "dependsOn": [
         "B19"
       ],
@@ -2974,40 +2974,371 @@
       },
       "files": [
         "src-tauri/src/collision_assessor/analyzer.rs",
-        "src-tauri/src/collision_assessor/mod.rs"
+        "src-tauri/src/collision_assessor/api.rs",
+        "src-tauri/src/collision_assessor/mod.rs",
+        "src-tauri/src/collision_assessor/registry.rs"
       ],
       "resources": [
         "protocol:collision-graph",
         "protocol:assessor-verdict"
       ],
-      "notes": "The analyzer is a pure deterministic function over the B19 canonical claim snapshot. It never reads the filesystem, trusts caller paths or invents a disposition. Exact-file, directory-prefix and canonical resource collisions are evaluated from opaque typed keys. Glob claims are a hard UNKNOWN in v1. WAIT, REPLAN and USER_DECISION are emitted only when the frozen trusted disposition contract explicitly authorizes that result; missing or contradictory policy is UNKNOWN.",
+      "notes": "The analyzer is a pure deterministic function over the B19 canonical claim snapshot. It never reads the filesystem, trusts caller paths or invents a disposition. Exact-file, directory-prefix and canonical resource collisions are evaluated from opaque typed keys. Glob claims are a hard UNKNOWN in v1. WAIT, REPLAN and USER_DECISION are emitted only when the frozen trusted disposition contract explicitly authorizes that result; missing or contradictory policy is UNKNOWN. Reviewer-triggered hardening expands this node to registry.rs solely to seal the COMPLETE registry value behind the native registry validator: production callers can neither fabricate nor mutate a validated complete document before analysis. api.rs is included only for its existing native test to borrow the now-sealed read result without taking ownership; no command or renderer surface changes.",
       "checklist": [
         {
           "text": "Intersect canonical exact-file keys, directory-tree segment prefixes and declared resource keys across every plan and active lease; reject every glob claim as UNKNOWN",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "at": "2026-08-21T20:11:17.046Z",
+            "git": {
+              "sha": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": null,
+            "loc": {
+              "baseline": "12ec1feb28d8710ceeb72f1f8a52f5f14b8713d2",
+              "scope": "files",
+              "added": 2213,
+              "removed": 31,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "src-tauri/src/collision_assessor/analyzer.rs",
+                  "added": 2118,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/api.rs",
+                  "added": 1,
+                  "removed": 1
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/mod.rs",
+                  "added": 1,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/registry.rs",
+                  "added": 93,
+                  "removed": 30
+                }
+              ],
+              "fileCount": 4,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-21T20:11:36.368Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` → exit 0 in 4055ms",
+            "log": "PP-002-B06-0-1787343091279.log",
+            "sha256": "24dbd945387fdaddf81bfba49ac8e91bf709ebcfafc2f27b9d043611767010be",
+            "exit": 0,
+            "durationMs": 4055,
+            "git": {
+              "sha": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B06-0-1787343091279.diff",
+            "diffSha256": "8eeb9804fc76fff3df997bec052df858225c87c3d796e24ee3c061682088bc99",
+            "diffBaseline": "12ec1feb28d8710ceeb72f1f8a52f5f14b8713d2",
+            "diffFiles": [
+              "src-tauri/src/collision_assessor/analyzer.rs",
+              "src-tauri/src/collision_assessor/api.rs",
+              "src-tauri/src/collision_assessor/mod.rs",
+              "src-tauri/src/collision_assessor/registry.rs"
+            ],
+            "tokensEst": null,
+            "loc": {
+              "baseline": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Classify collisions as WAIT, REPLAN or USER_DECISION only from the trusted per-claim disposition and active-lease contract; otherwise return UNKNOWN",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "at": "2026-08-21T20:11:18.779Z",
+            "git": {
+              "sha": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": null,
+            "loc": {
+              "baseline": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-21T20:11:42.751Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` → exit 0 in 4030ms",
+            "log": "PP-002-B06-1-1787343097781.log",
+            "sha256": "faee84d230114ac7d45a0b4e6c314e3902ff321830bf2b94b7d843b4a98ecc7b",
+            "exit": 0,
+            "durationMs": 4030,
+            "git": {
+              "sha": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B06-1-1787343097781.diff",
+            "diffSha256": "8eeb9804fc76fff3df997bec052df858225c87c3d796e24ee3c061682088bc99",
+            "diffBaseline": "12ec1feb28d8710ceeb72f1f8a52f5f14b8713d2",
+            "diffFiles": [
+              "src-tauri/src/collision_assessor/analyzer.rs",
+              "src-tauri/src/collision_assessor/api.rs",
+              "src-tauri/src/collision_assessor/mod.rs",
+              "src-tauri/src/collision_assessor/registry.rs"
+            ],
+            "tokensEst": null,
+            "loc": {
+              "baseline": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Generate stable conflict IDs and identical sorted output for identical census inputs regardless of discovery order",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "at": "2026-08-21T20:11:20.198Z",
+            "git": {
+              "sha": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": null,
+            "loc": {
+              "baseline": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-21T20:11:49.234Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` → exit 0 in 4395ms",
+            "log": "PP-002-B06-2-1787343104237.log",
+            "sha256": "dc24f4e90b56e06853e1e85b1335f3785888b412e7b953b1d79019a0f2446386",
+            "exit": 0,
+            "durationMs": 4395,
+            "git": {
+              "sha": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B06-2-1787343104237.diff",
+            "diffSha256": "8eeb9804fc76fff3df997bec052df858225c87c3d796e24ee3c061682088bc99",
+            "diffBaseline": "12ec1feb28d8710ceeb72f1f8a52f5f14b8713d2",
+            "diffFiles": [
+              "src-tauri/src/collision_assessor/analyzer.rs",
+              "src-tauri/src/collision_assessor/api.rs",
+              "src-tauri/src/collision_assessor/mod.rs",
+              "src-tauri/src/collision_assessor/registry.rs"
+            ],
+            "tokensEst": null,
+            "loc": {
+              "baseline": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Refuse CLEAR when any participant, manifest, identity, freshness or configured-root coverage fact is uncertain",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "at": "2026-08-21T20:11:22.000Z",
+            "git": {
+              "sha": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": null,
+            "loc": {
+              "baseline": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-21T20:11:55.027Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` → exit 0 in 4054ms",
+            "log": "PP-002-B06-3-1787343110551.log",
+            "sha256": "a035ef259e305a50d346a98cde592e82032b0066082c0638fc53ed636757916c",
+            "exit": 0,
+            "durationMs": 4054,
+            "git": {
+              "sha": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B06-3-1787343110551.diff",
+            "diffSha256": "8eeb9804fc76fff3df997bec052df858225c87c3d796e24ee3c061682088bc99",
+            "diffBaseline": "12ec1feb28d8710ceeb72f1f8a52f5f14b8713d2",
+            "diffFiles": [
+              "src-tauri/src/collision_assessor/analyzer.rs",
+              "src-tauri/src/collision_assessor/api.rs",
+              "src-tauri/src/collision_assessor/mod.rs",
+              "src-tauri/src/collision_assessor/registry.rs"
+            ],
+            "tokensEst": null,
+            "loc": {
+              "baseline": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         }
       ],
-      "startSha": "dcf083c7df8244b715b81718baf623f6cbb4ff0a"
+      "startSha": "12ec1feb28d8710ceeb72f1f8a52f5f14b8713d2",
+      "startedAt": "2026-08-21T19:40:10.803Z",
+      "startedBy": {
+        "model": "gpt-5.6-codex",
+        "user": "danielsivyer4567",
+        "session": "s-a1b7589d",
+        "at": "2026-08-21T19:40:10.803Z"
+      },
+      "lastStampSha": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+      "doneAt": "2026-08-21T20:12:01.902Z",
+      "doneBy": {
+        "model": "gpt-5.6-codex",
+        "user": "danielsivyer4567",
+        "session": "s-a1b7589d",
+        "at": "2026-08-21T20:12:01.902Z",
+        "forced": false
+      }
     },
     {
       "id": "B07",
