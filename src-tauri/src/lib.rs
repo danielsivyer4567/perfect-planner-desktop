@@ -8,11 +8,16 @@ use std::path::Path;
 use std::time::Duration;
 use tauri::Manager;
 
+pub mod collision_assessor;
 mod connectors;
 mod control_plane;
 mod control_plane_api;
 pub mod orchestrator;
 mod supervisor;
+use collision_assessor::api::{
+    collision_assessor_issue_discovery_capability, collision_assessor_revoke_discovery_capability,
+};
+use collision_assessor::capability::CapabilityStore;
 use connectors::ConnectorSupervisor;
 use control_plane::ControlPlaneStore;
 use control_plane_api::{
@@ -298,6 +303,7 @@ pub fn run() {
             let supervisor = SupervisorStore::open(ledger_path)?;
             supervisor.spawn_reaper()?;
             app.manage(supervisor);
+            app.manage(CapabilityStore::default());
             let control_plane_path = app_data_dir.join("control-plane.jsonl");
             let control_plane = ControlPlaneStore::open(control_plane_path)?;
             let connectors = ConnectorSupervisor::open(control_plane.clone(), app_data_dir)?;
@@ -313,6 +319,8 @@ pub fn run() {
             reconcile_session_leases,
             supervisor_snapshot,
             recover_board_session,
+            collision_assessor_issue_discovery_capability,
+            collision_assessor_revoke_discovery_capability,
             post_control_message,
             control_plane_snapshot,
             claim_control_deliveries,

@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "allow-board-discovery",
+    "allow-collision-assessor",
     "allow-control-plane",
     "allow-orchestrator-pipeline"
   ]

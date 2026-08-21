@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-collision-assessor-revoke-discovery-capability"
+description = "Enables the collision_assessor_revoke_discovery_capability command without any pre-configured scope."
+commands.allow = ["collision_assessor_revoke_discovery_capability"]
+
+[[permission]]
+identifier = "deny-collision-assessor-revoke-discovery-capability"
+description = "Denies the collision_assessor_revoke_discovery_capability command without any pre-configured scope."
+commands.deny = ["collision_assessor_revoke_discovery_capability"]

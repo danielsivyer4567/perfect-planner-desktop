@@ -8,6 +8,8 @@ fn main() {
             "reconcile_session_leases",
             "supervisor_snapshot",
             "recover_board_session",
+            "collision_assessor_issue_discovery_capability",
+            "collision_assessor_revoke_discovery_capability",
             "orchestrator_create_run",
             "orchestrator_preflight_inspect",
             "orchestrator_pipeline_snapshot",

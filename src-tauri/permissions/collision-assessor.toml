@@ -1,0 +1,7 @@
+[[permission]]
+identifier = "allow-collision-assessor"
+description = "Allows the main Perfect Planner window to issue or revoke a run-bound, expiring, single-use discovery capability."
+commands.allow = [
+  "collision_assessor_issue_discovery_capability",
+  "collision_assessor_revoke_discovery_capability"
+]
