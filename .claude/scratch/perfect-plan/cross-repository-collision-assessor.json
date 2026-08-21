@@ -2802,7 +2802,7 @@
       "spineId": "P2",
       "side": "L",
       "title": "First-census registry and identity hardening",
-      "status": "pending",
+      "status": "done",
       "dependsOn": [
         "B02",
         "B05"
@@ -2825,29 +2825,474 @@
       "checklist": [
         {
           "text": "Expose a validated first-census snapshot and stable canonical input digest that excludes mutable timestamps and prior census output",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
+          "builtBy": {
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-271db4a7",
+            "at": "2026-08-21T17:12:07.972Z",
+            "git": {
+              "sha": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 10000,
+            "loc": {
+              "baseline": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "scope": "files",
+              "added": 1301,
+              "removed": 84,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "docs/collision-assessor-guarantee.md",
+                  "added": 31,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/identity.rs",
+                  "added": 385,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/registry.rs",
+                  "added": 885,
+                  "removed": 84
+                }
+              ],
+              "fileCount": 3,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-21T17:12:31.511Z",
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-271db4a7",
+            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 9455ms",
+            "log": "PP-002-B17-0-1787332341488.log",
+            "sha256": "102d3429429b03beb167355971453cb8b471eba75c2cbfe4471417f1d47236f6",
+            "exit": 0,
+            "durationMs": 9455,
+            "git": {
+              "sha": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B17-0-1787332341488.diff",
+            "diffSha256": "c9a0f817fc85b939c1c4317c81c0a1c19621f652afa100922935220f79671ee5",
+            "diffBaseline": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+            "diffFiles": [
+              "docs/collision-assessor-guarantee.md",
+              "src-tauri/src/collision_assessor/identity.rs",
+              "src-tauri/src/collision_assessor/registry.rs"
+            ],
+            "tokensEst": 10000,
+            "loc": {
+              "baseline": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "scope": "files",
+              "added": 1301,
+              "removed": 84,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "docs/collision-assessor-guarantee.md",
+                  "added": 31,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/identity.rs",
+                  "added": 385,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/registry.rs",
+                  "added": 885,
+                  "removed": 84
+                }
+              ],
+              "fileCount": 3,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Enforce maximum lease, heartbeat, census age, configured-root, registration, node, file and resource bounds including future-time rejection",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
+          "builtBy": {
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-271db4a7",
+            "at": "2026-08-21T17:12:10.368Z",
+            "git": {
+              "sha": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 10000,
+            "loc": {
+              "baseline": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "scope": "files",
+              "added": 1301,
+              "removed": 84,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "docs/collision-assessor-guarantee.md",
+                  "added": 31,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/identity.rs",
+                  "added": 385,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/registry.rs",
+                  "added": 885,
+                  "removed": 84
+                }
+              ],
+              "fileCount": 3,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-21T17:12:36.943Z",
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-271db4a7",
+            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 3486ms",
+            "log": "PP-002-B17-1-1787332352981.log",
+            "sha256": "e9d23d7a54af4fc4588af273c273710c3500faf259e0a0b9bbc1fd2e8edcf6f5",
+            "exit": 0,
+            "durationMs": 3486,
+            "git": {
+              "sha": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B17-1-1787332352981.diff",
+            "diffSha256": "c9a0f817fc85b939c1c4317c81c0a1c19621f652afa100922935220f79671ee5",
+            "diffBaseline": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+            "diffFiles": [
+              "docs/collision-assessor-guarantee.md",
+              "src-tauri/src/collision_assessor/identity.rs",
+              "src-tauri/src/collision_assessor/registry.rs"
+            ],
+            "tokensEst": 10000,
+            "loc": {
+              "baseline": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "scope": "files",
+              "added": 1301,
+              "removed": 84,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "docs/collision-assessor-guarantee.md",
+                  "added": 31,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/identity.rs",
+                  "added": 385,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/registry.rs",
+                  "added": 885,
+                  "removed": 84
+                }
+              ],
+              "fileCount": 3,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Bind existing roots and plan files to Windows volume and file identity and fail UNKNOWN on hardlink, junction, symlink, SUBST, mapped-drive or reparse ambiguity",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
+          "builtBy": {
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-271db4a7",
+            "at": "2026-08-21T17:12:12.066Z",
+            "git": {
+              "sha": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 10000,
+            "loc": {
+              "baseline": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "scope": "files",
+              "added": 1301,
+              "removed": 84,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "docs/collision-assessor-guarantee.md",
+                  "added": 31,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/identity.rs",
+                  "added": 385,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/registry.rs",
+                  "added": 885,
+                  "removed": 84
+                }
+              ],
+              "fileCount": 3,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-21T17:12:42.760Z",
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-271db4a7",
+            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 3519ms",
+            "log": "PP-002-B17-2-1787332358404.log",
+            "sha256": "ceb5e68dfba8847e996381fd4644beb153848bf55da510505595a08493d816fb",
+            "exit": 0,
+            "durationMs": 3519,
+            "git": {
+              "sha": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B17-2-1787332358404.diff",
+            "diffSha256": "c9a0f817fc85b939c1c4317c81c0a1c19621f652afa100922935220f79671ee5",
+            "diffBaseline": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+            "diffFiles": [
+              "docs/collision-assessor-guarantee.md",
+              "src-tauri/src/collision_assessor/identity.rs",
+              "src-tauri/src/collision_assessor/registry.rs"
+            ],
+            "tokensEst": 10000,
+            "loc": {
+              "baseline": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "scope": "files",
+              "added": 1301,
+              "removed": 84,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "docs/collision-assessor-guarantee.md",
+                  "added": 31,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/identity.rs",
+                  "added": 385,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/registry.rs",
+                  "added": 885,
+                  "removed": 84
+                }
+              ],
+              "fileCount": 3,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Prove concurrent registry mutation, first-census bootstrap, alias swaps and stale or malformed registrations never yield a complete census input",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
+          "builtBy": {
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-271db4a7",
+            "at": "2026-08-21T17:12:14.124Z",
+            "git": {
+              "sha": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 10000,
+            "loc": {
+              "baseline": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "scope": "files",
+              "added": 1301,
+              "removed": 84,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "docs/collision-assessor-guarantee.md",
+                  "added": 31,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/identity.rs",
+                  "added": 385,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/registry.rs",
+                  "added": 885,
+                  "removed": 84
+                }
+              ],
+              "fileCount": 3,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-21T17:12:48.234Z",
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-271db4a7",
+            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 3185ms",
+            "log": "PP-002-B17-3-1787332364385.log",
+            "sha256": "951b1c373b19b97dc895adb0d24627ef04390111d5c861425162484d52792464",
+            "exit": 0,
+            "durationMs": 3185,
+            "git": {
+              "sha": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B17-3-1787332364385.diff",
+            "diffSha256": "c9a0f817fc85b939c1c4317c81c0a1c19621f652afa100922935220f79671ee5",
+            "diffBaseline": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+            "diffFiles": [
+              "docs/collision-assessor-guarantee.md",
+              "src-tauri/src/collision_assessor/identity.rs",
+              "src-tauri/src/collision_assessor/registry.rs"
+            ],
+            "tokensEst": 10000,
+            "loc": {
+              "baseline": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "scope": "files",
+              "added": 1301,
+              "removed": 84,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "docs/collision-assessor-guarantee.md",
+                  "added": 31,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/identity.rs",
+                  "added": 385,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/registry.rs",
+                  "added": 885,
+                  "removed": 84
+                }
+              ],
+              "fileCount": 3,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         }
-      ]
+      ],
+      "startSha": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+      "startedAt": "2026-08-21T17:00:32.735Z",
+      "startedBy": {
+        "model": "gpt-5.6-sol",
+        "user": "danielsivyer4567",
+        "session": "s-271db4a7",
+        "at": "2026-08-21T17:00:32.735Z"
+      },
+      "lastStampSha": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+      "doneAt": "2026-08-21T17:12:55.576Z",
+      "doneBy": {
+        "model": "gpt-5.6-sol",
+        "user": "danielsivyer4567",
+        "session": "s-271db4a7",
+        "at": "2026-08-21T17:12:55.576Z",
+        "forced": false
+      }
     },
     {
       "id": "B18",
