@@ -163,6 +163,9 @@ pub struct PostMessageRequest {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+// Retained as the audited recovery primitive for explicitly routing an UNROUTED message.
+// The current UI asks the operator to retry instead of silently using it.
+#[allow(dead_code)]
 pub struct RouteMessageRequest {
     pub message_id: String,
     pub route_id: String,
@@ -180,6 +183,9 @@ pub struct ClaimDeliveryRequest {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+// Retained for route-specific connector implementations; the Codex connector additionally
+// validates destination metadata before claiming an exact message.
+#[allow(dead_code)]
 pub struct ClaimNextDeliveryRequest {
     pub route_id: String,
     pub claimant_id: String,
@@ -504,6 +510,7 @@ impl ControlPlaneStore {
         })
     }
 
+    #[allow(dead_code)]
     pub fn route_message(
         &self,
         request: RouteMessageRequest,
@@ -567,6 +574,7 @@ impl ControlPlaneStore {
         )
     }
 
+    #[allow(dead_code)]
     pub fn claim_next_delivery(
         &self,
         request: ClaimNextDeliveryRequest,
