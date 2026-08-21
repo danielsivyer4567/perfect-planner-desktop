@@ -1,6 +1,6 @@
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
-use serde_json::Value;
 use serde_json::json;
+use serde_json::Value;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
@@ -8,16 +8,17 @@ use std::path::Path;
 use std::time::Duration;
 use tauri::Manager;
 
+mod connectors;
 mod control_plane;
 mod control_plane_api;
-mod connectors;
+pub mod orchestrator;
 mod supervisor;
+use connectors::ConnectorSupervisor;
 use control_plane::ControlPlaneStore;
 use control_plane_api::{
     acknowledge_control_message, claim_control_deliveries, control_plane_snapshot,
     post_control_message, record_control_delivery,
 };
-use connectors::ConnectorSupervisor;
 use supervisor::{unix_ms, SessionObservation, SupervisorSnapshot, SupervisorStore};
 
 /// Loopback window the app is allowed to look in. perfect-planning's default board port is
@@ -105,7 +106,13 @@ fn parse_json_response(raw: &[u8]) -> Option<Value> {
 fn parse_json_response_any(raw: &[u8]) -> Option<(u16, Value)> {
     let text = String::from_utf8_lossy(raw);
     let (head, body) = text.split_once("\r\n\r\n")?;
-    let status = head.lines().next()?.split_whitespace().nth(1)?.parse().ok()?;
+    let status = head
+        .lines()
+        .next()?
+        .split_whitespace()
+        .nth(1)?
+        .parse()
+        .ok()?;
     Some((status, serde_json::from_str(body.trim()).ok()?))
 }
 
@@ -196,7 +203,11 @@ fn read_board_evidence(port: u16, plan_path: String, file_name: String) -> Optio
     if identity.get("planPath").and_then(Value::as_str) != Some(plan_path.as_str()) {
         return None;
     }
-    let evidence_dir = Path::new(&plan_path).parent()?.join("evidence").canonicalize().ok()?;
+    let evidence_dir = Path::new(&plan_path)
+        .parent()?
+        .join("evidence")
+        .canonicalize()
+        .ok()?;
     let file = evidence_dir.join(&file_name).canonicalize().ok()?;
     if file.parent()? != evidence_dir || !file.is_file() {
         return None;
@@ -205,7 +216,11 @@ fn read_board_evidence(port: u16, plan_path: String, file_name: String) -> Optio
     if bytes.len() > 16 * 1024 * 1024 {
         return None;
     }
-    let ext = file.extension().and_then(|value| value.to_str()).unwrap_or("").to_ascii_lowercase();
+    let ext = file
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
     let mime = match ext.as_str() {
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
@@ -218,7 +233,9 @@ fn read_board_evidence(port: u16, plan_path: String, file_name: String) -> Optio
     if mime.starts_with("text/") {
         Some(json!({ "name": file_name, "mime": mime, "text": String::from_utf8_lossy(&bytes) }))
     } else {
-        Some(json!({ "name": file_name, "mime": mime, "dataBase64": BASE64_STANDARD.encode(bytes) }))
+        Some(
+            json!({ "name": file_name, "mime": mime, "dataBase64": BASE64_STANDARD.encode(bytes) }),
+        )
     }
 }
 
@@ -254,8 +271,8 @@ fn recover_board_session(
     if event.plan_path != plan_path {
         return Err("session recovery event names a different plan".to_string());
     }
-    let identity = probe_identity(port)
-        .ok_or_else(|| format!("board identity unavailable on port {port}"))?;
+    let identity =
+        probe_identity(port).ok_or_else(|| format!("board identity unavailable on port {port}"))?;
     if identity.get("planPath").and_then(Value::as_str) != Some(plan_path.as_str()) {
         return Err("board identity changed before session recovery".to_string());
     }
