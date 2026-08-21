@@ -14,21 +14,29 @@ use super::scheduler::{
 use super::worker::{
     validate_manifest, validate_submission, WorkerGateResult, WorkerManifest, WorkerSubmission,
 };
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
-use std::fs;
-use std::io::Read;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const SCHEDULER_FILE: &str = "scheduler.json";
+const PREFLIGHT_RESULT_FILE: &str = "preflight.json";
+const RECONCILIATION_RESULT_FILE: &str = "reconciliation.json";
+const RELEASE_RESULT_FILE: &str = "release.json";
+const RECORDED_RESULT_SCHEMA_VERSION: u32 = 1;
+const RUN_CATALOG_CAP: usize = 500;
 const MAX_EVENT_TAIL_BYTES: u64 = 1024 * 1024;
 const MAX_EVENT_TAIL_COUNT: usize = 500;
 const MAX_PWSH_OUTPUT_BYTES: usize = 1024 * 1024;
 const PWSH_TIMEOUT: Duration = Duration::from_secs(8);
+static API_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[cfg(windows)]
 const PWSH_7: &str = r"C:\Program Files\PowerShell\7\pwsh.exe";
@@ -99,7 +107,48 @@ pub struct PipelineSnapshotResponse {
     pub manifest: AllowedFileManifest,
     pub hot_resume: HotResumeState,
     pub scheduler: SchedulerState,
+    pub preflight: Option<PreflightReport>,
+    pub preflight_recorded_at_ms: Option<u64>,
+    pub reconciliation: Option<ReconciliationResult>,
+    pub reconciliation_recorded_at_ms: Option<u64>,
+    pub release: Option<ReleaseGateResult>,
+    pub release_recorded_at_ms: Option<u64>,
     pub event_tail: EventTailResponse,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RecordedResult<T> {
+    schema_version: u32,
+    recorded_at_ms: u64,
+    result: T,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunCatalogApiRequest {
+    pub repository_root: PathBuf,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunCatalogEntry {
+    pub run_id: String,
+    pub repository_root: PathBuf,
+    pub branch: String,
+    pub status: String,
+    pub completed_nodes: usize,
+    pub total_nodes: usize,
+    pub updated_at: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunCatalogResponse {
+    pub active_runs: Vec<RunCatalogEntry>,
+    pub archived_runs: Vec<RunCatalogEntry>,
+    pub scanned_entries: usize,
+    pub truncated: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -260,6 +309,7 @@ pub fn orchestrator_preflight_inspect(
         process_allowlist: BTreeSet::new(),
         stop_allowlisted_conflicts: false,
     })?;
+    persist_scoped_json(&context, PREFLIGHT_RESULT_FILE, &report)?;
     append_event(
         &context,
         None,
@@ -278,6 +328,10 @@ pub fn orchestrator_pipeline_snapshot(
     let context = open_context(&request.scope)?;
     let hot_resume = context.scope.read_hot_resume()?;
     let scheduler = open_scheduler(&context, Vec::new())?.snapshot()?;
+    let preflight = load_optional_scoped_json::<PreflightReport>(&context, PREFLIGHT_RESULT_FILE)?;
+    let reconciliation =
+        load_optional_scoped_json::<ReconciliationResult>(&context, RECONCILIATION_RESULT_FILE)?;
+    let release = load_optional_scoped_json::<ReleaseGateResult>(&context, RELEASE_RESULT_FILE)?;
     let event_tail = bounded_event_tail(
         &context,
         request.event_offset,
@@ -288,6 +342,12 @@ pub fn orchestrator_pipeline_snapshot(
         manifest: context.scope.manifest,
         hot_resume,
         scheduler,
+        preflight_recorded_at_ms: preflight.as_ref().map(|record| record.recorded_at_ms),
+        preflight: preflight.map(|record| record.result),
+        reconciliation_recorded_at_ms: reconciliation.as_ref().map(|record| record.recorded_at_ms),
+        reconciliation: reconciliation.map(|record| record.result),
+        release_recorded_at_ms: release.as_ref().map(|record| record.recorded_at_ms),
+        release: release.map(|record| record.result),
         event_tail,
     })
 }
@@ -479,15 +539,27 @@ pub fn orchestrator_reconcile(
             }
         }
     }
-    Ok(reconcile(&request.input))
+    let result = reconcile(&request.input);
+    persist_scoped_json(&context, RECONCILIATION_RESULT_FILE, &result)?;
+    Ok(result)
 }
 
 #[tauri::command]
 pub fn orchestrator_evaluate_release(
     request: ReleaseApiRequest,
 ) -> Result<ReleaseGateResult, String> {
-    let _context = open_context(&request.scope)?;
-    Ok(evaluate_release(&request.input))
+    let context = open_context(&request.scope)?;
+    let result = evaluate_release(&request.input);
+    persist_scoped_json(&context, RELEASE_RESULT_FILE, &result)?;
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn orchestrator_run_catalog(
+    request: RunCatalogApiRequest,
+) -> Result<RunCatalogResponse, String> {
+    let repository_root = canonical_repository(&request.repository_root)?;
+    build_run_catalog(&repository_root)
 }
 
 #[tauri::command]
@@ -567,6 +639,437 @@ fn open_context(request: &ScopedRunRequest) -> Result<ScopedContext, String> {
         run_dir,
         scope,
     })
+}
+
+fn persist_scoped_json<T: Serialize>(
+    context: &ScopedContext,
+    file_name: &str,
+    value: &T,
+) -> Result<(), String> {
+    validate_state_file_name(file_name)?;
+    let target = context.run_dir.join(file_name);
+    validate_optional_scoped_target(&context.run_dir, &target)?;
+    let record = RecordedResult {
+        schema_version: RECORDED_RESULT_SCHEMA_VERSION,
+        recorded_at_ms: unix_ms(),
+        result: value,
+    };
+    let mut bytes = serde_json::to_vec_pretty(&record)
+        .map_err(|error| format!("cannot serialize {file_name}: {error}"))?;
+    bytes.push(b'\n');
+    atomic_replace(&target, &bytes)
+        .map_err(|error| format!("cannot atomically persist {file_name}: {error}"))
+}
+
+fn load_optional_scoped_json<T: DeserializeOwned>(
+    context: &ScopedContext,
+    file_name: &str,
+) -> Result<Option<RecordedResult<T>>, String> {
+    validate_state_file_name(file_name)?;
+    let target = context.run_dir.join(file_name);
+    match fs::symlink_metadata(&target) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                return Err(format!(
+                    "persisted state {file_name} is not a regular scoped file"
+                ));
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "cannot inspect persisted state {file_name}: {error}"
+            ))
+        }
+    }
+    let resolved = target
+        .canonicalize()
+        .map_err(|error| format!("cannot resolve persisted state {file_name}: {error}"))?;
+    if resolved.parent() != Some(context.run_dir.as_path()) {
+        return Err(format!(
+            "persisted state {file_name} escapes the scoped run directory"
+        ));
+    }
+    let bytes = fs::read(&resolved)
+        .map_err(|error| format!("cannot read persisted state {file_name}: {error}"))?;
+    let value: RecordedResult<T> = serde_json::from_slice(&bytes).map_err(|error| {
+        format!("persisted state {file_name} is corrupt or incomplete: {error}")
+    })?;
+    if value.schema_version != RECORDED_RESULT_SCHEMA_VERSION || value.recorded_at_ms == 0 {
+        return Err(format!(
+            "persisted state {file_name} has an unsupported or incomplete envelope"
+        ));
+    }
+    Ok(Some(value))
+}
+
+fn validate_state_file_name(file_name: &str) -> Result<(), String> {
+    if !matches!(
+        file_name,
+        PREFLIGHT_RESULT_FILE | RECONCILIATION_RESULT_FILE | RELEASE_RESULT_FILE
+    ) {
+        return Err("unsupported persisted result file".to_string());
+    }
+    Ok(())
+}
+
+fn validate_optional_scoped_target(run_dir: &Path, target: &Path) -> Result<(), String> {
+    if target.parent() != Some(run_dir) {
+        return Err("persisted result target escapes the scoped run".to_string());
+    }
+    match fs::symlink_metadata(target) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            Err("persisted result target is not a regular file".to_string())
+        }
+        Ok(_) => {
+            let resolved = target
+                .canonicalize()
+                .map_err(|error| format!("cannot resolve persisted result target: {error}"))?;
+            if resolved.parent() != Some(run_dir) {
+                return Err("persisted result target escapes the scoped run".to_string());
+            }
+            Ok(())
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("cannot inspect persisted result target: {error}")),
+    }
+}
+
+fn atomic_replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "target has no parent"))?;
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid target name"))?;
+    let sequence = API_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let temporary = parent.join(format!(
+        ".{file_name}.tmp-{}-{sequence}",
+        std::process::id()
+    ));
+    let result = (|| -> io::Result<()> {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        replace_file(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[cfg(not(windows))]
+fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
+    fs::rename(source, destination)
+}
+
+#[cfg(windows)]
+fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x0000_0001;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x0000_0008;
+
+    #[link(name = "Kernel32")]
+    unsafe extern "system" {
+        fn MoveFileExW(
+            existing_file_name: *const u16,
+            new_file_name: *const u16,
+            flags: u32,
+        ) -> i32;
+    }
+
+    let source = source
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let destination = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    // SAFETY: both buffers are valid, NUL-terminated UTF-16 paths for this call.
+    let moved = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if moved == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+fn build_run_catalog(repository_root: &Path) -> Result<RunCatalogResponse, String> {
+    let scratch_path = repository_root
+        .join(".claude")
+        .join("scratch")
+        .join("orchestrator");
+    match fs::symlink_metadata(&scratch_path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                return Err("orchestrator catalog root is not a regular directory".to_string());
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(RunCatalogResponse {
+                active_runs: Vec::new(),
+                archived_runs: Vec::new(),
+                scanned_entries: 0,
+                truncated: false,
+            });
+        }
+        Err(error) => return Err(format!("cannot inspect orchestrator catalog root: {error}")),
+    }
+    let scratch = scratch_path
+        .canonicalize()
+        .map_err(|error| format!("cannot resolve repository orchestrator root: {error}"))?;
+    if !scratch.starts_with(repository_root) || !scratch.is_dir() {
+        return Err("orchestrator catalog root escapes the repository".to_string());
+    }
+    let archive_path = scratch.join("archive");
+    let archive = match fs::symlink_metadata(&archive_path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                return Err("orchestrator archive is not a regular scoped directory".to_string());
+            }
+            let archive = archive_path
+                .canonicalize()
+                .map_err(|error| format!("cannot resolve orchestrator archive: {error}"))?;
+            if archive.parent() != Some(scratch.as_path()) {
+                return Err("orchestrator archive escapes the repository".to_string());
+            }
+            Some(archive)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => return Err(format!("cannot inspect orchestrator archive: {error}")),
+    };
+
+    let mut scanned_entries = 0;
+    let mut truncated = false;
+    let active_paths = bounded_catalog_paths(
+        &scratch,
+        Some("archive"),
+        &mut scanned_entries,
+        &mut truncated,
+    )?;
+    let mut active_runs = active_paths
+        .iter()
+        .map(|path| load_catalog_entry(repository_root, &scratch, path, false))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut archived_runs = Vec::new();
+    if !truncated {
+        if let Some(archive) = archive {
+            let archived_paths =
+                bounded_catalog_paths(&archive, None, &mut scanned_entries, &mut truncated)?;
+            archived_runs = archived_paths
+                .iter()
+                .map(|path| load_catalog_entry(repository_root, &archive, path, true))
+                .collect::<Result<Vec<_>, _>>()?;
+        }
+    }
+
+    active_runs.sort_by(|left, right| left.run_id.cmp(&right.run_id));
+    archived_runs.sort_by(|left, right| left.run_id.cmp(&right.run_id));
+    Ok(RunCatalogResponse {
+        active_runs,
+        archived_runs,
+        scanned_entries,
+        truncated,
+    })
+}
+
+fn bounded_catalog_paths(
+    container: &Path,
+    excluded_name: Option<&str>,
+    scanned_entries: &mut usize,
+    truncated: &mut bool,
+) -> Result<Vec<PathBuf>, String> {
+    let mut paths = Vec::new();
+    let entries = fs::read_dir(container).map_err(|error| {
+        format!(
+            "cannot scan catalog directory {}: {error}",
+            container.display()
+        )
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("cannot read catalog entry: {error}"))?;
+        if excluded_name.is_some_and(|name| entry.file_name() == name) {
+            continue;
+        }
+        if *scanned_entries >= RUN_CATALOG_CAP {
+            *truncated = true;
+            break;
+        }
+        *scanned_entries += 1;
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("cannot inspect catalog entry: {error}"))?;
+        if file_type.is_symlink() || !file_type.is_dir() {
+            return Err(format!(
+                "catalog entry {} is not a regular run directory",
+                entry.path().display()
+            ));
+        }
+        let resolved = entry
+            .path()
+            .canonicalize()
+            .map_err(|error| format!("cannot resolve catalog entry: {error}"))?;
+        if resolved.parent() != Some(container) {
+            return Err(format!(
+                "catalog entry {} escapes its repository container",
+                entry.path().display()
+            ));
+        }
+        paths.push(resolved);
+    }
+    Ok(paths)
+}
+
+fn load_catalog_entry(
+    repository_root: &Path,
+    container: &Path,
+    run_dir: &Path,
+    archived: bool,
+) -> Result<RunCatalogEntry, String> {
+    if run_dir.parent() != Some(container) || !run_dir.is_dir() {
+        return Err("catalog run is outside its exact repository container".to_string());
+    }
+    let run_id = run_dir
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "catalog run has an invalid directory name".to_string())?
+        .to_string();
+    validate_run_id(&run_id)?;
+
+    let manifest_path = catalog_file(run_dir, "manifest.json")?;
+    let hot_resume_path = catalog_file(run_dir, "hot-resume.json")?;
+    let scheduler_path = catalog_file(run_dir, SCHEDULER_FILE)?;
+    let manifest: AllowedFileManifest = read_required_json(&manifest_path, "catalog manifest")?;
+    let hot_resume: HotResumeState = read_required_json(&hot_resume_path, "catalog hot-resume")?;
+    if manifest.run_id != run_id
+        || hot_resume.run_id != run_id
+        || manifest.branch != hot_resume.branch
+        || manifest.repository_root.canonicalize().ok().as_ref()
+            != Some(&repository_root.to_path_buf())
+        || hot_resume.repository_root.canonicalize().ok().as_ref()
+            != Some(&repository_root.to_path_buf())
+    {
+        return Err(format!(
+            "catalog run {run_id} has corrupt repository or run identity"
+        ));
+    }
+    let scheduler =
+        SchedulerStore::open(scheduler_path.clone(), run_dir.to_path_buf(), Vec::new())?
+            .snapshot()?;
+    let completed_nodes = scheduler
+        .nodes
+        .values()
+        .filter(|node| node.status == NodeStatus::Done)
+        .count();
+    let total_nodes = scheduler.nodes.len();
+    if archived {
+        let _completion_report = catalog_file(run_dir, "COMPLETION-REPORT.md")?;
+        if total_nodes == 0 || completed_nodes != total_nodes {
+            return Err(format!("archived run {run_id} is not completely scheduled"));
+        }
+    }
+    let mut update_candidates = [manifest_path, hot_resume_path, scheduler_path]
+        .iter()
+        .map(|path| modified_ms(path))
+        .collect::<Result<Vec<_>, _>>()?;
+    for file_name in [
+        PREFLIGHT_RESULT_FILE,
+        RECONCILIATION_RESULT_FILE,
+        RELEASE_RESULT_FILE,
+    ] {
+        if let Some(recorded_at_ms) = catalog_recorded_at(run_dir, file_name)? {
+            update_candidates.push(recorded_at_ms);
+        }
+    }
+    let updated_at = update_candidates.into_iter().max().unwrap_or(0);
+    Ok(RunCatalogEntry {
+        run_id,
+        repository_root: repository_root.to_path_buf(),
+        branch: manifest.branch,
+        status: if archived {
+            "completed".to_string()
+        } else {
+            hot_resume.status
+        },
+        completed_nodes,
+        total_nodes,
+        updated_at,
+    })
+}
+
+fn catalog_file(run_dir: &Path, name: &str) -> Result<PathBuf, String> {
+    let path = run_dir.join(name);
+    let metadata = fs::symlink_metadata(&path)
+        .map_err(|error| format!("catalog run is missing {name}: {error}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(format!("catalog run file {name} is not a regular file"));
+    }
+    let resolved = path
+        .canonicalize()
+        .map_err(|error| format!("cannot resolve catalog run file {name}: {error}"))?;
+    if resolved.parent() != Some(run_dir) {
+        return Err(format!("catalog run file {name} escapes its run directory"));
+    }
+    Ok(resolved)
+}
+
+fn read_required_json<T: DeserializeOwned>(path: &Path, label: &str) -> Result<T, String> {
+    let bytes = fs::read(path).map_err(|error| format!("cannot read {label}: {error}"))?;
+    serde_json::from_slice(&bytes)
+        .map_err(|error| format!("{label} is corrupt or incomplete: {error}"))
+}
+
+fn catalog_recorded_at(run_dir: &Path, file_name: &str) -> Result<Option<u64>, String> {
+    let path = run_dir.join(file_name);
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                return Err(format!(
+                    "catalog gate state {file_name} is not a regular file"
+                ));
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("cannot inspect catalog gate state: {error}")),
+    }
+    let resolved = path
+        .canonicalize()
+        .map_err(|error| format!("cannot resolve catalog gate state: {error}"))?;
+    if resolved.parent() != Some(run_dir) {
+        return Err(format!("catalog gate state {file_name} escapes its run"));
+    }
+    let record: RecordedResult<Value> = read_required_json(&resolved, "catalog gate state")?;
+    if record.schema_version != RECORDED_RESULT_SCHEMA_VERSION || record.recorded_at_ms == 0 {
+        return Err(format!(
+            "catalog gate state {file_name} has an invalid envelope"
+        ));
+    }
+    Ok(Some(record.recorded_at_ms))
+}
+
+fn modified_ms(path: &Path) -> Result<u64, String> {
+    path.metadata()
+        .and_then(|metadata| metadata.modified())
+        .map_err(|error| format!("cannot read catalog update time: {error}"))?
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "catalog update time predates the Unix epoch".to_string())
+        .map(|duration| duration.as_millis() as u64)
 }
 
 fn canonical_repository(path: &Path) -> Result<PathBuf, String> {
@@ -1025,6 +1528,28 @@ mod tests {
             })
             .unwrap()
         }
+
+        fn initialize_scheduler(&self, scope: &RunScope, completed: bool) {
+            let node = ScheduledNode {
+                id: "A01".to_string(),
+                wave: 1,
+                depends_on: Vec::new(),
+                attempts: 0,
+                status: NodeStatus::Ready,
+                lease: None,
+                stall_alarm_fence: None,
+            };
+            let scheduler = SchedulerStore::open(
+                scope.root.join(SCHEDULER_FILE),
+                scope.root.clone(),
+                vec![node],
+            )
+            .unwrap();
+            if completed {
+                let lease = scheduler.claim("A01", "worker-1", 1, 10_000).unwrap();
+                scheduler.complete("A01", &lease.token, 2).unwrap();
+            }
+        }
     }
 
     impl Drop for TempRepo {
@@ -1137,5 +1662,162 @@ mod tests {
         assert!(validate_initial_nodes(&[precompleted])
             .unwrap_err()
             .contains("must start READY"));
+    }
+
+    #[test]
+    fn persisted_gate_results_reload_after_context_restart() {
+        use super::super::preflight::{PreflightDisposition, SystemBaseline};
+        use super::super::release::{CiState, PullRequestState};
+
+        let repository = TempRepo::new();
+        let scope = repository.create_scope("run-restart");
+        repository.initialize_scheduler(&scope, false);
+        let request_scope = ScopedRunRequest {
+            repository_root: repository.0.clone(),
+            run_id: "run-restart".to_string(),
+        };
+        let context = open_context(&request_scope).unwrap();
+        let preflight = PreflightReport {
+            disposition: PreflightDisposition::Ready,
+            baseline: SystemBaseline {
+                repository_root: repository.0.canonicalize().unwrap(),
+                git_status_porcelain_v2: String::new(),
+                port_bindings: Vec::new(),
+                resources: ResourceSnapshot {
+                    logical_cpu_count: 8,
+                    cpu_usage_percent: 10.0,
+                    total_memory_bytes: 16_000,
+                    available_memory_bytes: 8_000,
+                    repository_disk_available_bytes: 100_000,
+                },
+            },
+            conflicts: Vec::new(),
+            unknown_conflicts: Vec::new(),
+            stopped_processes: Vec::new(),
+            reasons: Vec::new(),
+        };
+        let reconciliation = reconcile(&ReconciliationInput {
+            plan_id: "PP-001".to_string(),
+            nodes: Vec::new(),
+            commits: Vec::new(),
+            final_tree_files: Vec::new(),
+            actual_tree_clean: true,
+            uncommitted_files: Vec::new(),
+            waivers: Vec::new(),
+        });
+        let release = evaluate_release(&ReleaseGateInput {
+            dirty_worktree: false,
+            merge_conflicts: Vec::new(),
+            missing_evidence: Vec::new(),
+            unplanned: Vec::new(),
+            unproven: Vec::new(),
+            orphaned: Vec::new(),
+            ci: CiState::Passed,
+            pushed: true,
+            pull_request: PullRequestState::Approved,
+        });
+        persist_scoped_json(&context, PREFLIGHT_RESULT_FILE, &preflight).unwrap();
+        persist_scoped_json(&context, RECONCILIATION_RESULT_FILE, &reconciliation).unwrap();
+        persist_scoped_json(&context, RELEASE_RESULT_FILE, &release).unwrap();
+        drop(context);
+
+        let snapshot = orchestrator_pipeline_snapshot(SnapshotApiRequest {
+            scope: request_scope,
+            event_offset: None,
+            max_event_bytes: None,
+            max_events: None,
+        })
+        .unwrap();
+        assert_eq!(snapshot.preflight, Some(preflight));
+        assert_eq!(snapshot.reconciliation, Some(reconciliation));
+        assert_eq!(snapshot.release, Some(release));
+        assert!(snapshot.preflight_recorded_at_ms.is_some());
+        assert!(snapshot.reconciliation_recorded_at_ms.is_some());
+        assert!(snapshot.release_recorded_at_ms.is_some());
+    }
+
+    #[test]
+    fn corrupt_persisted_gate_state_fails_snapshot_closed() {
+        let repository = TempRepo::new();
+        let scope = repository.create_scope("run-corrupt");
+        repository.initialize_scheduler(&scope, false);
+        fs::write(scope.root.join(RELEASE_RESULT_FILE), b"{\"recordedAtMs\":").unwrap();
+
+        let error = orchestrator_pipeline_snapshot(SnapshotApiRequest {
+            scope: ScopedRunRequest {
+                repository_root: repository.0.clone(),
+                run_id: "run-corrupt".to_string(),
+            },
+            event_offset: None,
+            max_event_bytes: None,
+            max_events: None,
+        })
+        .unwrap_err();
+        assert!(error.contains("corrupt or incomplete"));
+    }
+
+    #[test]
+    fn catalog_separates_active_and_completed_archives() {
+        let repository = TempRepo::new();
+        let active = repository.create_scope("run-active");
+        repository.initialize_scheduler(&active, false);
+        let completed = repository.create_scope("run-completed");
+        repository.initialize_scheduler(&completed, true);
+        fs::write(completed.root.join("COMPLETION-REPORT.md"), "complete").unwrap();
+        let archive = repository.0.join(".claude/scratch/orchestrator/archive");
+        fs::create_dir(&archive).unwrap();
+        fs::rename(&completed.root, archive.join("run-completed")).unwrap();
+
+        let catalog = orchestrator_run_catalog(RunCatalogApiRequest {
+            repository_root: repository.0.clone(),
+        })
+        .unwrap();
+        assert_eq!(catalog.active_runs.len(), 1);
+        assert_eq!(catalog.active_runs[0].run_id, "run-active");
+        assert_eq!(catalog.archived_runs.len(), 1);
+        assert_eq!(catalog.archived_runs[0].run_id, "run-completed");
+        assert_eq!(catalog.archived_runs[0].status, "completed");
+        assert_eq!(catalog.archived_runs[0].completed_nodes, 1);
+    }
+
+    #[test]
+    fn catalog_entry_rejects_path_outside_exact_container() {
+        let repository = TempRepo::new();
+        let scope = repository.create_scope("run-outside");
+        repository.initialize_scheduler(&scope, false);
+        let container = repository
+            .0
+            .join(".claude/scratch/orchestrator")
+            .canonicalize()
+            .unwrap();
+        let outside = repository.0.join("outside-run");
+        fs::create_dir(&outside).unwrap();
+
+        assert!(load_catalog_entry(
+            &repository.0.canonicalize().unwrap(),
+            &container,
+            &outside,
+            false
+        )
+        .unwrap_err()
+        .contains("outside its exact repository container"));
+    }
+
+    #[test]
+    fn catalog_directory_scan_is_capped_at_five_hundred_entries() {
+        let repository = TempRepo::new();
+        let container = repository.0.join("catalog-cap");
+        fs::create_dir(&container).unwrap();
+        for index in 0..=RUN_CATALOG_CAP {
+            fs::create_dir(container.join(format!("run-{index:03}"))).unwrap();
+        }
+        let container = container.canonicalize().unwrap();
+        let mut scanned = 0;
+        let mut truncated = false;
+        let paths = bounded_catalog_paths(&container, None, &mut scanned, &mut truncated).unwrap();
+
+        assert_eq!(paths.len(), RUN_CATALOG_CAP);
+        assert_eq!(scanned, RUN_CATALOG_CAP);
+        assert!(truncated);
     }
 }
