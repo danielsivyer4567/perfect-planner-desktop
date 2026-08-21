@@ -7,7 +7,7 @@
     "dev": "vite --port 5180",
     "dev:host": "vite --host --port 5180",
     "build": "tsc && vite build",
-    "test:e2e": "python tests/control_connector_e2e.py && python tests/alarm_e2e.py && python tests/repository_rail_e2e.py && python tests/evidence_e2e.py && python tests/control_plane_e2e.py",
+    "test:e2e": "python tests/control_connector_e2e.py && python tests/alarm_e2e.py && python tests/repository_rail_e2e.py && python tests/evidence_e2e.py && python tests/control_plane_e2e.py && python tests/orchestrator_pipeline_e2e.py",
     "test:connector": "python tests/control_connector_e2e.py",
     "pp:control": "node scripts/pp-control.mjs",
     "preview": "vite preview --port 5180",

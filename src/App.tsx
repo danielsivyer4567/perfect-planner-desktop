@@ -19,6 +19,11 @@ import {
 } from "./services/boards";
 import { LocalOutputWitness } from "./components/LocalOutputWitness";
 import { OrchestratorMessenger } from "./components/OrchestratorMessenger";
+import { PipelineConsole } from "./components/PipelineConsole";
+import {
+  browserOrchestratorScope,
+  PipelineSnapshotSeed,
+} from "./services/orchestratorPipeline";
 import { PlanSnapshot } from "./types/plan";
 import { alarmDurationMs, playRisingAlarm } from "./services/stallAlarm";
 import {
@@ -381,6 +386,23 @@ export const App: React.FC = () => {
       orchestratorId,
     };
   }, [active, activeRepository, orchestratorId]);
+  const browserPipelineScope = useMemo(() => browserOrchestratorScope(), []);
+  const pipelineScope = useMemo(() => {
+    if (browserPipelineScope) return browserPipelineScope;
+    const runId = active?.number?.trim().replace(/^#/, "");
+    if (!runId || !active?.repoRoot) return null;
+    return { runId, repositoryRoot: active.repoRoot };
+  }, [active, browserPipelineScope]);
+  const pipelineSnapshotSeed = useMemo<PipelineSnapshotSeed | undefined>(() => {
+    if (!active || !activeRepository) return undefined;
+    return {
+      organizationId: activeRepository.id,
+      repositoryId: activeRepository.id,
+      worktreePath: controlPlaneScope?.worktreePath || active.repoRoot,
+      planId: controlPlaneScope?.planId || active.number || undefined,
+      title: active.topic || active.project || boardLabel(active),
+    };
+  }, [active, activeRepository, controlPlaneScope]);
   const controlPlaneWorkers = useMemo(
     () => visibleWorkerReports
       .filter((report) => report.planPath === active?.planPath)
@@ -742,6 +764,12 @@ export const App: React.FC = () => {
             workers={controlPlaneWorkers}
           />
         </section>
+
+        <PipelineConsole
+          runId={pipelineScope?.runId}
+          repositoryRoot={pipelineScope?.repositoryRoot}
+          snapshotSeed={pipelineSnapshotSeed}
+        />
 
         {active ? (
           <>
