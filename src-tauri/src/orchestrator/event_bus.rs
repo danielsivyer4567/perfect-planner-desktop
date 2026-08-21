@@ -323,6 +323,7 @@ impl AppendLock {
     fn acquire(events_path: &Path, timeout: Duration) -> Result<Self, EventBusError> {
         let lock_path = append_lock_path(events_path);
         let started = Instant::now();
+        let mut retry_attempt = 0_usize;
         loop {
             match OpenOptions::new()
                 .write(true)
@@ -334,8 +335,8 @@ impl AppendLock {
                     file.sync_data()?;
                     return Ok(Self { path: lock_path });
                 }
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                    if lock_is_stale(&lock_path) {
+                Err(error) if is_retryable_lock_contention(&error) => {
+                    if error.kind() == io::ErrorKind::AlreadyExists && lock_is_stale(&lock_path) {
                         match fs::remove_file(&lock_path) {
                             Ok(()) => continue,
                             Err(remove_error) if remove_error.kind() == io::ErrorKind::NotFound => {
@@ -347,7 +348,8 @@ impl AppendLock {
                     if started.elapsed() >= timeout {
                         return Err(EventBusError::LockTimeout(lock_path));
                     }
-                    thread::sleep(Duration::from_millis(10));
+                    thread::sleep(lock_retry_delay(retry_attempt));
+                    retry_attempt = retry_attempt.saturating_add(1);
                 }
                 Err(error) => return Err(error.into()),
             }
@@ -357,8 +359,41 @@ impl AppendLock {
 
 impl Drop for AppendLock {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+        for retry_attempt in 0..5 {
+            match fs::remove_file(&self.path) {
+                Ok(()) => return,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return,
+                Err(error) if is_retryable_lock_contention(&error) => {
+                    thread::sleep(lock_retry_delay(retry_attempt));
+                }
+                Err(_) => return,
+            }
+        }
     }
+}
+
+fn is_retryable_lock_contention(error: &io::Error) -> bool {
+    if error.kind() == io::ErrorKind::AlreadyExists {
+        return true;
+    }
+
+    #[cfg(windows)]
+    {
+        // Windows can leave a successfully removed lock file briefly delete-pending. During
+        // that window, a new CREATE_NEW receives ERROR_ACCESS_DENIED or
+        // ERROR_SHARING_VIOLATION instead of ERROR_FILE_EXISTS.
+        matches!(error.raw_os_error(), Some(5 | 32))
+    }
+
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+fn lock_retry_delay(attempt: usize) -> Duration {
+    const BACKOFF_MS: [u64; 5] = [2, 4, 8, 16, 25];
+    Duration::from_millis(BACKOFF_MS[attempt.min(BACKOFF_MS.len() - 1)])
 }
 
 fn append_lock_path(events_path: &Path) -> PathBuf {
