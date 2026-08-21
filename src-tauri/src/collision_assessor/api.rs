@@ -662,7 +662,7 @@ mod tests {
         let RegistryRead::Complete(document) = fixture.registry.inspect(2_100) else {
             panic!("recorded census must inspect complete")
         };
-        let census = document.census.unwrap();
+        let census = document.census.as_ref().unwrap();
         assert_ne!(census.input_digest, "0".repeat(64));
         assert_eq!(census.input_digest.len(), 64);
 

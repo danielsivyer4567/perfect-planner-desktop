@@ -49,6 +49,7 @@ const MAX_RESOURCES_PER_MANIFEST: usize = 2_048;
 const MAX_CENSUS_PLANNERS_PER_ROOT: usize = MAX_REGISTRATIONS;
 pub(crate) const MAX_PLAN_DIRECTORY_ENTRIES: usize = 4_096;
 const MAX_TOTAL_MANIFEST_ENTRIES: usize = 65_536;
+const MAX_REGISTRY_DEPENDENCY_EDGES: usize = 262_144;
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -405,13 +406,45 @@ pub struct UnknownRegistry {
     pub issues: Vec<RegistryIssue>,
 }
 
+/// Sealed proof that a registry document crossed the native completeness validator.
+///
+/// Production callers can inspect but cannot construct or mutate this value. That prevents a
+/// crate-internal caller from wrapping recomputed, unsigned metadata in `RegistryRead::Complete`
+/// and bypassing the authority-set, identity, freshness, or census-input checks.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RegistryRead {
-    Complete(RegistryDocument),
+pub(crate) struct CompleteRegistryRead(RegistryDocument);
+
+impl std::ops::Deref for CompleteRegistryRead {
+    type Target = RegistryDocument;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[cfg(test)]
+impl std::ops::DerefMut for CompleteRegistryRead {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RegistryRead {
+    Complete(CompleteRegistryRead),
     Unknown(UnknownRegistry),
 }
 
 impl RegistryRead {
+    fn complete(document: RegistryDocument) -> Self {
+        Self::Complete(CompleteRegistryRead(document))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn complete_for_test(document: RegistryDocument) -> Self {
+        Self::complete(document)
+    }
+
     pub fn is_complete(&self) -> bool {
         matches!(self, Self::Complete(_))
     }
@@ -572,7 +605,7 @@ impl PlannerRegistryStore {
         Ok(document)
     }
 
-    pub fn inspect(&self, now_ms: u64) -> RegistryRead {
+    pub(crate) fn inspect(&self, now_ms: u64) -> RegistryRead {
         inspect_registry_file(self.path.as_path(), now_ms, self.trusted_issuer.as_deref())
     }
 
@@ -1626,7 +1659,7 @@ fn inspect_registry_file(
     issues.extend(validate_authority_time(&document, now_ms));
     issues.extend(validate_completeness(&document, now_ms, trusted_issuer));
     if issues.is_empty() {
-        RegistryRead::Complete(document)
+        RegistryRead::complete(document)
     } else {
         RegistryRead::Unknown(UnknownRegistry {
             generation: Some(document.generation),
@@ -3513,37 +3546,67 @@ fn claim_id(
 }
 
 fn has_dependency_cycle(contracts: &[ActiveClaimContract]) -> bool {
-    let mut remaining = contracts
+    let mut indegree = contracts
         .iter()
-        .map(|contract| {
-            (
-                contract.participant_id.clone(),
-                contract
-                    .dependencies
-                    .iter()
-                    .cloned()
-                    .collect::<BTreeSet<_>>(),
-            )
-        })
+        .map(|contract| (contract.participant_id.as_str(), 0usize))
         .collect::<BTreeMap<_, _>>();
-    while !remaining.is_empty() {
-        let ready = remaining
-            .iter()
-            .filter(|(_, dependencies)| {
-                dependencies
-                    .iter()
-                    .all(|dependency| !remaining.contains_key(dependency))
-            })
-            .map(|(participant, _)| participant.clone())
-            .collect::<Vec<_>>();
-        if ready.is_empty() {
-            return true;
-        }
-        for participant in ready {
-            remaining.remove(&participant);
+    if indegree.len() != contracts.len() {
+        return true;
+    }
+
+    let mut dependents = BTreeMap::<&str, Vec<&str>>::new();
+    let mut edge_count = 0usize;
+    for contract in contracts {
+        for dependency in &contract.dependencies {
+            edge_count = match edge_count.checked_add(1) {
+                Some(count) if count <= MAX_REGISTRY_DEPENDENCY_EDGES => count,
+                _ => return true,
+            };
+            // An individual Planner snapshot may depend on a participant in another Planner.
+            // External dependencies are resolved by the global pass; only local edges affect the
+            // per-snapshot cycle calculation.
+            if indegree.contains_key(dependency.as_str()) {
+                let Some(count) = indegree.get_mut(contract.participant_id.as_str()) else {
+                    return true;
+                };
+                *count = match count.checked_add(1) {
+                    Some(count) => count,
+                    None => return true,
+                };
+                dependents
+                    .entry(dependency.as_str())
+                    .or_default()
+                    .push(contract.participant_id.as_str());
+            }
         }
     }
-    false
+
+    let mut ready = indegree
+        .iter()
+        .filter_map(|(participant, count)| (*count == 0).then_some(*participant))
+        .collect::<BTreeSet<_>>();
+    let mut visited = 0usize;
+    while let Some(participant) = ready.pop_first() {
+        visited += 1;
+        if let Some(children) = dependents.get(participant) {
+            for child in children {
+                let Some(count) = indegree.get_mut(child) else {
+                    return true;
+                };
+                *count = match count.checked_sub(1) {
+                    Some(count) => count,
+                    None => return true,
+                };
+                if *count == 0 {
+                    ready.insert(child);
+                }
+            }
+        }
+        if visited > contracts.len() {
+            return true;
+        }
+    }
+    visited != contracts.len()
 }
 
 fn canonical_claim_snapshot_digest(snapshot: &CanonicalClaimSnapshot) -> String {
