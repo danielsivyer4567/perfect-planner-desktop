@@ -417,3 +417,23 @@
 <!-- PP-EVENT f63317aabe5aac7acd7f9cec2bbb17aca9db330dd2f3f6e9c5ab1b4aee6cb898 -->
 | 2026-08-21T20:12:01.902Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | done | B06 | gpt-5.6-codex | s-a1b7589d |  | 75070797e4b2* |  |  |
 <!-- PP-EVENT c7a964d569b60d9dfdf2abdb13bc5c89b7593e11ad259301b5f2979815311939 -->
+| 2026-08-21T20:12:38.623Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | start | B07 | gpt-5.6-codex | s-a1b7589d |  | 6b489e79cb8f |  |  |
+<!-- PP-EVENT a60c9ec871da140164101dd2d5d08423592403cde46f2d6ddf70d02f6cb34342 -->
+| 2026-08-21T21:08:28.054Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | built | B07:0 | gpt-5.6-codex | s-a1b7589d |  | 3f8dceece589* | Dormant fail-closed primitive only; production admission remains gated on B09/B15/B20 |  |
+<!-- PP-EVENT 7b85d50e2dfcedc58395495fa3ca194e886dcbff62f160f7ca97d4f4e34760c7 -->
+| 2026-08-21T21:08:30.044Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | built | B07:1 | gpt-5.6-codex | s-a1b7589d |  | 3f8dceece589* | Dormant fail-closed primitive only; production admission remains gated on B09/B15/B20 |  |
+<!-- PP-EVENT b0f6153ca141554a9641be383e0459fbcbf7cc2bab9a18fa050ec47126dc374e -->
+| 2026-08-21T21:08:32.473Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | built | B07:2 | gpt-5.6-codex | s-a1b7589d |  | 3f8dceece589* | Dormant fail-closed primitive only; production admission remains gated on B09/B15/B20 |  |
+<!-- PP-EVENT 0c3619e80323afb70c52e4b98e2d8b168a5b54c49f388d4649ab3ca3993bfc31 -->
+| 2026-08-21T21:08:34.627Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | built | B07:3 | gpt-5.6-codex | s-a1b7589d |  | 3f8dceece589* | Dormant fail-closed primitive only; production admission remains gated on B09/B15/B20 |  |
+<!-- PP-EVENT 4beaa0d848d14e9ecab8f9102a097243e56fe338f4fd18303d11a817bca49c91 -->
+| 2026-08-21T21:08:49.378Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | prove | B07:0 | gpt-5.6-codex | s-a1b7589d | exit 0 | 3f8dceece589* | Persist the full census digest, registry generation, participant identities, conflicts, verdict, timestamp and expiry in an immutable snapshot | PP-002-B07-0-1787346521618.log, PP-002-B07-0-1787346521618.diff |
+<!-- PP-EVENT 054a605b04aeb2a4499644debe6be3ebf359de6f860a80c4bae03fe469601685 -->
+| 2026-08-21T21:08:55.909Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | prove | B07:1 | gpt-5.6-codex | s-a1b7589d | exit 0 | 3f8dceece589* | Hash-chain assessment, revocation, conflict-ticket and clearance events with torn-write recovery | PP-002-B07-1-1787346529664.log, PP-002-B07-1-1787346529664.diff |
+<!-- PP-EVENT f34678d4657c8b66436e7bff7f84cb9ceaa0bef429aa9518ef329a3bcc2afd39 -->
+| 2026-08-21T21:09:02.655Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | prove | B07:2 | gpt-5.6-codex | s-a1b7589d | exit 0 | 3f8dceece589* | Issue clearance only for CLEAR and bind it to snapshot hash, registry generation, run, node, manifest, fence and expiry | PP-002-B07-2-1787346536200.log, PP-002-B07-2-1787346536200.diff |
+<!-- PP-EVENT e22a66915ca04c2eb102995a177a520b34d008ea636c01b0933e962cdeb4ca69 -->
+| 2026-08-21T21:09:09.214Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | prove | B07:3 | gpt-5.6-codex | s-a1b7589d | exit 0 | 3f8dceece589* | Reject modified snapshots, altered manifests, expired clearances, replayed clearances and any clearance from a prior registry generation | PP-002-B07-3-1787346542941.log, PP-002-B07-3-1787346542941.diff |
+<!-- PP-EVENT dee68bc3dc84b093bd78f2b3c97415846fe4e4470fabcb5a15877cadda318fef -->
+| 2026-08-21T21:09:15.801Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | done | B07 | gpt-5.6-codex | s-a1b7589d |  | 3f8dceece589* | Primitive implemented and production-disabled; B09/B15/B20 remain mandatory for end-to-end worker admission |  |
+<!-- PP-EVENT 680b3c088cfc3421e507d513060462c828e7a512fcc85659dad34d99e6c1df33 -->

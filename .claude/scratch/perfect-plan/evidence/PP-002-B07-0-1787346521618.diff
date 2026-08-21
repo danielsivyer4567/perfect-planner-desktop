@@ -1,0 +1,4363 @@
+diff --git a/src-tauri/src/collision_assessor/clearance.rs b/src-tauri/src/collision_assessor/clearance.rs
+new file mode 100644
+index 0000000..12ecf4c
+--- /dev/null
++++ b/src-tauri/src/collision_assessor/clearance.rs
+@@ -0,0 +1,1450 @@
++//! Native-only, single-use clearance capabilities for an exact immutable assessment.
++//!
++//! Production issuance is structurally dormant in B07: there is no production constructor for
++//! either the MAC/clock owner or the machine-verified receipt bundle. B15/B20 must add those
++//! constructors inside this module after their native owners exist; sibling modules cannot fake
++//! either authority.
++
++use super::journal::AssessmentJournal;
++use super::snapshot::{
++    AssessmentVerdict, SnapshotClaimState, SnapshotError, SnapshotParticipant, SnapshotStore,
++    StoredSnapshotReceipt, VerifiedAssessmentSnapshot,
++};
++use serde::Serialize;
++use sha2::{Digest, Sha256};
++use std::collections::BTreeMap;
++use std::fmt;
++use std::sync::{
++    atomic::{AtomicBool, Ordering},
++    Arc, Mutex,
++};
++
++const TOKEN_PREFIX: &str = "ppc1";
++const TOKEN_BYTES: usize = 32;
++const MAX_CLEARANCE_RECORDS: usize = 65_536;
++const ENTROPY_ATTEMPTS: usize = 4;
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++struct TrustedTime {
++    wall_ms: u64,
++    monotonic_ms: u64,
++}
++
++trait NativeClock: Send + Sync {
++    fn now(&self) -> Result<TrustedTime, ClearanceError>;
++}
++
++struct NativeClearanceAuthority {
++    issuer_epoch: u64,
++    key: [u8; TOKEN_BYTES],
++    clock: Arc<dyn NativeClock>,
++}
++
++impl NativeClearanceAuthority {
++    fn mac(&self, message: &[u8]) -> [u8; TOKEN_BYTES] {
++        hmac_sha256(&self.key, message)
++    }
++}
++
++impl Drop for NativeClearanceAuthority {
++    fn drop(&mut self) {
++        self.key.fill(0);
++    }
++}
++
++/// Sealed join of discovery-revocation, originating-chat and delivered-approval receipts.
++/// B07 deliberately provides no production constructor for caller-shaped digests.
++#[derive(PartialEq, Eq)]
++pub(crate) struct ClearanceReceiptBundle {
++    participant_id: String,
++    discovery_revocation_digest: String,
++    originating_chat_digest: String,
++    approval_delivery_digest: String,
++}
++
++impl fmt::Debug for ClearanceReceiptBundle {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter
++            .debug_struct("ClearanceReceiptBundle")
++            .field("participant_id", &self.participant_id)
++            .field("verified_receipts", &"<native-sealed>")
++            .finish()
++    }
++}
++
++#[cfg(test)]
++impl ClearanceReceiptBundle {
++    fn for_test(participant_id: &str, approval_delivery_digest: &str) -> Self {
++        Self {
++            participant_id: participant_id.to_string(),
++            discovery_revocation_digest:
++                "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".into(),
++            originating_chat_digest:
++                "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".into(),
++            approval_delivery_digest: approval_delivery_digest.to_string(),
++        }
++    }
++}
++
++#[derive(Clone, PartialEq, Eq, Serialize)]
++#[serde(rename_all = "camelCase")]
++struct ClearanceBinding {
++    snapshot_hash: String,
++    registry_generation: u64,
++    census_input_digest: String,
++    participant_id: String,
++    planner_id: String,
++    plan_id: String,
++    node_id: String,
++    repository_identity: String,
++    worktree_identity: String,
++    branch_digest: String,
++    plan_content_digest: String,
++    planner_manifest_digest: String,
++    claim_snapshot_digest: String,
++    file_manifest_digest: String,
++    resource_manifest_digest: String,
++    run_identity: String,
++    worker_identity: String,
++    fence: u64,
++    lease_generation: u64,
++    assumption_digest: String,
++    policy_digest: String,
++    active_state_digest: String,
++    discovery_revocation_digest: String,
++    originating_chat_digest: String,
++    approval_delivery_digest: String,
++    snapshot_captured_at_ms: u64,
++    expires_at_ms: u64,
++}
++
++impl fmt::Debug for ClearanceBinding {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter
++            .debug_struct("ClearanceBinding")
++            .field("snapshot_hash", &self.snapshot_hash)
++            .field("registry_generation", &self.registry_generation)
++            .field("participant_id", &self.participant_id)
++            .field("node_id", &self.node_id)
++            .field("expires_at_ms", &self.expires_at_ms)
++            .field("remaining_bindings", &"<redacted>")
++            .finish()
++    }
++}
++
++impl ClearanceBinding {
++    fn matches_current(&self, current: &Self) -> bool {
++        self.snapshot_hash == current.snapshot_hash
++            && self.registry_generation == current.registry_generation
++            && self.census_input_digest == current.census_input_digest
++            && self.participant_id == current.participant_id
++            && self.planner_id == current.planner_id
++            && self.plan_id == current.plan_id
++            && self.node_id == current.node_id
++            && self.repository_identity == current.repository_identity
++            && self.worktree_identity == current.worktree_identity
++            && self.branch_digest == current.branch_digest
++            && self.plan_content_digest == current.plan_content_digest
++            && self.planner_manifest_digest == current.planner_manifest_digest
++            && self.claim_snapshot_digest == current.claim_snapshot_digest
++            && self.file_manifest_digest == current.file_manifest_digest
++            && self.resource_manifest_digest == current.resource_manifest_digest
++            && self.run_identity == current.run_identity
++            && self.worker_identity == current.worker_identity
++            && self.fence == current.fence
++            && self.lease_generation == current.lease_generation
++            && self.assumption_digest == current.assumption_digest
++            && self.policy_digest == current.policy_digest
++            && self.active_state_digest == current.active_state_digest
++            && self.discovery_revocation_digest == current.discovery_revocation_digest
++            && self.originating_chat_digest == current.originating_chat_digest
++            && self.approval_delivery_digest == current.approval_delivery_digest
++            && self.snapshot_captured_at_ms == current.snapshot_captured_at_ms
++            && self.expires_at_ms == current.expires_at_ms
++    }
++}
++
++pub(crate) struct ClearanceToken(String);
++
++impl ClearanceToken {
++    pub(crate) fn as_str(&self) -> &str {
++        &self.0
++    }
++}
++
++impl fmt::Debug for ClearanceToken {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter.write_str("ClearanceToken(<redacted>)")
++    }
++}
++
++impl Drop for ClearanceToken {
++    fn drop(&mut self) {
++        unsafe { self.0.as_mut_vec().fill(0) };
++    }
++}
++
++pub(crate) struct IssuedClearance {
++    pub(crate) token: ClearanceToken,
++    pub(crate) snapshot_hash: String,
++    pub(crate) participant_id: String,
++    pub(crate) registry_generation: u64,
++    pub(crate) issuer_epoch: u64,
++    pub(crate) issued_at_ms: u64,
++    pub(crate) expires_at_ms: u64,
++}
++
++impl fmt::Debug for IssuedClearance {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter
++            .debug_struct("IssuedClearance")
++            .field("token", &"<redacted>")
++            .field("snapshot_hash", &self.snapshot_hash)
++            .field("participant_id", &self.participant_id)
++            .field("registry_generation", &self.registry_generation)
++            .field("issuer_epoch", &self.issuer_epoch)
++            .field("issued_at_ms", &self.issued_at_ms)
++            .field("expires_at_ms", &self.expires_at_ms)
++            .finish()
++    }
++}
++
++pub(crate) struct ClearancePermit {
++    clearance_id_hash: String,
++    binding: ClearanceBinding,
++    issuer_epoch: u64,
++    consuming_wall_ms: u64,
++    consuming_monotonic_ms: u64,
++    monotonic_deadline_ms: u64,
++}
++
++impl fmt::Debug for ClearancePermit {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter
++            .debug_struct("ClearancePermit")
++            .field("clearance_id_hash", &self.clearance_id_hash)
++            .field("snapshot_hash", &self.binding.snapshot_hash)
++            .field("participant_id", &self.binding.participant_id)
++            .field("issuer_epoch", &self.issuer_epoch)
++            .field("remaining_bindings", &"<redacted>")
++            .finish()
++    }
++}
++
++impl ClearancePermit {
++    pub(crate) fn snapshot_hash(&self) -> &str {
++        &self.binding.snapshot_hash
++    }
++    pub(crate) fn participant_id(&self) -> &str {
++        &self.binding.participant_id
++    }
++    pub(crate) fn node_id(&self) -> &str {
++        &self.binding.node_id
++    }
++    pub(crate) fn fence(&self) -> u64 {
++        self.binding.fence
++    }
++    pub(crate) fn expires_at_ms(&self) -> u64 {
++        self.binding.expires_at_ms
++    }
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++enum ClearanceLifecycle {
++    Issued,
++    Consuming { wall_ms: u64, monotonic_ms: u64 },
++    Consumed,
++    Revoked,
++}
++
++#[derive(Clone)]
++struct ClearanceRecord {
++    snapshot: VerifiedAssessmentSnapshot,
++    snapshot_receipt: StoredSnapshotReceipt,
++    binding: ClearanceBinding,
++    issuer_epoch: u64,
++    issued_wall_ms: u64,
++    issued_monotonic_ms: u64,
++    monotonic_deadline_ms: u64,
++    lifecycle: ClearanceLifecycle,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub(crate) enum ClearanceError {
++    InvalidSnapshot,
++    AssessmentNotRecorded,
++    NonClearAssessment,
++    ParticipantUnavailable,
++    ParticipantNotClaimable,
++    InvalidReceiptBinding,
++    InvalidTimeline,
++    Expired,
++    ClockRollback,
++    InvalidToken,
++    UnknownToken,
++    PriorIssuer,
++    BindingMismatch,
++    AlreadyUsed,
++    CapacityExceeded,
++    EntropyUnavailable,
++    EntropyCollision,
++    AuthorityUnavailable,
++    JournalUnavailable,
++    StoreUnavailable,
++}
++
++impl fmt::Display for ClearanceError {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter.write_str(match self {
++            Self::InvalidSnapshot => "clearance assessment snapshot is invalid",
++            Self::AssessmentNotRecorded => "clearance assessment is not durably recorded",
++            Self::NonClearAssessment => "only an unqualified CLEAR assessment can issue clearance",
++            Self::ParticipantUnavailable => "clearance participant is absent from the assessment",
++            Self::ParticipantNotClaimable => "clearance participant is not in a claimable state",
++            Self::InvalidReceiptBinding => "clearance receipt binding is invalid",
++            Self::InvalidTimeline => "clearance timeline is invalid",
++            Self::Expired => "clearance has expired",
++            Self::ClockRollback => "trusted time moved behind clearance issuance",
++            Self::InvalidToken => "clearance token has an invalid shape or authenticator",
++            Self::UnknownToken => "clearance token is unknown or from a prior process",
++            Self::PriorIssuer => "clearance belongs to a prior native issuer epoch",
++            Self::BindingMismatch => "clearance no longer matches the sealed assessment",
++            Self::AlreadyUsed => "clearance has already entered a terminal state",
++            Self::CapacityExceeded => "clearance tombstone capacity is exhausted",
++            Self::EntropyUnavailable => "operating-system entropy is unavailable",
++            Self::EntropyCollision => "operating-system entropy repeated a clearance identifier",
++            Self::AuthorityUnavailable => "native clearance authority is unavailable",
++            Self::JournalUnavailable => "clearance audit journal is unavailable",
++            Self::StoreUnavailable => "clearance store is unavailable",
++        })
++    }
++}
++
++impl From<SnapshotError> for ClearanceError {
++    fn from(_: SnapshotError) -> Self {
++        Self::InvalidSnapshot
++    }
++}
++
++pub(crate) struct ClearanceStore {
++    authority: Option<NativeClearanceAuthority>,
++    snapshots: SnapshotStore,
++    records: Mutex<BTreeMap<String, ClearanceRecord>>,
++    journal: AssessmentJournal,
++    audit_fail_stop: AtomicBool,
++}
++
++impl ClearanceStore {
++    pub(crate) fn new_disabled(journal: AssessmentJournal, snapshots: SnapshotStore) -> Self {
++        Self {
++            authority: None,
++            snapshots,
++            records: Mutex::new(BTreeMap::new()),
++            journal,
++            audit_fail_stop: AtomicBool::new(false),
++        }
++    }
++
++    #[cfg(test)]
++    fn new_for_test(
++        journal: AssessmentJournal,
++        snapshots: SnapshotStore,
++        issuer_epoch: u64,
++        key: [u8; TOKEN_BYTES],
++        clock: Arc<dyn NativeClock>,
++    ) -> Self {
++        Self {
++            authority: Some(NativeClearanceAuthority {
++                issuer_epoch,
++                key,
++                clock,
++            }),
++            snapshots,
++            records: Mutex::new(BTreeMap::new()),
++            journal,
++            audit_fail_stop: AtomicBool::new(false),
++        }
++    }
++
++    pub(crate) fn issue(
++        &self,
++        snapshot: &VerifiedAssessmentSnapshot,
++        snapshot_receipt: &StoredSnapshotReceipt,
++        receipts: &ClearanceReceiptBundle,
++    ) -> Result<IssuedClearance, ClearanceError> {
++        self.issue_with_entropy(snapshot, snapshot_receipt, receipts, fill_os_random)
++    }
++
++    fn issue_with_entropy<F>(
++        &self,
++        snapshot: &VerifiedAssessmentSnapshot,
++        snapshot_receipt: &StoredSnapshotReceipt,
++        receipts: &ClearanceReceiptBundle,
++        mut fill: F,
++    ) -> Result<IssuedClearance, ClearanceError>
++    where
++        F: FnMut(&mut [u8]) -> Result<(), ClearanceError>,
++    {
++        self.require_audit()?;
++        let authority = self.authority()?;
++        if !self.journal.clearance_authority_ready() {
++            return Err(ClearanceError::JournalUnavailable);
++        }
++        self.snapshots.verify_receipt(snapshot, snapshot_receipt)?;
++        if !self
++            .journal
++            .assessment_is_live(snapshot, snapshot_receipt)
++            .map_err(|_| self.audit_error())?
++        {
++            return Err(ClearanceError::AssessmentNotRecorded);
++        }
++        let mut records = self
++            .records
++            .lock()
++            .map_err(|_| ClearanceError::StoreUnavailable)?;
++        let now = authority.clock.now()?;
++        let binding = binding_from_snapshot(snapshot, receipts, now.wall_ms)?;
++        let ttl = binding
++            .expires_at_ms
++            .checked_sub(now.wall_ms)
++            .ok_or(ClearanceError::InvalidTimeline)?;
++        let deadline = now
++            .monotonic_ms
++            .checked_add(ttl)
++            .ok_or(ClearanceError::InvalidTimeline)?;
++        if records.len() >= MAX_CLEARANCE_RECORDS {
++            return Err(ClearanceError::CapacityExceeded);
++        }
++        for _ in 0..ENTROPY_ATTEMPTS {
++            let mut identifier = [0_u8; TOKEN_BYTES];
++            fill(&mut identifier)?;
++            let identifier_hex = hex_encode(&identifier);
++            let id_hash = clearance_identifier_hash(&identifier);
++            identifier.fill(0);
++            if records.contains_key(&id_hash) {
++                continue;
++            }
++            let message = clearance_mac_message(&identifier_hex, authority.issuer_epoch, &binding)?;
++            let mut mac = authority.mac(&message);
++            let raw_token = format!("{TOKEN_PREFIX}.{identifier_hex}.{}", hex_encode(&mac));
++            mac.fill(0);
++            self.journal
++                .record_clearance_issued(
++                    now.wall_ms,
++                    id_hash.clone(),
++                    snapshot,
++                    snapshot_receipt,
++                    binding.participant_id.clone(),
++                    authority.issuer_epoch,
++                    binding.expires_at_ms,
++                )
++                .map_err(|_| self.audit_error())?;
++            records.insert(
++                id_hash,
++                ClearanceRecord {
++                    snapshot: snapshot.clone(),
++                    snapshot_receipt: snapshot_receipt.clone(),
++                    binding: binding.clone(),
++                    issuer_epoch: authority.issuer_epoch,
++                    issued_wall_ms: now.wall_ms,
++                    issued_monotonic_ms: now.monotonic_ms,
++                    monotonic_deadline_ms: deadline,
++                    lifecycle: ClearanceLifecycle::Issued,
++                },
++            );
++            return Ok(IssuedClearance {
++                token: ClearanceToken(raw_token),
++                snapshot_hash: binding.snapshot_hash,
++                participant_id: binding.participant_id,
++                registry_generation: binding.registry_generation,
++                issuer_epoch: authority.issuer_epoch,
++                issued_at_ms: now.wall_ms,
++                expires_at_ms: binding.expires_at_ms,
++            });
++        }
++        Err(ClearanceError::EntropyCollision)
++    }
++
++    /// Test-only entry for the B07 primitive. B09 must add the production entry by owning the
++    /// native registry read, B15 receipt resolution and executor CAS inside one admission fence;
++    /// accepting caller-supplied "current" state here would reintroduce a stale-read bypass.
++    #[cfg(test)]
++    fn begin_verified_for_test(
++        &self,
++        token: &str,
++        current: &VerifiedAssessmentSnapshot,
++        receipts: &ClearanceReceiptBundle,
++    ) -> Result<ClearancePermit, ClearanceError> {
++        let parsed = ParsedToken::parse(token)?;
++        let id_hash = clearance_identifier_hash(&parsed.identifier);
++        let mut records = self.lock_records()?;
++        let authority = self.authority()?;
++        let now = authority.clock.now()?;
++        let record = records
++            .get_mut(&id_hash)
++            .ok_or(ClearanceError::UnknownToken)?;
++        verify_token(authority, &parsed, record)?;
++        self.require_live_or_revoke(&id_hash, record, now)?;
++        self.begin_with_verified(&id_hash, record, current, receipts, authority, now)
++    }
++
++    fn begin_with_verified(
++        &self,
++        id_hash: &str,
++        record: &mut ClearanceRecord,
++        current: &VerifiedAssessmentSnapshot,
++        receipts: &ClearanceReceiptBundle,
++        authority: &NativeClearanceAuthority,
++        now: TrustedTime,
++    ) -> Result<ClearancePermit, ClearanceError> {
++        if record.lifecycle != ClearanceLifecycle::Issued {
++            return Err(ClearanceError::AlreadyUsed);
++        }
++        if self
++            .snapshots
++            .verify_receipt(&record.snapshot, &record.snapshot_receipt)
++            .is_err()
++        {
++            self.revoke_record(id_hash, record, now.wall_ms, "snapshot-store-drift")?;
++            return Err(ClearanceError::InvalidSnapshot);
++        }
++        if !self
++            .journal
++            .assessment_is_live(&record.snapshot, &record.snapshot_receipt)
++            .map_err(|_| self.audit_error())?
++        {
++            self.revoke_record(id_hash, record, now.wall_ms, "assessment-not-live")?;
++            return Err(ClearanceError::AssessmentNotRecorded);
++        }
++        // Snapshot and journal verification can block. Re-sample the native clock after those
++        // operations so a clearance that expired while waiting cannot enter Consuming.
++        let final_now = authority.clock.now()?;
++        self.require_live_or_revoke(id_hash, record, final_now)?;
++        let current_binding = match binding_from_snapshot(current, receipts, final_now.wall_ms) {
++            Ok(binding) => binding,
++            Err(_) => {
++                self.revoke_record(id_hash, record, final_now.wall_ms, "binding-drift")?;
++                return Err(ClearanceError::BindingMismatch);
++            }
++        };
++        if !record.binding.matches_current(&current_binding) {
++            self.revoke_record(id_hash, record, final_now.wall_ms, "binding-drift")?;
++            return Err(ClearanceError::BindingMismatch);
++        }
++        self.journal
++            .record_clearance_consuming(
++                final_now.wall_ms,
++                id_hash.to_string(),
++                record.binding.snapshot_hash.clone(),
++                record.binding.participant_id.clone(),
++                authority.issuer_epoch,
++            )
++            .map_err(|_| self.audit_error())?;
++        record.lifecycle = ClearanceLifecycle::Consuming {
++            wall_ms: final_now.wall_ms,
++            monotonic_ms: final_now.monotonic_ms,
++        };
++        Ok(ClearancePermit {
++            clearance_id_hash: id_hash.to_string(),
++            binding: record.binding.clone(),
++            issuer_epoch: record.issuer_epoch,
++            consuming_wall_ms: final_now.wall_ms,
++            consuming_monotonic_ms: final_now.monotonic_ms,
++            monotonic_deadline_ms: record.monotonic_deadline_ms,
++        })
++    }
++
++    pub(crate) fn revoke(&self, token: &str, reason_digest: &str) -> Result<(), ClearanceError> {
++        if !is_lower_sha256(reason_digest) {
++            return Err(ClearanceError::InvalidReceiptBinding);
++        }
++        let parsed = ParsedToken::parse(token)?;
++        let id_hash = clearance_identifier_hash(&parsed.identifier);
++        let mut records = self.lock_records()?;
++        let authority = self.authority()?;
++        let now = authority.clock.now()?;
++        let record = records
++            .get_mut(&id_hash)
++            .ok_or(ClearanceError::UnknownToken)?;
++        verify_token(authority, &parsed, record)?;
++        if matches!(
++            record.lifecycle,
++            ClearanceLifecycle::Consumed | ClearanceLifecycle::Revoked
++        ) {
++            return Err(ClearanceError::AlreadyUsed);
++        }
++        self.journal
++            .record_clearance_revoked(
++                now.wall_ms,
++                id_hash,
++                record.binding.snapshot_hash.clone(),
++                record.binding.participant_id.clone(),
++                record.issuer_epoch,
++                reason_digest.to_string(),
++            )
++            .map_err(|_| self.audit_error())?;
++        record.lifecycle = ClearanceLifecycle::Revoked;
++        Ok(())
++    }
++
++    fn revoke_record(
++        &self,
++        id_hash: &str,
++        record: &mut ClearanceRecord,
++        wall_ms: u64,
++        reason: &str,
++    ) -> Result<(), ClearanceError> {
++        let reason_digest = domain_hash(
++            b"perfect-planner:clearance-revocation:v1",
++            reason.as_bytes(),
++        );
++        let result = self.journal.record_clearance_revoked(
++            wall_ms,
++            id_hash.to_string(),
++            record.binding.snapshot_hash.clone(),
++            record.binding.participant_id.clone(),
++            record.issuer_epoch,
++            reason_digest,
++        );
++        match result {
++            Ok(_) => {
++                record.lifecycle = ClearanceLifecycle::Revoked;
++                Ok(())
++            }
++            Err(_) => Err(self.audit_error()),
++        }
++    }
++
++    fn require_live_or_revoke(
++        &self,
++        id_hash: &str,
++        record: &mut ClearanceRecord,
++        now: TrustedTime,
++    ) -> Result<(), ClearanceError> {
++        match live_error(record, now) {
++            None => Ok(()),
++            Some(ClearanceError::Expired) => {
++                self.revoke_record(id_hash, record, now.wall_ms, "expired")?;
++                Err(ClearanceError::Expired)
++            }
++            Some(ClearanceError::ClockRollback) => {
++                self.revoke_record(id_hash, record, now.wall_ms, "clock-rollback")?;
++                Err(ClearanceError::ClockRollback)
++            }
++            Some(error) => Err(error),
++        }
++    }
++
++    fn authority(&self) -> Result<&NativeClearanceAuthority, ClearanceError> {
++        self.authority
++            .as_ref()
++            .filter(|item| item.issuer_epoch > 0)
++            .ok_or(ClearanceError::AuthorityUnavailable)
++    }
++    fn lock_records(
++        &self,
++    ) -> Result<std::sync::MutexGuard<'_, BTreeMap<String, ClearanceRecord>>, ClearanceError> {
++        self.require_audit()?;
++        self.records
++            .lock()
++            .map_err(|_| ClearanceError::StoreUnavailable)
++    }
++    fn require_audit(&self) -> Result<(), ClearanceError> {
++        if self.audit_fail_stop.load(Ordering::Acquire) {
++            Err(ClearanceError::JournalUnavailable)
++        } else {
++            Ok(())
++        }
++    }
++    fn audit_error(&self) -> ClearanceError {
++        self.audit_fail_stop.store(true, Ordering::Release);
++        ClearanceError::JournalUnavailable
++    }
++}
++
++fn live_error(record: &ClearanceRecord, now: TrustedTime) -> Option<ClearanceError> {
++    if matches!(
++        record.lifecycle,
++        ClearanceLifecycle::Consumed | ClearanceLifecycle::Revoked
++    ) {
++        return Some(ClearanceError::AlreadyUsed);
++    }
++    if now.wall_ms < record.issued_wall_ms || now.monotonic_ms < record.issued_monotonic_ms {
++        return Some(ClearanceError::ClockRollback);
++    }
++    if now.wall_ms >= record.binding.expires_at_ms
++        || now.monotonic_ms >= record.monotonic_deadline_ms
++    {
++        return Some(ClearanceError::Expired);
++    }
++    None
++}
++
++fn binding_from_snapshot(
++    snapshot: &VerifiedAssessmentSnapshot,
++    receipts: &ClearanceReceiptBundle,
++    wall_ms: u64,
++) -> Result<ClearanceBinding, ClearanceError> {
++    if snapshot.verdict() != AssessmentVerdict::Clear
++        || !snapshot.conflicts().is_empty()
++        || snapshot.unknown_reason().is_some()
++    {
++        return Err(ClearanceError::NonClearAssessment);
++    }
++    if wall_ms < snapshot.captured_at_ms() || wall_ms >= snapshot.expires_at_ms() {
++        return Err(if wall_ms < snapshot.captured_at_ms() {
++            ClearanceError::ClockRollback
++        } else {
++            ClearanceError::Expired
++        });
++    }
++    for digest in [
++        &receipts.participant_id,
++        &receipts.discovery_revocation_digest,
++        &receipts.originating_chat_digest,
++        &receipts.approval_delivery_digest,
++    ] {
++        if !is_lower_sha256(digest) {
++            return Err(ClearanceError::InvalidReceiptBinding);
++        }
++    }
++    let participant = snapshot
++        .participants()
++        .binary_search_by(|candidate| candidate.participant_id.cmp(&receipts.participant_id))
++        .ok()
++        .map(|index| &snapshot.participants()[index])
++        .ok_or(ClearanceError::ParticipantUnavailable)?;
++    if participant.state != SnapshotClaimState::Planned {
++        return Err(ClearanceError::ParticipantNotClaimable);
++    }
++    Ok(binding_from_participant(snapshot, participant, receipts))
++}
++
++fn binding_from_participant(
++    snapshot: &VerifiedAssessmentSnapshot,
++    p: &SnapshotParticipant,
++    r: &ClearanceReceiptBundle,
++) -> ClearanceBinding {
++    ClearanceBinding {
++        snapshot_hash: snapshot.snapshot_hash().into(),
++        registry_generation: snapshot.registry_generation(),
++        census_input_digest: snapshot.census_input_digest().into(),
++        participant_id: p.participant_id.clone(),
++        planner_id: p.planner_id.clone(),
++        plan_id: p.plan_id.clone(),
++        node_id: p.node_id.clone(),
++        repository_identity: p.repository_identity.clone(),
++        worktree_identity: p.worktree_identity.clone(),
++        branch_digest: p.branch_digest.clone(),
++        plan_content_digest: p.plan_content_digest.clone(),
++        planner_manifest_digest: p.planner_manifest_digest.clone(),
++        claim_snapshot_digest: p.claim_snapshot_digest.clone(),
++        file_manifest_digest: p.file_manifest_digest.clone(),
++        resource_manifest_digest: p.resource_manifest_digest.clone(),
++        run_identity: p.run_identity.clone(),
++        worker_identity: p.worker_identity.clone(),
++        fence: p.fence,
++        lease_generation: p.lease_generation,
++        assumption_digest: p.assumption_digest.clone(),
++        policy_digest: p.policy_digest.clone(),
++        active_state_digest: p.active_state_digest.clone(),
++        discovery_revocation_digest: r.discovery_revocation_digest.clone(),
++        originating_chat_digest: r.originating_chat_digest.clone(),
++        approval_delivery_digest: r.approval_delivery_digest.clone(),
++        snapshot_captured_at_ms: snapshot.captured_at_ms(),
++        expires_at_ms: snapshot.expires_at_ms(),
++    }
++}
++
++fn verify_token(
++    authority: &NativeClearanceAuthority,
++    parsed: &ParsedToken,
++    record: &mut ClearanceRecord,
++) -> Result<(), ClearanceError> {
++    if authority.issuer_epoch != record.issuer_epoch {
++        return Err(ClearanceError::PriorIssuer);
++    }
++    let message =
++        clearance_mac_message(&parsed.identifier_hex, record.issuer_epoch, &record.binding)?;
++    let mut expected = authority.mac(&message);
++    let accepted = constant_time_equal(&expected, &parsed.mac);
++    expected.fill(0);
++    if accepted {
++        Ok(())
++    } else {
++        Err(ClearanceError::InvalidToken)
++    }
++}
++
++#[derive(Serialize)]
++#[serde(rename_all = "camelCase")]
++struct MacPayload<'a> {
++    token_version: &'static str,
++    identifier: &'a str,
++    issuer_epoch: u64,
++    binding: &'a ClearanceBinding,
++}
++
++fn clearance_mac_message(
++    identifier: &str,
++    epoch: u64,
++    binding: &ClearanceBinding,
++) -> Result<Vec<u8>, ClearanceError> {
++    let payload = serde_json::to_vec(&MacPayload {
++        token_version: TOKEN_PREFIX,
++        identifier,
++        issuer_epoch: epoch,
++        binding,
++    })
++    .map_err(|_| ClearanceError::AuthorityUnavailable)?;
++    let mut message = b"perfect-planner:clearance-mac:v1".to_vec();
++    message.extend_from_slice(&(payload.len() as u64).to_le_bytes());
++    message.extend_from_slice(&payload);
++    Ok(message)
++}
++
++struct ParsedToken {
++    identifier: [u8; TOKEN_BYTES],
++    identifier_hex: String,
++    mac: [u8; TOKEN_BYTES],
++}
++impl ParsedToken {
++    fn parse(token: &str) -> Result<Self, ClearanceError> {
++        let mut parts = token.split('.');
++        let prefix = parts.next().ok_or(ClearanceError::InvalidToken)?;
++        let identifier = parts.next().ok_or(ClearanceError::InvalidToken)?;
++        let mac = parts.next().ok_or(ClearanceError::InvalidToken)?;
++        if prefix != TOKEN_PREFIX || parts.next().is_some() {
++            return Err(ClearanceError::InvalidToken);
++        }
++        Ok(Self {
++            identifier: decode_lower_hex(identifier)?,
++            identifier_hex: identifier.into(),
++            mac: decode_lower_hex(mac)?,
++        })
++    }
++}
++impl Drop for ParsedToken {
++    fn drop(&mut self) {
++        self.identifier.fill(0);
++        self.mac.fill(0);
++        unsafe { self.identifier_hex.as_mut_vec().fill(0) };
++    }
++}
++
++fn decode_lower_hex<const N: usize>(value: &str) -> Result<[u8; N], ClearanceError> {
++    if value.len() != N * 2
++        || !value
++            .bytes()
++            .all(|b| b.is_ascii_digit() || matches!(b, b'a'..=b'f'))
++    {
++        return Err(ClearanceError::InvalidToken);
++    }
++    let mut output = [0_u8; N];
++    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
++        output[index] = (hex_nibble(pair[0])? << 4) | hex_nibble(pair[1])?;
++    }
++    Ok(output)
++}
++fn hex_nibble(value: u8) -> Result<u8, ClearanceError> {
++    match value {
++        b'0'..=b'9' => Ok(value - b'0'),
++        b'a'..=b'f' => Ok(value - b'a' + 10),
++        _ => Err(ClearanceError::InvalidToken),
++    }
++}
++fn clearance_identifier_hash(value: &[u8; TOKEN_BYTES]) -> String {
++    domain_hash(b"perfect-planner:clearance-id:v1", value)
++}
++fn domain_hash(domain: &[u8], value: &[u8]) -> String {
++    let mut digest = Sha256::new();
++    digest.update((domain.len() as u64).to_le_bytes());
++    digest.update(domain);
++    digest.update((value.len() as u64).to_le_bytes());
++    digest.update(value);
++    format!("{:x}", digest.finalize())
++}
++fn is_lower_sha256(value: &str) -> bool {
++    value.len() == 64
++        && value
++            .bytes()
++            .all(|b| b.is_ascii_digit() || matches!(b, b'a'..=b'f'))
++}
++fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
++    let mut difference = left.len() ^ right.len();
++    for index in 0..left.len().min(right.len()) {
++        difference |= usize::from(left[index] ^ right[index]);
++    }
++    difference == 0
++}
++fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
++    let mut key_block = [0_u8; 64];
++    if key.len() > 64 {
++        key_block[..32].copy_from_slice(&Sha256::digest(key));
++    } else {
++        key_block[..key.len()].copy_from_slice(key);
++    }
++    let mut inner_pad = [0x36_u8; 64];
++    let mut outer_pad = [0x5c_u8; 64];
++    for index in 0..64 {
++        inner_pad[index] ^= key_block[index];
++        outer_pad[index] ^= key_block[index];
++    }
++    let mut inner = Sha256::new();
++    inner.update(inner_pad);
++    inner.update(message);
++    let inner_hash = inner.finalize();
++    let mut outer = Sha256::new();
++    outer.update(outer_pad);
++    outer.update(inner_hash);
++    let result = outer.finalize().into();
++    key_block.fill(0);
++    inner_pad.fill(0);
++    outer_pad.fill(0);
++    result
++}
++fn hex_encode(bytes: &[u8]) -> String {
++    const HEX: &[u8; 16] = b"0123456789abcdef";
++    let mut output = String::with_capacity(bytes.len() * 2);
++    for byte in bytes {
++        output.push(HEX[(byte >> 4) as usize] as char);
++        output.push(HEX[(byte & 0x0f) as usize] as char);
++    }
++    output
++}
++
++#[cfg(windows)]
++fn fill_os_random(bytes: &mut [u8]) -> Result<(), ClearanceError> {
++    use std::ffi::c_void;
++    use std::ptr;
++    #[link(name = "bcrypt")]
++    extern "system" {
++        fn BCryptGenRandom(
++            algorithm: *mut c_void,
++            buffer: *mut u8,
++            buffer_len: u32,
++            flags: u32,
++        ) -> i32;
++    }
++    let length = u32::try_from(bytes.len()).map_err(|_| ClearanceError::EntropyUnavailable)?;
++    let status =
++        unsafe { BCryptGenRandom(ptr::null_mut(), bytes.as_mut_ptr(), length, 0x0000_0002) };
++    if status == 0 {
++        Ok(())
++    } else {
++        Err(ClearanceError::EntropyUnavailable)
++    }
++}
++#[cfg(unix)]
++fn fill_os_random(bytes: &mut [u8]) -> Result<(), ClearanceError> {
++    use std::{fs::File, io::Read};
++    File::open("/dev/urandom")
++        .and_then(|mut source| source.read_exact(bytes))
++        .map_err(|_| ClearanceError::EntropyUnavailable)
++}
++#[cfg(not(any(windows, unix)))]
++fn fill_os_random(_: &mut [u8]) -> Result<(), ClearanceError> {
++    Err(ClearanceError::EntropyUnavailable)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::collision_assessor::journal::JournalPayload;
++    use crate::collision_assessor::snapshot::tests::{
++        fixture_snapshot, fixture_snapshot_with_drift, FixtureSnapshotDrift,
++    };
++    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
++    use std::thread;
++    use std::time::{SystemTime, UNIX_EPOCH};
++
++    struct TestClock {
++        wall_ms: AtomicU64,
++        monotonic_ms: AtomicU64,
++    }
++
++    struct JumpClock {
++        calls: AtomicU64,
++    }
++
++    impl NativeClock for JumpClock {
++        fn now(&self) -> Result<TrustedTime, ClearanceError> {
++            let call = self.calls.fetch_add(1, AtomicOrdering::AcqRel);
++            Ok(if call < 2 {
++                TrustedTime {
++                    wall_ms: 1_100,
++                    monotonic_ms: 100 + call,
++                }
++            } else {
++                TrustedTime {
++                    wall_ms: 5_000,
++                    monotonic_ms: 4_000,
++                }
++            })
++        }
++    }
++
++    impl TestClock {
++        fn new(wall_ms: u64, monotonic_ms: u64) -> Self {
++            Self {
++                wall_ms: AtomicU64::new(wall_ms),
++                monotonic_ms: AtomicU64::new(monotonic_ms),
++            }
++        }
++
++        fn set(&self, wall_ms: u64, monotonic_ms: u64) {
++            self.wall_ms.store(wall_ms, AtomicOrdering::Release);
++            self.monotonic_ms
++                .store(monotonic_ms, AtomicOrdering::Release);
++        }
++    }
++
++    impl NativeClock for TestClock {
++        fn now(&self) -> Result<TrustedTime, ClearanceError> {
++            Ok(TrustedTime {
++                wall_ms: self.wall_ms.load(AtomicOrdering::Acquire),
++                monotonic_ms: self.monotonic_ms.load(AtomicOrdering::Acquire),
++            })
++        }
++    }
++
++    struct Rig {
++        store: Arc<ClearanceStore>,
++        snapshots: SnapshotStore,
++        journal: AssessmentJournal,
++        clock: Arc<TestClock>,
++        snapshot: VerifiedAssessmentSnapshot,
++        receipt: StoredSnapshotReceipt,
++        receipts: Arc<ClearanceReceiptBundle>,
++    }
++
++    fn rig(verdict: AssessmentVerdict) -> Rig {
++        let nonce = SystemTime::now()
++            .duration_since(UNIX_EPOCH)
++            .unwrap()
++            .as_nanos();
++        let root = std::env::temp_dir().join(format!(
++            "perfect-planner-clearance-{}-{nonce}",
++            std::process::id()
++        ));
++        let snapshots = SnapshotStore::new_for_test(root.join("snapshots"));
++        let journal = AssessmentJournal::new_live_for_test(root.join("assessment.jsonl"));
++        let snapshot = fixture_snapshot(verdict);
++        let receipt = snapshots.persist(&snapshot).unwrap();
++        journal
++            .record_assessment(&snapshot, &receipt, 1_000)
++            .unwrap();
++        let participant_id = snapshot.participants()[0].participant_id.clone();
++        let receipts = Arc::new(ClearanceReceiptBundle::for_test(
++            &participant_id,
++            &"f".repeat(64),
++        ));
++        let clock = Arc::new(TestClock::new(1_100, 100));
++        let clock_authority: Arc<dyn NativeClock> = clock.clone();
++        let store = Arc::new(ClearanceStore::new_for_test(
++            journal.clone(),
++            snapshots.clone(),
++            7,
++            [0x5a; TOKEN_BYTES],
++            clock_authority,
++        ));
++        Rig {
++            store,
++            snapshots,
++            journal,
++            clock,
++            snapshot,
++            receipt,
++            receipts,
++        }
++    }
++
++    fn issue(rig: &Rig) -> IssuedClearance {
++        rig.store
++            .issue_with_entropy(&rig.snapshot, &rig.receipt, &rig.receipts, |bytes| {
++                bytes.fill(0x7b);
++                Ok(())
++            })
++            .unwrap()
++    }
++
++    #[test]
++    fn production_constructor_is_fail_closed_without_native_authority() {
++        let rig = rig(AssessmentVerdict::Clear);
++        let disabled = ClearanceStore::new_disabled(rig.journal, rig.snapshots);
++        assert!(matches!(
++            disabled.issue(&rig.snapshot, &rig.receipt, &rig.receipts),
++            Err(ClearanceError::AuthorityUnavailable)
++        ));
++    }
++
++    #[test]
++    fn every_clearance_binding_field_rejects_drift() {
++        let rig = rig(AssessmentVerdict::Clear);
++        let binding = binding_from_snapshot(&rig.snapshot, &rig.receipts, 1_100).unwrap();
++        macro_rules! reject_drift {
++            ($field:ident, $value:expr) => {{
++                let mut changed = binding.clone();
++                changed.$field = $value;
++                assert!(
++                    !binding.matches_current(&changed),
++                    "{} drift was accepted",
++                    stringify!($field)
++                );
++            }};
++        }
++        reject_drift!(snapshot_hash, "f".repeat(64));
++        reject_drift!(registry_generation, binding.registry_generation + 1);
++        reject_drift!(census_input_digest, "f".repeat(64));
++        reject_drift!(participant_id, "f".repeat(64));
++        reject_drift!(planner_id, "planner-drift".into());
++        reject_drift!(plan_id, "plan-drift".into());
++        reject_drift!(node_id, "node-drift".into());
++        reject_drift!(repository_identity, "f".repeat(64));
++        reject_drift!(worktree_identity, "f".repeat(64));
++        reject_drift!(branch_digest, "f".repeat(64));
++        reject_drift!(plan_content_digest, "f".repeat(64));
++        reject_drift!(planner_manifest_digest, "f".repeat(64));
++        reject_drift!(claim_snapshot_digest, "f".repeat(64));
++        reject_drift!(file_manifest_digest, "f".repeat(64));
++        reject_drift!(resource_manifest_digest, "f".repeat(64));
++        reject_drift!(run_identity, "f".repeat(64));
++        reject_drift!(worker_identity, "f".repeat(64));
++        reject_drift!(fence, binding.fence + 1);
++        reject_drift!(lease_generation, binding.lease_generation + 1);
++        reject_drift!(assumption_digest, "f".repeat(64));
++        reject_drift!(policy_digest, "f".repeat(64));
++        reject_drift!(active_state_digest, "f".repeat(64));
++        reject_drift!(discovery_revocation_digest, "e".repeat(64));
++        reject_drift!(originating_chat_digest, "1".repeat(64));
++        reject_drift!(approval_delivery_digest, "e".repeat(64));
++        reject_drift!(snapshot_captured_at_ms, binding.snapshot_captured_at_ms + 1);
++        reject_drift!(expires_at_ms, binding.expires_at_ms + 1);
++    }
++
++    #[test]
++    fn valid_sealed_snapshot_and_receipt_drift_revokes_before_consuming() {
++        let drifts = [
++            FixtureSnapshotDrift::RegistryGeneration,
++            FixtureSnapshotDrift::CapturedAt,
++            FixtureSnapshotDrift::RepositoryIdentity,
++            FixtureSnapshotDrift::PlanContentDigest,
++            FixtureSnapshotDrift::PlannerManifestDigest,
++            FixtureSnapshotDrift::ClaimSnapshotDigest,
++            FixtureSnapshotDrift::FileManifestDigest,
++            FixtureSnapshotDrift::ResourceManifestDigest,
++            FixtureSnapshotDrift::RunIdentity,
++            FixtureSnapshotDrift::WorkerIdentity,
++            FixtureSnapshotDrift::Fence,
++            FixtureSnapshotDrift::LeaseGeneration,
++            FixtureSnapshotDrift::AssumptionDigest,
++            FixtureSnapshotDrift::PolicyDigest,
++            FixtureSnapshotDrift::ActiveStateDigest,
++        ];
++        for drift in drifts {
++            let rig = rig(AssessmentVerdict::Clear);
++            let issued = issue(&rig);
++            let current = fixture_snapshot_with_drift(drift);
++            assert!(
++                matches!(
++                    rig.store.begin_verified_for_test(
++                        issued.token.as_str(),
++                        &current,
++                        &rig.receipts,
++                    ),
++                    Err(ClearanceError::BindingMismatch)
++                ),
++                "{drift:?} was not rejected"
++            );
++            let events = rig.journal.read_verified().unwrap();
++            assert_eq!(
++                events
++                    .iter()
++                    .filter(|event| matches!(
++                        event.payload,
++                        JournalPayload::ClearanceRevoked { .. }
++                    ))
++                    .count(),
++                1,
++                "{drift:?} was not durably revoked"
++            );
++            assert!(!events
++                .iter()
++                .any(|event| matches!(event.payload, JournalPayload::ClearanceConsuming { .. })));
++            assert!(matches!(
++                rig.store.begin_verified_for_test(
++                    issued.token.as_str(),
++                    &rig.snapshot,
++                    &rig.receipts,
++                ),
++                Err(ClearanceError::AlreadyUsed)
++            ));
++        }
++
++        let participant_id = fixture_snapshot(AssessmentVerdict::Clear).participants()[0]
++            .participant_id
++            .clone();
++        for (name, receipts) in [
++            (
++                "discovery",
++                ClearanceReceiptBundle {
++                    participant_id: participant_id.clone(),
++                    discovery_revocation_digest: "1".repeat(64),
++                    originating_chat_digest: "e".repeat(64),
++                    approval_delivery_digest: "f".repeat(64),
++                },
++            ),
++            (
++                "chat",
++                ClearanceReceiptBundle {
++                    participant_id: participant_id.clone(),
++                    discovery_revocation_digest: "d".repeat(64),
++                    originating_chat_digest: "1".repeat(64),
++                    approval_delivery_digest: "f".repeat(64),
++                },
++            ),
++            (
++                "approval",
++                ClearanceReceiptBundle {
++                    participant_id: participant_id.clone(),
++                    discovery_revocation_digest: "d".repeat(64),
++                    originating_chat_digest: "e".repeat(64),
++                    approval_delivery_digest: "1".repeat(64),
++                },
++            ),
++        ] {
++            let rig = rig(AssessmentVerdict::Clear);
++            let issued = issue(&rig);
++            assert!(
++                matches!(
++                    rig.store.begin_verified_for_test(
++                        issued.token.as_str(),
++                        &rig.snapshot,
++                        &receipts,
++                    ),
++                    Err(ClearanceError::BindingMismatch)
++                ),
++                "{name} receipt drift was not rejected"
++            );
++            let events = rig.journal.read_verified().unwrap();
++            assert_eq!(
++                events
++                    .iter()
++                    .filter(|event| matches!(
++                        event.payload,
++                        JournalPayload::ClearanceRevoked { .. }
++                    ))
++                    .count(),
++                1
++            );
++            assert!(!events
++                .iter()
++                .any(|event| matches!(event.payload, JournalPayload::ClearanceConsuming { .. })));
++        }
++    }
++
++    #[test]
++    fn clearance_from_prior_issuer_epoch_is_denied_before_state_change() {
++        let rig = rig(AssessmentVerdict::Clear);
++        let issued = issue(&rig);
++        let parsed = ParsedToken::parse(issued.token.as_str()).unwrap();
++        let id_hash = clearance_identifier_hash(&parsed.identifier);
++        let record = rig
++            .store
++            .records
++            .lock()
++            .unwrap()
++            .get(&id_hash)
++            .unwrap()
++            .clone();
++        let rotated = ClearanceStore::new_for_test(
++            rig.journal.clone(),
++            rig.snapshots.clone(),
++            8,
++            [0x5a; TOKEN_BYTES],
++            rig.clock.clone(),
++        );
++        rotated
++            .records
++            .lock()
++            .unwrap()
++            .insert(id_hash.clone(), record);
++        assert!(matches!(
++            rotated.begin_verified_for_test(issued.token.as_str(), &rig.snapshot, &rig.receipts,),
++            Err(ClearanceError::PriorIssuer)
++        ));
++        assert_eq!(
++            rotated
++                .records
++                .lock()
++                .unwrap()
++                .get(&id_hash)
++                .unwrap()
++                .lifecycle,
++            ClearanceLifecycle::Issued
++        );
++        assert_eq!(rig.journal.read_verified().unwrap().len(), 2);
++    }
++
++    #[test]
++    fn expiry_during_snapshot_and_journal_revalidation_is_revoked() {
++        let rig = rig(AssessmentVerdict::Clear);
++        let clock: Arc<dyn NativeClock> = Arc::new(JumpClock {
++            calls: AtomicU64::new(0),
++        });
++        let store = ClearanceStore::new_for_test(
++            rig.journal.clone(),
++            rig.snapshots.clone(),
++            7,
++            [0x5a; TOKEN_BYTES],
++            clock,
++        );
++        let issued = store
++            .issue_with_entropy(&rig.snapshot, &rig.receipt, &rig.receipts, |bytes| {
++                bytes.fill(0x6c);
++                Ok(())
++            })
++            .unwrap();
++        assert!(matches!(
++            store.begin_verified_for_test(issued.token.as_str(), &rig.snapshot, &rig.receipts),
++            Err(ClearanceError::Expired)
++        ));
++        assert!(matches!(
++            rig.journal.read_verified().unwrap().last().unwrap().payload,
++            JournalPayload::ClearanceRevoked { .. }
++        ));
++    }
++
++    #[test]
++    fn only_clear_issues_and_token_debug_is_redacted() {
++        let clear = rig(AssessmentVerdict::Clear);
++        let issued = issue(&clear);
++        assert_eq!(format!("{:?}", issued.token), "ClearanceToken(<redacted>)");
++        assert!(!format!("{:?}", issued).contains(issued.token.as_str()));
++        let events = clear.journal.read_verified().unwrap();
++        assert_eq!(events.len(), 2);
++        assert!(matches!(
++            events[1].payload,
++            JournalPayload::ClearanceIssued { .. }
++        ));
++
++        let unknown = rig(AssessmentVerdict::Unknown);
++        assert!(matches!(
++            unknown
++                .store
++                .issue(&unknown.snapshot, &unknown.receipt, &unknown.receipts),
++            Err(ClearanceError::NonClearAssessment)
++        ));
++        assert_eq!(unknown.journal.read_verified().unwrap().len(), 1);
++    }
++
++    #[test]
++    fn one_hundred_simultaneous_replays_have_exactly_one_winner() {
++        let rig = rig(AssessmentVerdict::Clear);
++        let issued = issue(&rig);
++        let token = Arc::new(issued.token.as_str().to_string());
++        let workers = (0..100)
++            .map(|_| {
++                let store = Arc::clone(&rig.store);
++                let snapshot = rig.snapshot.clone();
++                let receipts = Arc::clone(&rig.receipts);
++                let token = Arc::clone(&token);
++                thread::spawn(move || store.begin_verified_for_test(&token, &snapshot, &receipts))
++            })
++            .collect::<Vec<_>>();
++        let winners = workers
++            .into_iter()
++            .map(|worker| worker.join().unwrap())
++            .filter(Result::is_ok)
++            .count();
++        assert_eq!(winners, 1);
++        let events = rig.journal.read_verified().unwrap();
++        assert_eq!(
++            events
++                .iter()
++                .filter(|event| matches!(event.payload, JournalPayload::ClearanceConsuming { .. }))
++                .count(),
++            1
++        );
++    }
++
++    #[test]
++    fn exact_expiry_is_denied_and_durably_revoked() {
++        let rig = rig(AssessmentVerdict::Clear);
++        let issued = issue(&rig);
++        rig.clock.set(issued.expires_at_ms, 4_000);
++        assert!(matches!(
++            rig.store
++                .begin_verified_for_test(issued.token.as_str(), &rig.snapshot, &rig.receipts),
++            Err(ClearanceError::Expired)
++        ));
++        let events = rig.journal.read_verified().unwrap();
++        assert!(matches!(
++            events.last().unwrap().payload,
++            JournalPayload::ClearanceRevoked { .. }
++        ));
++    }
++
++    #[test]
++    fn consuming_clearance_can_be_revoked_and_never_replayed() {
++        let rig = rig(AssessmentVerdict::Clear);
++        let issued = issue(&rig);
++        let permit = rig
++            .store
++            .begin_verified_for_test(issued.token.as_str(), &rig.snapshot, &rig.receipts)
++            .unwrap();
++        assert_eq!(permit.snapshot_hash(), rig.snapshot.snapshot_hash());
++        rig.store
++            .revoke(issued.token.as_str(), &"a".repeat(64))
++            .unwrap();
++        assert!(matches!(
++            rig.store
++                .begin_verified_for_test(issued.token.as_str(), &rig.snapshot, &rig.receipts),
++            Err(ClearanceError::AlreadyUsed)
++        ));
++        assert!(matches!(
++            rig.journal.read_verified().unwrap().last().unwrap().payload,
++            JournalPayload::ClearanceRevoked { .. }
++        ));
++    }
++
++    #[test]
++    fn snapshot_loss_before_consumption_revokes_instead_of_admitting() {
++        let rig = rig(AssessmentVerdict::Clear);
++        let issued = issue(&rig);
++        rig.snapshots.delete_for_test(rig.snapshot.snapshot_hash());
++        assert!(matches!(
++            rig.store
++                .begin_verified_for_test(issued.token.as_str(), &rig.snapshot, &rig.receipts),
++            Err(ClearanceError::InvalidSnapshot)
++        ));
++        assert!(matches!(
++            rig.journal.read_verified().unwrap().last().unwrap().payload,
++            JournalPayload::ClearanceRevoked { .. }
++        ));
++    }
++
++    #[test]
++    fn invalid_mac_neither_consumes_nor_appends() {
++        let rig = rig(AssessmentVerdict::Clear);
++        let issued = issue(&rig);
++        let mut forged = issued.token.as_str().to_string();
++        let replacement = if forged.ends_with('0') { '1' } else { '0' };
++        forged.pop();
++        forged.push(replacement);
++        assert!(matches!(
++            rig.store
++                .begin_verified_for_test(&forged, &rig.snapshot, &rig.receipts),
++            Err(ClearanceError::InvalidToken)
++        ));
++        assert_eq!(rig.journal.read_verified().unwrap().len(), 2);
++    }
++
++    #[test]
++    fn hmac_sha256_matches_rfc_4231_case_one() {
++        assert_eq!(
++            hex_encode(&hmac_sha256(&[0x0b; 20], b"Hi There")),
++            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
++        );
++    }
++}
+diff --git a/src-tauri/src/collision_assessor/journal.rs b/src-tauri/src/collision_assessor/journal.rs
+new file mode 100644
+index 0000000..b5ea2d0
+--- /dev/null
++++ b/src-tauri/src/collision_assessor/journal.rs
+@@ -0,0 +1,1527 @@
++//! Strict, append-only, hash-chained collision assessor audit journal.
++
++use super::snapshot::{AssessmentVerdict, StoredSnapshotReceipt, VerifiedAssessmentSnapshot};
++use serde::{Deserialize, Serialize};
++use sha2::{Digest, Sha256};
++use std::collections::{BTreeMap, BTreeSet};
++use std::fmt;
++use std::fs::{self, File, OpenOptions};
++use std::io::{self, Read, Seek, SeekFrom, Write};
++use std::path::{Path, PathBuf};
++use std::sync::{
++    atomic::{AtomicU8, Ordering},
++    Arc, Mutex,
++};
++use std::thread;
++use std::time::{Duration, Instant};
++
++const JOURNAL_SCHEMA_VERSION: u32 = 1;
++const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
++const MAX_JOURNAL_BYTES: u64 = 64 * 1024 * 1024;
++const MAX_LINE_BYTES: usize = 1024 * 1024;
++const MAX_EVENTS: usize = 200_000;
++const DEFAULT_LOCK_TIMEOUT: Duration = Duration::from_secs(5);
++const TRUST_LIVE_PROCESS: u8 = 1;
++const TRUST_RECOVERED_UNANCHORED: u8 = 2;
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
++pub(crate) enum JournalVerdict {
++    Clear,
++    Wait,
++    Replan,
++    UserDecision,
++    Unknown,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
++pub(crate) enum JournalPayload {
++    Assessment {
++        snapshot_hash: String,
++        registry_generation: u64,
++        census_input_digest: String,
++        verdict: JournalVerdict,
++        participant_count: u32,
++        participant_ids: Vec<String>,
++        conflict_count: u32,
++        captured_at_ms: u64,
++        expires_at_ms: u64,
++        encoded_bytes: u64,
++        store_binding: String,
++    },
++    Revocation {
++        snapshot_hash: String,
++        reason_digest: String,
++    },
++    ConflictTicket {
++        snapshot_hash: String,
++        conflict_id: String,
++        disposition: String,
++    },
++    ClearanceIssued {
++        clearance_id_hash: String,
++        snapshot_hash: String,
++        participant_id: String,
++        issuer_epoch: u64,
++        expires_at_ms: u64,
++    },
++    ClearanceConsuming {
++        clearance_id_hash: String,
++        snapshot_hash: String,
++        participant_id: String,
++        issuer_epoch: u64,
++    },
++    ClearanceConsumed {
++        clearance_id_hash: String,
++        snapshot_hash: String,
++        participant_id: String,
++        issuer_epoch: u64,
++        executor_receipt_digest: String,
++    },
++    ClearanceRevoked {
++        clearance_id_hash: String,
++        snapshot_hash: String,
++        participant_id: String,
++        issuer_epoch: u64,
++        reason_digest: String,
++    },
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase", deny_unknown_fields)]
++pub(crate) struct JournalEvent {
++    pub(crate) schema_version: u32,
++    pub(crate) sequence: u64,
++    pub(crate) previous_hash: String,
++    pub(crate) recorded_at_ms: u64,
++    pub(crate) payload: JournalPayload,
++    pub(crate) event_hash: String,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++struct HighWater {
++    sequence: u64,
++    event_hash: String,
++    file_len: u64,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++enum ClearanceJournalState {
++    Issued,
++    Consuming,
++    Consumed,
++    Revoked,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++struct ClearanceJournalRecord {
++    snapshot_hash: String,
++    participant_id: String,
++    issuer_epoch: u64,
++    expires_at_ms: u64,
++    state: ClearanceJournalState,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++struct AssessmentJournalRecord {
++    live: bool,
++    verdict: JournalVerdict,
++    participant_ids: BTreeSet<String>,
++    conflict_count: u32,
++    expires_at_ms: u64,
++}
++
++#[derive(Default)]
++struct ReplayState {
++    assessments: BTreeMap<String, AssessmentJournalRecord>,
++    clearances: BTreeMap<String, ClearanceJournalRecord>,
++    conflict_tickets: BTreeSet<(String, String)>,
++}
++
++impl ReplayState {
++    fn apply(&mut self, payload: &JournalPayload, recorded_at_ms: u64) -> Result<(), JournalError> {
++        match payload {
++            JournalPayload::Assessment {
++                snapshot_hash,
++                verdict,
++                participant_ids,
++                conflict_count,
++                expires_at_ms,
++                ..
++            } => {
++                if self
++                    .assessments
++                    .insert(
++                        snapshot_hash.clone(),
++                        AssessmentJournalRecord {
++                            live: true,
++                            verdict: *verdict,
++                            participant_ids: participant_ids.iter().cloned().collect(),
++                            conflict_count: *conflict_count,
++                            expires_at_ms: *expires_at_ms,
++                        },
++                    )
++                    .is_some()
++                {
++                    return Err(JournalError::InvalidEvent);
++                }
++            }
++            JournalPayload::Revocation { snapshot_hash, .. } => {
++                let Some(live) = self.assessments.get_mut(snapshot_hash) else {
++                    return Err(JournalError::InvalidEvent);
++                };
++                if !live.live {
++                    return Err(JournalError::InvalidEvent);
++                }
++                live.live = false;
++            }
++            JournalPayload::ConflictTicket {
++                snapshot_hash,
++                conflict_id,
++                ..
++            } => {
++                let Some(assessment) = self.assessments.get(snapshot_hash) else {
++                    return Err(JournalError::InvalidEvent);
++                };
++                if !assessment.live
++                    || assessment.conflict_count == 0
++                    || !self
++                        .conflict_tickets
++                        .insert((snapshot_hash.clone(), conflict_id.clone()))
++                {
++                    return Err(JournalError::InvalidEvent);
++                }
++            }
++            JournalPayload::ClearanceIssued {
++                clearance_id_hash,
++                snapshot_hash,
++                participant_id,
++                issuer_epoch,
++                expires_at_ms,
++            } => {
++                let Some(assessment) = self.assessments.get(snapshot_hash) else {
++                    return Err(JournalError::InvalidEvent);
++                };
++                if !assessment.live
++                    || assessment.verdict != JournalVerdict::Clear
++                    || assessment.conflict_count != 0
++                    || !assessment.participant_ids.contains(participant_id)
++                    || *expires_at_ms > assessment.expires_at_ms
++                    || *expires_at_ms <= recorded_at_ms
++                    || self.clearances.contains_key(clearance_id_hash)
++                {
++                    return Err(JournalError::InvalidEvent);
++                }
++                self.clearances.insert(
++                    clearance_id_hash.clone(),
++                    ClearanceJournalRecord {
++                        snapshot_hash: snapshot_hash.clone(),
++                        participant_id: participant_id.clone(),
++                        issuer_epoch: *issuer_epoch,
++                        expires_at_ms: *expires_at_ms,
++                        state: ClearanceJournalState::Issued,
++                    },
++                );
++            }
++            JournalPayload::ClearanceConsuming {
++                clearance_id_hash,
++                snapshot_hash,
++                participant_id,
++                issuer_epoch,
++            } => {
++                if !self.transition_is_live(clearance_id_hash, snapshot_hash, recorded_at_ms) {
++                    return Err(JournalError::InvalidEvent);
++                }
++                self.transition_clearance(
++                    clearance_id_hash,
++                    snapshot_hash,
++                    participant_id,
++                    *issuer_epoch,
++                    &[ClearanceJournalState::Issued],
++                    ClearanceJournalState::Consuming,
++                )?;
++            }
++            JournalPayload::ClearanceConsumed {
++                clearance_id_hash,
++                snapshot_hash,
++                participant_id,
++                issuer_epoch,
++                ..
++            } => {
++                if !self.transition_is_live(clearance_id_hash, snapshot_hash, recorded_at_ms) {
++                    return Err(JournalError::InvalidEvent);
++                }
++                self.transition_clearance(
++                    clearance_id_hash,
++                    snapshot_hash,
++                    participant_id,
++                    *issuer_epoch,
++                    &[ClearanceJournalState::Consuming],
++                    ClearanceJournalState::Consumed,
++                )?;
++            }
++            JournalPayload::ClearanceRevoked {
++                clearance_id_hash,
++                snapshot_hash,
++                participant_id,
++                issuer_epoch,
++                ..
++            } => self.transition_clearance(
++                clearance_id_hash,
++                snapshot_hash,
++                participant_id,
++                *issuer_epoch,
++                &[
++                    ClearanceJournalState::Issued,
++                    ClearanceJournalState::Consuming,
++                ],
++                ClearanceJournalState::Revoked,
++            )?,
++        }
++        Ok(())
++    }
++
++    fn transition_clearance(
++        &mut self,
++        clearance_id_hash: &str,
++        snapshot_hash: &str,
++        participant_id: &str,
++        issuer_epoch: u64,
++        allowed: &[ClearanceJournalState],
++        next: ClearanceJournalState,
++    ) -> Result<(), JournalError> {
++        let Some(record) = self.clearances.get_mut(clearance_id_hash) else {
++            return Err(JournalError::InvalidEvent);
++        };
++        if record.snapshot_hash != snapshot_hash
++            || record.participant_id != participant_id
++            || record.issuer_epoch != issuer_epoch
++            || !allowed.contains(&record.state)
++        {
++            return Err(JournalError::InvalidEvent);
++        }
++        record.state = next;
++        Ok(())
++    }
++
++    fn transition_is_live(
++        &self,
++        clearance_id_hash: &str,
++        snapshot_hash: &str,
++        recorded_at_ms: u64,
++    ) -> bool {
++        let Some(assessment) = self.assessments.get(snapshot_hash) else {
++            return false;
++        };
++        let Some(clearance) = self.clearances.get(clearance_id_hash) else {
++            return false;
++        };
++        assessment.live
++            && recorded_at_ms < assessment.expires_at_ms
++            && recorded_at_ms < clearance.expires_at_ms
++    }
++}
++
++pub(crate) enum JournalError {
++    InvalidEvent,
++    CorruptChain,
++    TornTail,
++    RollbackDetected,
++    LimitExceeded,
++    LockTimeout,
++    Io(io::Error),
++    Json(serde_json::Error),
++}
++
++impl fmt::Debug for JournalError {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        fmt::Display::fmt(self, formatter)
++    }
++}
++
++impl fmt::Display for JournalError {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        match self {
++            Self::InvalidEvent => formatter.write_str("journal event is invalid"),
++            Self::CorruptChain => formatter.write_str("journal chain is corrupt"),
++            Self::TornTail => formatter.write_str("journal has an unterminated tail"),
++            Self::RollbackDetected => {
++                formatter.write_str("journal rolled behind its live high-water")
++            }
++            Self::LimitExceeded => formatter.write_str("journal exceeds a hard bound"),
++            Self::LockTimeout => formatter.write_str("journal lock timed out"),
++            Self::Io(_) => formatter.write_str("journal I/O failed"),
++            Self::Json(_) => formatter.write_str("journal serialization failed"),
++        }
++    }
++}
++
++impl From<io::Error> for JournalError {
++    fn from(value: io::Error) -> Self {
++        Self::Io(value)
++    }
++}
++
++impl From<serde_json::Error> for JournalError {
++    fn from(value: serde_json::Error) -> Self {
++        Self::Json(value)
++    }
++}
++
++#[derive(Clone)]
++pub(crate) struct AssessmentJournal {
++    path: PathBuf,
++    lock_timeout: Duration,
++    high_water: Arc<Mutex<Option<HighWater>>>,
++    trust: Arc<AtomicU8>,
++}
++
++impl fmt::Debug for AssessmentJournal {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter
++            .debug_struct("AssessmentJournal")
++            .field("path", &"<native-app-data>")
++            .field("authority_ready", &self.clearance_authority_ready())
++            .finish()
++    }
++}
++
++impl AssessmentJournal {
++    /// Recovered journals are never clearance-authoritative without an external native anchor.
++    /// B20 owns the only future production path that may establish a trusted first-install epoch.
++    pub(crate) fn new(path: impl Into<PathBuf>) -> Self {
++        Self {
++            path: path.into(),
++            lock_timeout: DEFAULT_LOCK_TIMEOUT,
++            high_water: Arc::new(Mutex::new(None)),
++            trust: Arc::new(AtomicU8::new(TRUST_RECOVERED_UNANCHORED)),
++        }
++    }
++
++    #[cfg(test)]
++    pub(crate) fn new_live_for_test(path: impl Into<PathBuf>) -> Self {
++        Self {
++            path: path.into(),
++            lock_timeout: DEFAULT_LOCK_TIMEOUT,
++            high_water: Arc::new(Mutex::new(None)),
++            trust: Arc::new(AtomicU8::new(TRUST_LIVE_PROCESS)),
++        }
++    }
++
++    #[cfg(test)]
++    fn with_lock_timeout(path: impl Into<PathBuf>, lock_timeout: Duration) -> Self {
++        Self {
++            path: path.into(),
++            lock_timeout,
++            high_water: Arc::new(Mutex::new(None)),
++            trust: Arc::new(AtomicU8::new(TRUST_RECOVERED_UNANCHORED)),
++        }
++    }
++
++    fn append(
++        &self,
++        recorded_at_ms: u64,
++        payload: JournalPayload,
++    ) -> Result<JournalEvent, JournalError> {
++        if recorded_at_ms == 0 {
++            return Err(JournalError::InvalidEvent);
++        }
++        validate_payload(&payload)?;
++        if let Some(parent) = self.path.parent() {
++            fs::create_dir_all(parent)?;
++        }
++        let lock_path = lock_path(&self.path);
++        let _lock = JournalLock::acquire(&lock_path, self.lock_timeout)?;
++        let mut file = OpenOptions::new()
++            .create(true)
++            .read(true)
++            .write(true)
++            .open(&self.path)?;
++        let protected_len = self
++            .high_water
++            .lock()
++            .map_err(|_| JournalError::RollbackDetected)?
++            .as_ref()
++            .map(|water| water.file_len);
++        let (events, repaired) = load_chain(&mut file, true, protected_len)?;
++        if repaired {
++            file.sync_all()?;
++        }
++        let file_len = file.metadata()?.len();
++        self.enforce_high_water(events.last(), file_len)?;
++        let last = events.last().cloned();
++        let mut replay = replay_events(&events)?;
++        if last
++            .as_ref()
++            .is_some_and(|event| event.sequence as usize >= MAX_EVENTS)
++            || file_len >= MAX_JOURNAL_BYTES
++        {
++            return Err(JournalError::LimitExceeded);
++        }
++        let sequence = last
++            .as_ref()
++            .map_or(1, |event| event.sequence.saturating_add(1));
++        if sequence == 0 {
++            return Err(JournalError::LimitExceeded);
++        }
++        let previous_hash = last.as_ref().map_or_else(
++            || GENESIS_HASH.to_string(),
++            |event| event.event_hash.clone(),
++        );
++        let mut event = JournalEvent {
++            schema_version: JOURNAL_SCHEMA_VERSION,
++            sequence,
++            previous_hash,
++            recorded_at_ms,
++            payload,
++            event_hash: String::new(),
++        };
++        event.event_hash = event_hash(&event)?;
++        validate_event(&event, last.as_ref())?;
++        replay.apply(&event.payload, event.recorded_at_ms)?;
++        let mut encoded = serde_json::to_vec(&event)?;
++        encoded.push(b'\n');
++        if encoded.len() > MAX_LINE_BYTES
++            || file_len
++                .checked_add(encoded.len() as u64)
++                .is_none_or(|size| size > MAX_JOURNAL_BYTES)
++        {
++            return Err(JournalError::LimitExceeded);
++        }
++        file.seek(SeekFrom::End(0))?;
++        file.write_all(&encoded)?;
++        file.sync_all()?;
++        let end = file_len + encoded.len() as u64;
++        self.set_high_water(&event, end)?;
++        Ok(event)
++    }
++
++    pub(crate) fn read_verified(&self) -> Result<Vec<JournalEvent>, JournalError> {
++        if let Some(parent) = self.path.parent() {
++            fs::create_dir_all(parent)?;
++        }
++        let _lock = JournalLock::acquire(&lock_path(&self.path), self.lock_timeout)?;
++        let mut file = match OpenOptions::new().read(true).open(&self.path) {
++            Ok(file) => file,
++            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
++            Err(error) => return Err(error.into()),
++        };
++        let (events, _) = load_chain(&mut file, false, None)?;
++        let file_len = file.metadata()?.len();
++        self.enforce_high_water(events.last(), file_len)?;
++        replay_events(&events)?;
++        Ok(events)
++    }
++
++    pub(crate) fn clearance_authority_ready(&self) -> bool {
++        self.trust.load(Ordering::Acquire) == TRUST_LIVE_PROCESS
++    }
++
++    pub(crate) fn record_assessment(
++        &self,
++        snapshot: &VerifiedAssessmentSnapshot,
++        receipt: &StoredSnapshotReceipt,
++        recorded_at_ms: u64,
++    ) -> Result<JournalEvent, JournalError> {
++        if !receipt.matches(snapshot) {
++            return Err(JournalError::InvalidEvent);
++        }
++        self.append(
++            recorded_at_ms,
++            JournalPayload::Assessment {
++                snapshot_hash: snapshot.snapshot_hash().to_string(),
++                registry_generation: snapshot.registry_generation(),
++                census_input_digest: snapshot.census_input_digest().to_string(),
++                verdict: snapshot.verdict().into(),
++                participant_count: u32::try_from(snapshot.participants().len())
++                    .map_err(|_| JournalError::LimitExceeded)?,
++                participant_ids: snapshot
++                    .participants()
++                    .iter()
++                    .map(|participant| participant.participant_id.clone())
++                    .collect(),
++                conflict_count: u32::try_from(snapshot.conflicts().len())
++                    .map_err(|_| JournalError::LimitExceeded)?,
++                captured_at_ms: snapshot.captured_at_ms(),
++                expires_at_ms: snapshot.expires_at_ms(),
++                encoded_bytes: receipt.encoded_bytes(),
++                store_binding: receipt.store_binding().to_string(),
++            },
++        )
++    }
++
++    pub(crate) fn assessment_is_live(
++        &self,
++        snapshot: &VerifiedAssessmentSnapshot,
++        receipt: &StoredSnapshotReceipt,
++    ) -> Result<bool, JournalError> {
++        if !receipt.matches(snapshot) {
++            return Ok(false);
++        }
++        let expected = JournalPayload::Assessment {
++            snapshot_hash: snapshot.snapshot_hash().to_string(),
++            registry_generation: snapshot.registry_generation(),
++            census_input_digest: snapshot.census_input_digest().to_string(),
++            verdict: snapshot.verdict().into(),
++            participant_count: u32::try_from(snapshot.participants().len())
++                .map_err(|_| JournalError::LimitExceeded)?,
++            participant_ids: snapshot
++                .participants()
++                .iter()
++                .map(|participant| participant.participant_id.clone())
++                .collect(),
++            conflict_count: u32::try_from(snapshot.conflicts().len())
++                .map_err(|_| JournalError::LimitExceeded)?,
++            captured_at_ms: snapshot.captured_at_ms(),
++            expires_at_ms: snapshot.expires_at_ms(),
++            encoded_bytes: receipt.encoded_bytes(),
++            store_binding: receipt.store_binding().to_string(),
++        };
++        let events = self.read_verified()?;
++        let mut found = false;
++        let mut revoked = false;
++        for event in events {
++            match event.payload {
++                payload if payload == expected => found = true,
++                JournalPayload::Revocation { snapshot_hash, .. }
++                    if snapshot_hash == snapshot.snapshot_hash() =>
++                {
++                    revoked = true;
++                }
++                _ => {}
++            }
++        }
++        Ok(found && !revoked)
++    }
++
++    pub(crate) fn record_clearance_issued(
++        &self,
++        recorded_at_ms: u64,
++        clearance_id_hash: String,
++        snapshot: &VerifiedAssessmentSnapshot,
++        receipt: &StoredSnapshotReceipt,
++        participant_id: String,
++        issuer_epoch: u64,
++        expires_at_ms: u64,
++    ) -> Result<JournalEvent, JournalError> {
++        if !self.clearance_authority_ready()
++            || !receipt.matches(snapshot)
++            || snapshot.verdict() != AssessmentVerdict::Clear
++            || !snapshot.conflicts().is_empty()
++            || !snapshot
++                .participants()
++                .iter()
++                .any(|participant| participant.participant_id == participant_id)
++            || expires_at_ms > snapshot.expires_at_ms()
++            || expires_at_ms <= recorded_at_ms
++        {
++            return Err(JournalError::InvalidEvent);
++        }
++        self.append(
++            recorded_at_ms,
++            JournalPayload::ClearanceIssued {
++                clearance_id_hash,
++                snapshot_hash: snapshot.snapshot_hash().to_string(),
++                participant_id,
++                issuer_epoch,
++                expires_at_ms,
++            },
++        )
++    }
++
++    pub(crate) fn record_revocation(
++        &self,
++        recorded_at_ms: u64,
++        snapshot_hash: String,
++        reason_digest: String,
++    ) -> Result<JournalEvent, JournalError> {
++        self.append(
++            recorded_at_ms,
++            JournalPayload::Revocation {
++                snapshot_hash,
++                reason_digest,
++            },
++        )
++    }
++
++    pub(crate) fn record_clearance_consuming(
++        &self,
++        recorded_at_ms: u64,
++        clearance_id_hash: String,
++        snapshot_hash: String,
++        participant_id: String,
++        issuer_epoch: u64,
++    ) -> Result<JournalEvent, JournalError> {
++        if !self.clearance_authority_ready() {
++            return Err(JournalError::InvalidEvent);
++        }
++        self.append(
++            recorded_at_ms,
++            JournalPayload::ClearanceConsuming {
++                clearance_id_hash,
++                snapshot_hash,
++                participant_id,
++                issuer_epoch,
++            },
++        )
++    }
++
++    pub(crate) fn record_clearance_consumed(
++        &self,
++        recorded_at_ms: u64,
++        clearance_id_hash: String,
++        snapshot_hash: String,
++        participant_id: String,
++        issuer_epoch: u64,
++        executor_receipt_digest: String,
++    ) -> Result<JournalEvent, JournalError> {
++        if !self.clearance_authority_ready() {
++            return Err(JournalError::InvalidEvent);
++        }
++        self.append(
++            recorded_at_ms,
++            JournalPayload::ClearanceConsumed {
++                clearance_id_hash,
++                snapshot_hash,
++                participant_id,
++                issuer_epoch,
++                executor_receipt_digest,
++            },
++        )
++    }
++
++    pub(crate) fn record_clearance_revoked(
++        &self,
++        recorded_at_ms: u64,
++        clearance_id_hash: String,
++        snapshot_hash: String,
++        participant_id: String,
++        issuer_epoch: u64,
++        reason_digest: String,
++    ) -> Result<JournalEvent, JournalError> {
++        self.append(
++            recorded_at_ms,
++            JournalPayload::ClearanceRevoked {
++                clearance_id_hash,
++                snapshot_hash,
++                participant_id,
++                issuer_epoch,
++                reason_digest,
++            },
++        )
++    }
++
++    fn enforce_high_water(
++        &self,
++        last: Option<&JournalEvent>,
++        file_len: u64,
++    ) -> Result<(), JournalError> {
++        let mut high_water = self
++            .high_water
++            .lock()
++            .map_err(|_| JournalError::RollbackDetected)?;
++        if let Some(expected) = high_water.as_ref() {
++            let actual_sequence = last.map_or(0, |event| event.sequence);
++            let actual_hash = last.map_or(GENESIS_HASH, |event| event.event_hash.as_str());
++            if actual_sequence < expected.sequence
++                || (actual_sequence == expected.sequence && actual_hash != expected.event_hash)
++                || file_len < expected.file_len
++            {
++                return Err(JournalError::RollbackDetected);
++            }
++        }
++        if let Some(event) = last {
++            *high_water = Some(HighWater {
++                sequence: event.sequence,
++                event_hash: event.event_hash.clone(),
++                file_len,
++            });
++        }
++        Ok(())
++    }
++
++    fn set_high_water(&self, event: &JournalEvent, file_len: u64) -> Result<(), JournalError> {
++        let mut high_water = self
++            .high_water
++            .lock()
++            .map_err(|_| JournalError::RollbackDetected)?;
++        *high_water = Some(HighWater {
++            sequence: event.sequence,
++            event_hash: event.event_hash.clone(),
++            file_len,
++        });
++        Ok(())
++    }
++}
++
++fn load_chain(
++    file: &mut File,
++    repair_torn_tail: bool,
++    protected_len: Option<u64>,
++) -> Result<(Vec<JournalEvent>, bool), JournalError> {
++    let size = file.metadata()?.len();
++    if size > MAX_JOURNAL_BYTES {
++        return Err(JournalError::LimitExceeded);
++    }
++    file.seek(SeekFrom::Start(0))?;
++    let mut bytes = Vec::with_capacity(size as usize);
++    file.take(MAX_JOURNAL_BYTES + 1).read_to_end(&mut bytes)?;
++    if bytes.len() as u64 > MAX_JOURNAL_BYTES {
++        return Err(JournalError::LimitExceeded);
++    }
++    let mut repaired = false;
++    if !bytes.is_empty() && bytes.last() != Some(&b'\n') {
++        let tail_start = bytes
++            .iter()
++            .rposition(|byte| *byte == b'\n')
++            .map_or(0, |index| index + 1);
++        let tail = &bytes[tail_start..];
++        let prefix_events = parse_complete_lines(&bytes[..tail_start])?;
++        let parsed_tail = serde_json::from_slice::<JournalEvent>(tail)
++            .ok()
++            .filter(|event| validate_event(event, prefix_events.last()).is_ok());
++        if !repair_torn_tail
++            || protected_len.is_none_or(|committed| (tail_start as u64) < committed)
++        {
++            return Err(JournalError::TornTail);
++        }
++        if parsed_tail.is_some() {
++            file.seek(SeekFrom::End(0))?;
++            file.write_all(b"\n")?;
++            bytes.push(b'\n');
++        } else {
++            file.set_len(tail_start as u64)?;
++            file.seek(SeekFrom::Start(tail_start as u64))?;
++            bytes.truncate(tail_start);
++        }
++        repaired = true;
++    }
++    Ok((parse_complete_lines(&bytes)?, repaired))
++}
++
++fn parse_complete_lines(bytes: &[u8]) -> Result<Vec<JournalEvent>, JournalError> {
++    let mut events = Vec::new();
++    let mut replay = ReplayState::default();
++    let lines = bytes.split(|byte| *byte == b'\n').collect::<Vec<_>>();
++    for (index, line) in lines.iter().enumerate() {
++        if line.is_empty() {
++            if index + 1 != lines.len() {
++                return Err(JournalError::CorruptChain);
++            }
++            continue;
++        }
++        if line.len() > MAX_LINE_BYTES || events.len() >= MAX_EVENTS {
++            return Err(JournalError::LimitExceeded);
++        }
++        let event: JournalEvent =
++            serde_json::from_slice(line).map_err(|_| JournalError::CorruptChain)?;
++        validate_event(&event, events.last())?;
++        replay
++            .apply(&event.payload, event.recorded_at_ms)
++            .map_err(|_| JournalError::CorruptChain)?;
++        events.push(event);
++    }
++    Ok(events)
++}
++
++fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, JournalError> {
++    let mut state = ReplayState::default();
++    for event in events {
++        state.apply(&event.payload, event.recorded_at_ms)?;
++    }
++    Ok(state)
++}
++
++fn validate_event(
++    event: &JournalEvent,
++    previous: Option<&JournalEvent>,
++) -> Result<(), JournalError> {
++    let expected_sequence = previous.map_or(1, |prior| prior.sequence.saturating_add(1));
++    let expected_previous = previous.map_or(GENESIS_HASH, |prior| prior.event_hash.as_str());
++    if event.schema_version != JOURNAL_SCHEMA_VERSION
++        || event.sequence != expected_sequence
++        || event.sequence == 0
++        || event.previous_hash != expected_previous
++        || event.recorded_at_ms == 0
++        || !is_sha256(&event.previous_hash)
++        || !is_sha256(&event.event_hash)
++        || event_hash(event)? != event.event_hash
++    {
++        return Err(JournalError::CorruptChain);
++    }
++    validate_payload(&event.payload)
++}
++
++fn validate_payload(payload: &JournalPayload) -> Result<(), JournalError> {
++    let valid = match payload {
++        JournalPayload::Assessment {
++            snapshot_hash,
++            registry_generation,
++            census_input_digest,
++            verdict,
++            participant_count,
++            participant_ids,
++            conflict_count,
++            captured_at_ms,
++            expires_at_ms,
++            encoded_bytes,
++            store_binding,
++        } => {
++            is_sha256(snapshot_hash)
++                && *registry_generation > 0
++                && is_sha256(census_input_digest)
++                && *participant_count > 0
++                && usize::try_from(*participant_count) == Ok(participant_ids.len())
++                && participant_ids
++                    .iter()
++                    .all(|participant_id| is_sha256(participant_id))
++                && participant_ids.windows(2).all(|pair| pair[0] < pair[1])
++                && (*verdict != JournalVerdict::Clear || *conflict_count == 0)
++                && *captured_at_ms > 0
++                && *expires_at_ms > *captured_at_ms
++                && *encoded_bytes > 0
++                && is_sha256(store_binding)
++        }
++        JournalPayload::Revocation {
++            snapshot_hash,
++            reason_digest,
++        } => is_sha256(snapshot_hash) && is_sha256(reason_digest),
++        JournalPayload::ConflictTicket {
++            snapshot_hash,
++            conflict_id,
++            disposition,
++        } => {
++            is_sha256(snapshot_hash)
++                && is_sha256(conflict_id)
++                && matches!(disposition.as_str(), "WAIT" | "REPLAN" | "USER_DECISION")
++        }
++        JournalPayload::ClearanceIssued {
++            clearance_id_hash,
++            snapshot_hash,
++            participant_id,
++            issuer_epoch,
++            expires_at_ms,
++        } => {
++            is_sha256(clearance_id_hash)
++                && is_sha256(snapshot_hash)
++                && is_sha256(participant_id)
++                && *issuer_epoch > 0
++                && *expires_at_ms > 0
++        }
++        JournalPayload::ClearanceConsuming {
++            clearance_id_hash,
++            snapshot_hash,
++            participant_id,
++            issuer_epoch,
++        } => {
++            is_sha256(clearance_id_hash)
++                && is_sha256(snapshot_hash)
++                && is_sha256(participant_id)
++                && *issuer_epoch > 0
++        }
++        JournalPayload::ClearanceConsumed {
++            clearance_id_hash,
++            snapshot_hash,
++            participant_id,
++            issuer_epoch,
++            executor_receipt_digest,
++        } => {
++            is_sha256(clearance_id_hash)
++                && is_sha256(snapshot_hash)
++                && is_sha256(participant_id)
++                && *issuer_epoch > 0
++                && is_sha256(executor_receipt_digest)
++        }
++        JournalPayload::ClearanceRevoked {
++            clearance_id_hash,
++            snapshot_hash,
++            participant_id,
++            issuer_epoch,
++            reason_digest,
++        } => {
++            is_sha256(clearance_id_hash)
++                && is_sha256(snapshot_hash)
++                && is_sha256(participant_id)
++                && *issuer_epoch > 0
++                && is_sha256(reason_digest)
++        }
++    };
++    if valid {
++        Ok(())
++    } else {
++        Err(JournalError::InvalidEvent)
++    }
++}
++
++impl From<AssessmentVerdict> for JournalVerdict {
++    fn from(value: AssessmentVerdict) -> Self {
++        match value {
++            AssessmentVerdict::Clear => Self::Clear,
++            AssessmentVerdict::Wait => Self::Wait,
++            AssessmentVerdict::Replan => Self::Replan,
++            AssessmentVerdict::UserDecision => Self::UserDecision,
++            AssessmentVerdict::Unknown => Self::Unknown,
++        }
++    }
++}
++
++fn event_hash(event: &JournalEvent) -> Result<String, JournalError> {
++    #[derive(Serialize)]
++    #[serde(rename_all = "camelCase")]
++    struct HashPayload<'a> {
++        schema_version: u32,
++        sequence: u64,
++        previous_hash: &'a str,
++        recorded_at_ms: u64,
++        payload: &'a JournalPayload,
++    }
++    let bytes = serde_json::to_vec(&HashPayload {
++        schema_version: event.schema_version,
++        sequence: event.sequence,
++        previous_hash: &event.previous_hash,
++        recorded_at_ms: event.recorded_at_ms,
++        payload: &event.payload,
++    })?;
++    let mut digest = Sha256::new();
++    digest.update(b"perfect-planner:assessment-journal-event:v1");
++    digest.update((bytes.len() as u64).to_le_bytes());
++    digest.update(bytes);
++    Ok(format!("{:x}", digest.finalize()))
++}
++
++fn is_sha256(value: &str) -> bool {
++    value.len() == 64
++        && value
++            .bytes()
++            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
++}
++
++fn lock_path(path: &Path) -> PathBuf {
++    let mut name = path
++        .file_name()
++        .map_or_else(|| "assessment.jsonl".into(), |value| value.to_os_string());
++    name.push(".lock");
++    path.with_file_name(name)
++}
++
++#[cfg(windows)]
++struct JournalLock {
++    handle: *mut std::ffi::c_void,
++}
++
++#[cfg(windows)]
++impl JournalLock {
++    fn acquire(path: &Path, timeout: Duration) -> Result<Self, JournalError> {
++        use std::os::windows::ffi::OsStrExt;
++        use std::ptr;
++
++        #[link(name = "kernel32")]
++        extern "system" {
++            fn CreateFileW(
++                name: *const u16,
++                access: u32,
++                share_mode: u32,
++                security: *mut std::ffi::c_void,
++                creation: u32,
++                flags: u32,
++                template: *mut std::ffi::c_void,
++            ) -> *mut std::ffi::c_void;
++        }
++        const GENERIC_READ: u32 = 0x8000_0000;
++        const GENERIC_WRITE: u32 = 0x4000_0000;
++        const OPEN_ALWAYS: u32 = 4;
++        const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
++        const INVALID_HANDLE_VALUE: *mut std::ffi::c_void = -1_isize as *mut std::ffi::c_void;
++
++        let encoded = path
++            .as_os_str()
++            .encode_wide()
++            .chain(std::iter::once(0))
++            .collect::<Vec<_>>();
++        let started = Instant::now();
++        let mut attempt = 0usize;
++        loop {
++            let handle = unsafe {
++                CreateFileW(
++                    encoded.as_ptr(),
++                    GENERIC_READ | GENERIC_WRITE,
++                    0,
++                    ptr::null_mut(),
++                    OPEN_ALWAYS,
++                    FILE_ATTRIBUTE_NORMAL,
++                    ptr::null_mut(),
++                )
++            };
++            if handle != INVALID_HANDLE_VALUE {
++                return Ok(Self { handle });
++            }
++            let error = io::Error::last_os_error();
++            if !matches!(error.raw_os_error(), Some(5 | 32 | 33)) {
++                return Err(error.into());
++            }
++            if started.elapsed() >= timeout {
++                return Err(JournalError::LockTimeout);
++            }
++            thread::sleep(retry_delay(attempt));
++            attempt = attempt.saturating_add(1);
++        }
++    }
++}
++
++#[cfg(windows)]
++impl Drop for JournalLock {
++    fn drop(&mut self) {
++        #[link(name = "kernel32")]
++        extern "system" {
++            fn CloseHandle(handle: *mut std::ffi::c_void) -> i32;
++        }
++        unsafe {
++            CloseHandle(self.handle);
++        }
++    }
++}
++
++#[cfg(not(windows))]
++struct JournalLock {
++    path: PathBuf,
++}
++
++#[cfg(not(windows))]
++impl JournalLock {
++    fn acquire(path: &Path, timeout: Duration) -> Result<Self, JournalError> {
++        let started = Instant::now();
++        let mut attempt = 0usize;
++        loop {
++            match OpenOptions::new().write(true).create_new(true).open(path) {
++                Ok(mut file) => {
++                    file.write_all(b"locked\n")?;
++                    file.sync_all()?;
++                    return Ok(Self {
++                        path: path.to_path_buf(),
++                    });
++                }
++                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
++                    if started.elapsed() >= timeout {
++                        return Err(JournalError::LockTimeout);
++                    }
++                    thread::sleep(retry_delay(attempt));
++                    attempt = attempt.saturating_add(1);
++                }
++                Err(error) => return Err(error.into()),
++            }
++        }
++    }
++}
++
++#[cfg(not(windows))]
++impl Drop for JournalLock {
++    fn drop(&mut self) {
++        let _ = fs::remove_file(&self.path);
++    }
++}
++
++fn retry_delay(attempt: usize) -> Duration {
++    const DELAYS_MS: [u64; 6] = [2, 4, 8, 16, 25, 40];
++    Duration::from_millis(DELAYS_MS[attempt.min(DELAYS_MS.len() - 1)])
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::sync::Arc;
++    use std::time::{SystemTime, UNIX_EPOCH};
++
++    fn temp_journal(name: &str) -> AssessmentJournal {
++        let nonce = SystemTime::now()
++            .duration_since(UNIX_EPOCH)
++            .unwrap()
++            .as_nanos();
++        AssessmentJournal::new_live_for_test(std::env::temp_dir().join(format!(
++            "perfect-planner-journal-{name}-{}-{nonce}/assessment.jsonl",
++            std::process::id()
++        )))
++    }
++
++    fn assessment(index: usize) -> JournalPayload {
++        JournalPayload::Assessment {
++            snapshot_hash: format!("{index:064x}"),
++            registry_generation: 7,
++            census_input_digest: "a".repeat(64),
++            verdict: JournalVerdict::Clear,
++            participant_count: 1,
++            participant_ids: vec!["d".repeat(64)],
++            conflict_count: 0,
++            captured_at_ms: 900,
++            expires_at_ms: 5_000,
++            encoded_bytes: 512,
++            store_binding: "b".repeat(64),
++        }
++    }
++
++    fn issued(clearance: &str, snapshot: &str, participant: &str) -> JournalPayload {
++        JournalPayload::ClearanceIssued {
++            clearance_id_hash: clearance.to_string(),
++            snapshot_hash: snapshot.to_string(),
++            participant_id: participant.to_string(),
++            issuer_epoch: 7,
++            expires_at_ms: 5_000,
++        }
++    }
++
++    fn consuming(clearance: &str, snapshot: &str, participant: &str) -> JournalPayload {
++        JournalPayload::ClearanceConsuming {
++            clearance_id_hash: clearance.to_string(),
++            snapshot_hash: snapshot.to_string(),
++            participant_id: participant.to_string(),
++            issuer_epoch: 7,
++        }
++    }
++
++    #[test]
++    fn concurrent_appenders_produce_one_complete_hash_chain() {
++        let journal = Arc::new(temp_journal("concurrent"));
++        let workers = (1..=100)
++            .map(|index| {
++                let journal = Arc::clone(&journal);
++                thread::spawn(move || journal.append(1_000 + index as u64, assessment(index)))
++            })
++            .collect::<Vec<_>>();
++        for worker in workers {
++            worker.join().unwrap().unwrap();
++        }
++        let events = journal.read_verified().unwrap();
++        assert_eq!(events.len(), 100);
++        assert_eq!(events.first().unwrap().sequence, 1);
++        assert_eq!(events.last().unwrap().sequence, 100);
++        for pair in events.windows(2) {
++            assert_eq!(pair[1].previous_hash, pair[0].event_hash);
++        }
++        let _ = fs::remove_dir_all(journal.path.parent().unwrap());
++    }
++
++    #[test]
++    fn malformed_torn_tail_is_truncated_but_middle_corruption_blocks_append() {
++        let journal = temp_journal("torn");
++        journal.append(1_000, assessment(1)).unwrap();
++        {
++            let mut file = OpenOptions::new().append(true).open(&journal.path).unwrap();
++            file.write_all(b"{\"torn\":").unwrap();
++            file.sync_all().unwrap();
++        }
++        journal.append(1_001, assessment(2)).unwrap();
++        assert_eq!(journal.read_verified().unwrap().len(), 2);
++
++        let mut bytes = fs::read(&journal.path).unwrap();
++        let first_newline = bytes.iter().position(|byte| *byte == b'\n').unwrap();
++        bytes[first_newline / 2] ^= 1;
++        fs::write(&journal.path, bytes).unwrap();
++        assert!(matches!(
++            journal.append(1_002, assessment(3)),
++            Err(JournalError::CorruptChain | JournalError::RollbackDetected)
++        ));
++        let _ = fs::remove_dir_all(journal.path.parent().unwrap());
++    }
++
++    #[test]
++    fn damage_to_a_committed_final_newline_is_not_silently_repaired() {
++        let journal = temp_journal("newline");
++        journal.append(1_000, assessment(1)).unwrap();
++        let mut bytes = fs::read(&journal.path).unwrap();
++        assert_eq!(bytes.pop(), Some(b'\n'));
++        fs::write(&journal.path, bytes).unwrap();
++        assert!(matches!(
++            journal.append(1_001, assessment(2)),
++            Err(JournalError::TornTail | JournalError::RollbackDetected)
++        ));
++        let _ = fs::remove_dir_all(journal.path.parent().unwrap());
++    }
++
++    #[test]
++    fn live_high_water_rejects_full_file_rollback() {
++        let journal = temp_journal("rollback");
++        journal.append(1_000, assessment(1)).unwrap();
++        let first = fs::read(&journal.path).unwrap();
++        journal.append(1_001, assessment(2)).unwrap();
++        fs::write(&journal.path, first).unwrap();
++        assert!(matches!(
++            journal.read_verified(),
++            Err(JournalError::RollbackDetected)
++        ));
++        let _ = fs::remove_dir_all(journal.path.parent().unwrap());
++    }
++
++    #[test]
++    fn restarted_history_is_unanchored_and_cannot_authorize_clearance() {
++        let journal = temp_journal("restart-unanchored");
++        journal.append(1_000, assessment(1)).unwrap();
++        let prefix = fs::read(&journal.path).unwrap();
++        journal.append(1_001, assessment(2)).unwrap();
++        assert!(journal.clearance_authority_ready());
++
++        let exact_restart = AssessmentJournal::new(&journal.path);
++        assert_eq!(exact_restart.read_verified().unwrap().len(), 2);
++        assert!(!exact_restart.clearance_authority_ready());
++
++        fs::write(&journal.path, prefix).unwrap();
++        let rolled_back_restart = AssessmentJournal::new(&journal.path);
++        assert_eq!(rolled_back_restart.read_verified().unwrap().len(), 1);
++        assert!(!rolled_back_restart.clearance_authority_ready());
++        rolled_back_restart.append(1_002, assessment(3)).unwrap();
++        assert!(!rolled_back_restart.clearance_authority_ready());
++        let _ = fs::remove_dir_all(journal.path.parent().unwrap());
++    }
++
++    #[test]
++    fn missing_or_zeroed_history_after_restart_never_becomes_authoritative() {
++        for zero_file in [false, true] {
++            let journal = temp_journal(if zero_file {
++                "restart-zeroed"
++            } else {
++                "restart-missing"
++            });
++            journal.append(1_000, assessment(1)).unwrap();
++            journal
++                .record_revocation(1_001, format!("{:064x}", 1), "a".repeat(64))
++                .unwrap();
++            let path = journal.path.clone();
++            drop(journal);
++
++            if zero_file {
++                fs::write(&path, []).unwrap();
++            } else {
++                fs::remove_file(&path).unwrap();
++            }
++            let restarted = AssessmentJournal::new(&path);
++            assert!(restarted.read_verified().unwrap().is_empty());
++            assert!(!restarted.clearance_authority_ready());
++            restarted.append(1_002, assessment(2)).unwrap();
++            assert!(!restarted.clearance_authority_ready());
++            let _ = fs::remove_dir_all(path.parent().unwrap());
++        }
++    }
++
++    #[test]
++    fn lock_timeout_does_not_append() {
++        let journal = temp_journal("lock-timeout");
++        if let Some(parent) = journal.path.parent() {
++            fs::create_dir_all(parent).unwrap();
++        }
++        let lock = JournalLock::acquire(&lock_path(&journal.path), Duration::from_secs(1)).unwrap();
++        let contender =
++            AssessmentJournal::with_lock_timeout(&journal.path, Duration::from_millis(5));
++        assert!(matches!(
++            contender.append(1_000, assessment(1)),
++            Err(JournalError::LockTimeout)
++        ));
++        drop(lock);
++        assert!(!journal.path.exists());
++        let _ = fs::remove_dir_all(journal.path.parent().unwrap());
++    }
++
++    #[test]
++    fn complete_blank_lines_are_rejected_without_imposing_cross_writer_clock_order() {
++        let journal = temp_journal("strict-lines-time");
++        journal.append(1_000, assessment(1)).unwrap();
++        journal.append(999, assessment(2)).unwrap();
++        assert_eq!(journal.read_verified().unwrap().len(), 2);
++
++        let mut file = OpenOptions::new().append(true).open(&journal.path).unwrap();
++        file.write_all(b"\n").unwrap();
++        file.sync_all().unwrap();
++        drop(file);
++        assert!(matches!(
++            journal.read_verified(),
++            Err(JournalError::CorruptChain | JournalError::RollbackDetected)
++        ));
++        let _ = fs::remove_dir_all(journal.path.parent().unwrap());
++    }
++
++    #[test]
++    fn clearance_lifecycle_is_ordered_single_use_and_binding_exact() {
++        let journal = temp_journal("clearance-lifecycle");
++        let snapshot = format!("{:064x}", 1);
++        let clearance = "c".repeat(64);
++        let participant = "d".repeat(64);
++        journal.append(1_000, assessment(1)).unwrap();
++
++        assert!(matches!(
++            journal.append(1_001, consuming(&clearance, &snapshot, &participant)),
++            Err(JournalError::InvalidEvent)
++        ));
++        journal
++            .append(1_002, issued(&clearance, &snapshot, &participant))
++            .unwrap();
++        assert!(matches!(
++            journal.append(1_003, issued(&clearance, &snapshot, &participant)),
++            Err(JournalError::InvalidEvent)
++        ));
++        assert!(matches!(
++            journal.append(1_004, consuming(&clearance, &snapshot, &"e".repeat(64))),
++            Err(JournalError::InvalidEvent)
++        ));
++        journal
++            .append(1_005, consuming(&clearance, &snapshot, &participant))
++            .unwrap();
++        journal
++            .append(
++                1_006,
++                JournalPayload::ClearanceRevoked {
++                    clearance_id_hash: clearance.clone(),
++                    snapshot_hash: snapshot.clone(),
++                    participant_id: participant.clone(),
++                    issuer_epoch: 7,
++                    reason_digest: "f".repeat(64),
++                },
++            )
++            .unwrap();
++        assert!(matches!(
++            journal.append(
++                1_007,
++                JournalPayload::ClearanceConsumed {
++                    clearance_id_hash: clearance,
++                    snapshot_hash: snapshot,
++                    participant_id: participant,
++                    issuer_epoch: 7,
++                    executor_receipt_digest: "a".repeat(64),
++                }
++            ),
++            Err(JournalError::InvalidEvent)
++        ));
++        assert_eq!(journal.read_verified().unwrap().len(), 4);
++        let _ = fs::remove_dir_all(journal.path.parent().unwrap());
++    }
++
++    #[test]
++    fn snapshot_revocation_is_single_and_blocks_new_clearance() {
++        let journal = temp_journal("snapshot-revocation");
++        let snapshot = format!("{:064x}", 1);
++        journal.append(1_000, assessment(1)).unwrap();
++        journal
++            .record_revocation(1_001, snapshot.clone(), "a".repeat(64))
++            .unwrap();
++        assert!(matches!(
++            journal.record_revocation(1_002, snapshot.clone(), "b".repeat(64)),
++            Err(JournalError::InvalidEvent)
++        ));
++        assert!(matches!(
++            journal.append(1_003, issued(&"c".repeat(64), &snapshot, &"d".repeat(64))),
++            Err(JournalError::InvalidEvent)
++        ));
++        assert_eq!(journal.read_verified().unwrap().len(), 2);
++        let _ = fs::remove_dir_all(journal.path.parent().unwrap());
++    }
++
++    #[test]
++    fn non_clear_foreign_and_expired_clearance_events_are_rejected() {
++        for (index, verdict) in [
++            JournalVerdict::Wait,
++            JournalVerdict::Replan,
++            JournalVerdict::UserDecision,
++            JournalVerdict::Unknown,
++        ]
++        .into_iter()
++        .enumerate()
++        {
++            let journal = temp_journal(&format!("non-clear-{index}"));
++            let mut payload = assessment(index + 1);
++            let JournalPayload::Assessment {
++                verdict: stored_verdict,
++                conflict_count,
++                ..
++            } = &mut payload
++            else {
++                unreachable!();
++            };
++            *stored_verdict = verdict;
++            *conflict_count = 1;
++            let snapshot = format!("{:064x}", index + 1);
++            journal.append(1_000, payload).unwrap();
++            assert!(matches!(
++                journal.append(1_001, issued(&"c".repeat(64), &snapshot, &"d".repeat(64))),
++                Err(JournalError::InvalidEvent)
++            ));
++            assert_eq!(journal.read_verified().unwrap().len(), 1);
++            let _ = fs::remove_dir_all(journal.path.parent().unwrap());
++        }
++
++        let journal = temp_journal("foreign-expired");
++        let snapshot = format!("{:064x}", 9);
++        journal.append(1_000, assessment(9)).unwrap();
++        assert!(matches!(
++            journal.append(1_001, issued(&"c".repeat(64), &snapshot, &"e".repeat(64))),
++            Err(JournalError::InvalidEvent)
++        ));
++        let mut expired = issued(&"f".repeat(64), &snapshot, &"d".repeat(64));
++        let JournalPayload::ClearanceIssued { expires_at_ms, .. } = &mut expired else {
++            unreachable!();
++        };
++        *expires_at_ms = 1_002;
++        assert!(matches!(
++            journal.append(1_002, expired),
++            Err(JournalError::InvalidEvent)
++        ));
++        assert_eq!(journal.read_verified().unwrap().len(), 1);
++        let _ = fs::remove_dir_all(journal.path.parent().unwrap());
++    }
++
++    #[test]
++    fn snapshot_revocation_between_consuming_and_consumed_blocks_commit() {
++        let journal = temp_journal("revoke-during-consume");
++        let snapshot = format!("{:064x}", 1);
++        let clearance = "c".repeat(64);
++        let participant = "d".repeat(64);
++        journal.append(1_000, assessment(1)).unwrap();
++        journal
++            .append(1_001, issued(&clearance, &snapshot, &participant))
++            .unwrap();
++        journal
++            .append(1_002, consuming(&clearance, &snapshot, &participant))
++            .unwrap();
++        journal
++            .record_revocation(1_003, snapshot.clone(), "a".repeat(64))
++            .unwrap();
++        assert!(matches!(
++            journal.append(
++                1_004,
++                JournalPayload::ClearanceConsumed {
++                    clearance_id_hash: clearance,
++                    snapshot_hash: snapshot,
++                    participant_id: participant,
++                    issuer_epoch: 7,
++                    executor_receipt_digest: "b".repeat(64),
++                }
++            ),
++            Err(JournalError::InvalidEvent)
++        ));
++        assert_eq!(journal.read_verified().unwrap().len(), 4);
++        let _ = fs::remove_dir_all(journal.path.parent().unwrap());
++    }
++
++    #[test]
++    fn expired_or_unanchored_clearance_transition_never_appends() {
++        let journal = temp_journal("transition-expiry-anchor");
++        let snapshot = format!("{:064x}", 1);
++        let clearance = "c".repeat(64);
++        let participant = "d".repeat(64);
++        journal.append(1_000, assessment(1)).unwrap();
++        journal
++            .append(1_001, issued(&clearance, &snapshot, &participant))
++            .unwrap();
++        assert!(matches!(
++            journal.append(5_000, consuming(&clearance, &snapshot, &participant)),
++            Err(JournalError::InvalidEvent)
++        ));
++        assert_eq!(journal.read_verified().unwrap().len(), 2);
++
++        let restarted = AssessmentJournal::new(&journal.path);
++        assert_eq!(restarted.read_verified().unwrap().len(), 2);
++        assert!(!restarted.clearance_authority_ready());
++        assert!(matches!(
++            restarted.record_clearance_consuming(1_002, clearance, snapshot, participant, 7,),
++            Err(JournalError::InvalidEvent)
++        ));
++        assert_eq!(restarted.read_verified().unwrap().len(), 2);
++        let _ = fs::remove_dir_all(journal.path.parent().unwrap());
++    }
++}
+diff --git a/src-tauri/src/collision_assessor/mod.rs b/src-tauri/src/collision_assessor/mod.rs
+index 5ea1f1c..125d815 100644
+--- a/src-tauri/src/collision_assessor/mod.rs
++++ b/src-tauri/src/collision_assessor/mod.rs
+@@ -1,8 +1,11 @@
+ pub(crate) mod analyzer;
+ pub mod api;
+ pub mod capability;
++pub(crate) mod clearance;
+ pub mod collector_process;
+ pub mod discovery;
+ pub mod identity;
++pub(crate) mod journal;
+ pub mod model;
+ pub mod registry;
++pub(crate) mod snapshot;
+diff --git a/src-tauri/src/collision_assessor/snapshot.rs b/src-tauri/src/collision_assessor/snapshot.rs
+new file mode 100644
+index 0000000..9dc2de0
+--- /dev/null
++++ b/src-tauri/src/collision_assessor/snapshot.rs
+@@ -0,0 +1,1352 @@
++//! Immutable, path-free collision assessment snapshots.
++
++use super::analyzer::{
++    analyze_registry_read, AnalysisUnknownReason, CollisionAnalysis, CollisionBasis,
++};
++use super::journal::{AssessmentJournal, JournalError};
++use super::model::{ActiveClaimState, CollisionVerdict, ConflictDisposition};
++use super::registry::RegistryRead;
++use serde::{Deserialize, Serialize};
++use sha2::{Digest, Sha256};
++use std::collections::{BTreeMap, BTreeSet};
++use std::fmt;
++use std::fs::{self, File, OpenOptions};
++use std::io::{self, Read, Write};
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicU64, Ordering};
++
++pub(crate) const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
++const MAX_SNAPSHOT_TTL_MS: u64 = 10 * 60 * 1_000;
++const MAX_SNAPSHOT_BYTES: u64 = 64 * 1024 * 1024;
++const MAX_PARTICIPANTS: usize = 4_096;
++const MAX_CONFLICTS: usize = 16_384;
++const MAX_DEPENDENCY_EDGES: usize = 65_536;
++static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
++pub(crate) enum AssessmentVerdict {
++    Clear,
++    Wait,
++    Replan,
++    UserDecision,
++    Unknown,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
++pub(crate) enum SnapshotUnknownReason {
++    RegistryUnknown,
++    InvalidRegistry,
++    InvalidCensus,
++    StaleCensus,
++    IncompleteCoverage,
++    InvalidManifest,
++    InvalidClaimSnapshot,
++    InvalidActiveContract,
++    MissingDisposition,
++    ContradictoryDisposition,
++    MixedDispositions,
++    LimitExceeded,
++}
++
++impl From<AnalysisUnknownReason> for SnapshotUnknownReason {
++    fn from(value: AnalysisUnknownReason) -> Self {
++        match value {
++            AnalysisUnknownReason::RegistryUnknown => Self::RegistryUnknown,
++            AnalysisUnknownReason::InvalidRegistry => Self::InvalidRegistry,
++            AnalysisUnknownReason::InvalidCensus => Self::InvalidCensus,
++            AnalysisUnknownReason::StaleCensus => Self::StaleCensus,
++            AnalysisUnknownReason::IncompleteCoverage => Self::IncompleteCoverage,
++            AnalysisUnknownReason::InvalidManifest => Self::InvalidManifest,
++            AnalysisUnknownReason::InvalidClaimSnapshot => Self::InvalidClaimSnapshot,
++            AnalysisUnknownReason::InvalidActiveContract => Self::InvalidActiveContract,
++            AnalysisUnknownReason::MissingDisposition => Self::MissingDisposition,
++            AnalysisUnknownReason::ContradictoryDisposition => Self::ContradictoryDisposition,
++            AnalysisUnknownReason::MixedDispositions => Self::MixedDispositions,
++            AnalysisUnknownReason::LimitExceeded => Self::LimitExceeded,
++        }
++    }
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
++pub(crate) enum SnapshotClaimState {
++    Planned,
++    Claimed,
++    Running,
++    Waiting,
++    Completed,
++    Released,
++}
++
++impl From<ActiveClaimState> for SnapshotClaimState {
++    fn from(value: ActiveClaimState) -> Self {
++        match value {
++            ActiveClaimState::Planned => Self::Planned,
++            ActiveClaimState::Claimed => Self::Claimed,
++            ActiveClaimState::Running => Self::Running,
++            ActiveClaimState::Waiting => Self::Waiting,
++            ActiveClaimState::Completed => Self::Completed,
++            ActiveClaimState::Released => Self::Released,
++        }
++    }
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase", deny_unknown_fields)]
++pub(crate) struct SnapshotParticipant {
++    pub(crate) participant_id: String,
++    pub(crate) planner_id: String,
++    pub(crate) plan_id: String,
++    pub(crate) node_id: String,
++    pub(crate) repository_identity: String,
++    pub(crate) worktree_identity: String,
++    pub(crate) branch_digest: String,
++    pub(crate) plan_content_digest: String,
++    pub(crate) planner_manifest_digest: String,
++    pub(crate) claim_snapshot_digest: String,
++    pub(crate) file_manifest_digest: String,
++    pub(crate) resource_manifest_digest: String,
++    pub(crate) run_identity: String,
++    pub(crate) worker_identity: String,
++    pub(crate) fence: u64,
++    pub(crate) lease_generation: u64,
++    pub(crate) state: SnapshotClaimState,
++    pub(crate) dependencies: Vec<String>,
++    pub(crate) assumption_digest: String,
++    pub(crate) policy_digest: String,
++    pub(crate) active_state_digest: String,
++    pub(crate) observed_at_ms: u64,
++    pub(crate) expires_at_ms: u64,
++}
++
++impl From<CollisionVerdict> for AssessmentVerdict {
++    fn from(value: CollisionVerdict) -> Self {
++        match value {
++            CollisionVerdict::Clear => Self::Clear,
++            CollisionVerdict::Wait => Self::Wait,
++            CollisionVerdict::Replan => Self::Replan,
++            CollisionVerdict::UserDecision => Self::UserDecision,
++            CollisionVerdict::Unknown => Self::Unknown,
++        }
++    }
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
++#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
++pub(crate) enum SnapshotConflictBasis {
++    ExactFile,
++    PhysicalAlias,
++    DirectoryPrefix,
++    Resource,
++}
++
++impl From<CollisionBasis> for SnapshotConflictBasis {
++    fn from(value: CollisionBasis) -> Self {
++        match value {
++            CollisionBasis::ExactFile => Self::ExactFile,
++            CollisionBasis::PhysicalAlias => Self::PhysicalAlias,
++            CollisionBasis::DirectoryPrefix => Self::DirectoryPrefix,
++            CollisionBasis::Resource => Self::Resource,
++        }
++    }
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase", deny_unknown_fields)]
++pub(crate) struct SnapshotConflict {
++    pub(crate) conflict_id: String,
++    pub(crate) left_participant_id: String,
++    pub(crate) right_participant_id: String,
++    pub(crate) left_claim_id: String,
++    pub(crate) right_claim_id: String,
++    pub(crate) bases: Vec<SnapshotConflictBasis>,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub(crate) disposition: Option<ConflictDisposition>,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase", deny_unknown_fields)]
++struct AssessmentSnapshot {
++    schema_version: u32,
++    registry_generation: u64,
++    census_input_digest: String,
++    participants: Vec<SnapshotParticipant>,
++    conflicts: Vec<SnapshotConflict>,
++    verdict: AssessmentVerdict,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    unknown_reason: Option<SnapshotUnknownReason>,
++    captured_at_ms: u64,
++    expires_at_ms: u64,
++    snapshot_hash: String,
++}
++
++/// Unforgeable in production: only this module can wrap a validated, internally analyzed census.
++#[derive(Clone, PartialEq, Eq)]
++pub(crate) struct VerifiedAssessmentSnapshot(AssessmentSnapshot);
++
++impl fmt::Debug for VerifiedAssessmentSnapshot {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter
++            .debug_struct("VerifiedAssessmentSnapshot")
++            .field("snapshot_hash", &self.0.snapshot_hash)
++            .field("registry_generation", &self.0.registry_generation)
++            .field("verdict", &self.0.verdict)
++            .field("participant_count", &self.0.participants.len())
++            .field("conflict_count", &self.0.conflicts.len())
++            .finish()
++    }
++}
++
++impl VerifiedAssessmentSnapshot {
++    pub(crate) fn snapshot_hash(&self) -> &str {
++        &self.0.snapshot_hash
++    }
++
++    pub(crate) fn registry_generation(&self) -> u64 {
++        self.0.registry_generation
++    }
++
++    pub(crate) fn census_input_digest(&self) -> &str {
++        &self.0.census_input_digest
++    }
++
++    pub(crate) fn verdict(&self) -> AssessmentVerdict {
++        self.0.verdict
++    }
++
++    pub(crate) fn unknown_reason(&self) -> Option<SnapshotUnknownReason> {
++        self.0.unknown_reason
++    }
++
++    pub(crate) fn participants(&self) -> &[SnapshotParticipant] {
++        &self.0.participants
++    }
++
++    pub(crate) fn conflicts(&self) -> &[SnapshotConflict] {
++        &self.0.conflicts
++    }
++
++    pub(crate) fn captured_at_ms(&self) -> u64 {
++        self.0.captured_at_ms
++    }
++
++    pub(crate) fn expires_at_ms(&self) -> u64 {
++        self.0.expires_at_ms
++    }
++}
++
++/// Sealed proof that exact snapshot bytes were fsynced, published without replacement, reopened,
++/// and byte-verified by the native snapshot store.
++#[derive(Clone, PartialEq, Eq)]
++pub(crate) struct StoredSnapshotReceipt {
++    snapshot_hash: String,
++    encoded_bytes: u64,
++    store_binding: String,
++}
++
++impl fmt::Debug for StoredSnapshotReceipt {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter
++            .debug_struct("StoredSnapshotReceipt")
++            .field("snapshot_hash", &self.snapshot_hash)
++            .field("encoded_bytes", &self.encoded_bytes)
++            .field("store_binding", &self.store_binding)
++            .finish()
++    }
++}
++
++impl StoredSnapshotReceipt {
++    pub(crate) fn snapshot_hash(&self) -> &str {
++        &self.snapshot_hash
++    }
++
++    pub(crate) fn encoded_bytes(&self) -> u64 {
++        self.encoded_bytes
++    }
++
++    pub(crate) fn store_binding(&self) -> &str {
++        &self.store_binding
++    }
++
++    pub(crate) fn matches(&self, snapshot: &VerifiedAssessmentSnapshot) -> bool {
++        self.snapshot_hash == snapshot.snapshot_hash()
++    }
++}
++
++pub(crate) enum SnapshotError {
++    RegistryUnknown,
++    InvalidAnalysis,
++    InvalidTimeline,
++    LimitExceeded,
++    InvalidHash,
++    AlreadyExistsMismatch,
++    Journal(JournalError),
++    Io(io::Error),
++    Json(serde_json::Error),
++}
++
++impl fmt::Debug for SnapshotError {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        fmt::Display::fmt(self, formatter)
++    }
++}
++
++impl fmt::Display for SnapshotError {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        match self {
++            Self::RegistryUnknown => formatter.write_str("registry is not completely validated"),
++            Self::InvalidAnalysis => {
++                formatter.write_str("assessment analysis is not self-consistent")
++            }
++            Self::InvalidTimeline => formatter.write_str("assessment snapshot timeline is invalid"),
++            Self::LimitExceeded => formatter.write_str("assessment snapshot exceeds a hard bound"),
++            Self::InvalidHash => formatter.write_str("assessment snapshot hash is invalid"),
++            Self::AlreadyExistsMismatch => {
++                formatter.write_str("immutable snapshot path contains different bytes")
++            }
++            Self::Journal(error) => write!(formatter, "snapshot journal check failed: {error}"),
++            Self::Io(_) => formatter.write_str("snapshot I/O failed"),
++            Self::Json(_) => formatter.write_str("snapshot serialization failed"),
++        }
++    }
++}
++
++impl From<io::Error> for SnapshotError {
++    fn from(value: io::Error) -> Self {
++        Self::Io(value)
++    }
++}
++
++impl From<serde_json::Error> for SnapshotError {
++    fn from(value: serde_json::Error) -> Self {
++        Self::Json(value)
++    }
++}
++
++impl From<JournalError> for SnapshotError {
++    fn from(value: JournalError) -> Self {
++        Self::Journal(value)
++    }
++}
++
++fn prepare_assessment_snapshot(
++    read: &RegistryRead,
++    captured_at_ms: u64,
++    ttl_ms: u64,
++) -> Result<VerifiedAssessmentSnapshot, SnapshotError> {
++    let analysis = analyze_registry_read(read, captured_at_ms);
++    prepare_assessment_snapshot_inner(read, &analysis, captured_at_ms, ttl_ms)
++}
++
++fn prepare_assessment_snapshot_inner(
++    read: &RegistryRead,
++    analysis: &CollisionAnalysis,
++    captured_at_ms: u64,
++    ttl_ms: u64,
++) -> Result<VerifiedAssessmentSnapshot, SnapshotError> {
++    let RegistryRead::Complete(document) = read else {
++        return Err(SnapshotError::RegistryUnknown);
++    };
++    if captured_at_ms == 0 || ttl_ms == 0 || ttl_ms > MAX_SNAPSHOT_TTL_MS {
++        return Err(SnapshotError::InvalidTimeline);
++    }
++    let requested_expires_at_ms = captured_at_ms
++        .checked_add(ttl_ms)
++        .ok_or(SnapshotError::InvalidTimeline)?;
++    let census = document
++        .census
++        .as_ref()
++        .ok_or(SnapshotError::InvalidAnalysis)?;
++    if analysis.registry_generation != Some(document.generation)
++        || analysis.census_input_digest.as_deref() != Some(census.input_digest.as_str())
++        || analysis.schema_version == 0
++    {
++        return Err(SnapshotError::InvalidAnalysis);
++    }
++
++    let mut participants = Vec::new();
++    let mut dependency_edges = 0usize;
++    for planner in &census.planners {
++        let contracts = planner
++            .claim_snapshot
++            .contracts
++            .iter()
++            .map(|contract| (contract.participant_id.as_str(), contract))
++            .collect::<std::collections::BTreeMap<_, _>>();
++        if contracts.len() != planner.claim_snapshot.contracts.len()
++            || contracts.len() != planner.nodes.len()
++        {
++            return Err(SnapshotError::InvalidAnalysis);
++        }
++        for node in &planner.nodes {
++            let participant_id = participant_binding(
++                &planner.repository_identity,
++                &planner.planner_id,
++                &planner.plan_id,
++                &node.node_id,
++            );
++            let contract = contracts
++                .get(participant_id.as_str())
++                .copied()
++                .ok_or(SnapshotError::InvalidAnalysis)?;
++            dependency_edges = dependency_edges
++                .checked_add(contract.dependencies.len())
++                .ok_or(SnapshotError::LimitExceeded)?;
++            if dependency_edges > MAX_DEPENDENCY_EDGES {
++                return Err(SnapshotError::LimitExceeded);
++            }
++            participants.push(SnapshotParticipant {
++                participant_id,
++                planner_id: planner.planner_id.clone(),
++                plan_id: planner.plan_id.clone(),
++                node_id: node.node_id.clone(),
++                repository_identity: planner.repository_identity.clone(),
++                worktree_identity: planner.worktree_identity.clone(),
++                branch_digest: opaque_parts(
++                    b"perfect-planner:snapshot-branch:v1",
++                    &[planner.branch.as_str()],
++                ),
++                plan_content_digest: planner.plan_content_digest.clone(),
++                planner_manifest_digest: planner.manifest_digest.clone(),
++                claim_snapshot_digest: planner.claim_snapshot.digest.clone(),
++                file_manifest_digest: manifest_list_digest(
++                    b"perfect-planner:snapshot-file-manifest:v1",
++                    &node.files,
++                ),
++                resource_manifest_digest: manifest_list_digest(
++                    b"perfect-planner:snapshot-resource-manifest:v1",
++                    &node.resources,
++                ),
++                run_identity: contract.run_identity.clone(),
++                worker_identity: contract.worker_identity.clone(),
++                fence: contract.fence,
++                lease_generation: contract.lease_generation,
++                state: contract.state.into(),
++                dependencies: contract.dependencies.clone(),
++                assumption_digest: contract.assumption_digest.clone(),
++                policy_digest: contract.policy_digest.clone(),
++                active_state_digest: contract.active_state_digest.clone(),
++                observed_at_ms: contract.observed_at_ms,
++                expires_at_ms: contract.expires_at_ms,
++            });
++        }
++    }
++    participants.sort_by(|left, right| left.participant_id.cmp(&right.participant_id));
++    if participants.is_empty()
++        || participants.len() > MAX_PARTICIPANTS
++        || participants
++            .windows(2)
++            .any(|pair| pair[0].participant_id >= pair[1].participant_id)
++        || analysis.conflicts.len() > MAX_CONFLICTS
++    {
++        return Err(SnapshotError::LimitExceeded);
++    }
++    let expires_at_ms = participants
++        .iter()
++        .map(|participant| participant.expires_at_ms)
++        .chain(std::iter::once(census.expires_at_ms))
++        .chain(std::iter::once(requested_expires_at_ms))
++        .min()
++        .ok_or(SnapshotError::InvalidTimeline)?;
++    if expires_at_ms <= captured_at_ms {
++        return Err(SnapshotError::InvalidTimeline);
++    }
++
++    let conflicts = analysis
++        .conflicts
++        .iter()
++        .map(|conflict| SnapshotConflict {
++            conflict_id: conflict.conflict_id.clone(),
++            left_participant_id: conflict.left_participant_id.clone(),
++            right_participant_id: conflict.right_participant_id.clone(),
++            left_claim_id: conflict.left_claim_id.clone(),
++            right_claim_id: conflict.right_claim_id.clone(),
++            bases: conflict.bases.iter().copied().map(Into::into).collect(),
++            disposition: conflict.disposition,
++        })
++        .collect::<Vec<_>>();
++    let mut snapshot = AssessmentSnapshot {
++        schema_version: SNAPSHOT_SCHEMA_VERSION,
++        registry_generation: document.generation,
++        census_input_digest: census.input_digest.clone(),
++        participants,
++        conflicts,
++        verdict: analysis.verdict.into(),
++        unknown_reason: analysis.unknown_reason.map(Into::into),
++        captured_at_ms,
++        expires_at_ms,
++        snapshot_hash: String::new(),
++    };
++    snapshot.snapshot_hash = assessment_snapshot_hash(&snapshot)?;
++    validate_assessment_snapshot(&snapshot)?;
++    Ok(VerifiedAssessmentSnapshot(snapshot))
++}
++
++fn validate_assessment_snapshot(snapshot: &AssessmentSnapshot) -> Result<(), SnapshotError> {
++    if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION
++        || snapshot.registry_generation == 0
++        || snapshot.captured_at_ms == 0
++        || snapshot.expires_at_ms <= snapshot.captured_at_ms
++        || snapshot
++            .expires_at_ms
++            .saturating_sub(snapshot.captured_at_ms)
++            > MAX_SNAPSHOT_TTL_MS
++        || !is_sha256(&snapshot.census_input_digest)
++        || snapshot.participants.is_empty()
++        || snapshot.participants.len() > MAX_PARTICIPANTS
++        || snapshot
++            .participants
++            .windows(2)
++            .any(|pair| pair[0].participant_id >= pair[1].participant_id)
++        || snapshot.conflicts.len() > MAX_CONFLICTS
++        || snapshot
++            .conflicts
++            .windows(2)
++            .any(|pair| pair[0].conflict_id >= pair[1].conflict_id)
++    {
++        return Err(SnapshotError::InvalidAnalysis);
++    }
++    let participant_ids = snapshot
++        .participants
++        .iter()
++        .map(|participant| participant.participant_id.as_str())
++        .collect::<BTreeSet<_>>();
++    let mut dependency_edges = 0usize;
++    for participant in &snapshot.participants {
++        dependency_edges = dependency_edges
++            .checked_add(participant.dependencies.len())
++            .ok_or(SnapshotError::LimitExceeded)?;
++        if dependency_edges > MAX_DEPENDENCY_EDGES
++            || !is_bounded_id(&participant.planner_id)
++            || !is_bounded_id(&participant.plan_id)
++            || !is_bounded_id(&participant.node_id)
++            || !is_sha256(&participant.participant_id)
++            || participant.participant_id
++                != participant_binding(
++                    &participant.repository_identity,
++                    &participant.planner_id,
++                    &participant.plan_id,
++                    &participant.node_id,
++                )
++            || !is_sha256(&participant.repository_identity)
++            || !is_sha256(&participant.worktree_identity)
++            || !is_sha256(&participant.branch_digest)
++            || !is_sha256(&participant.plan_content_digest)
++            || !is_sha256(&participant.planner_manifest_digest)
++            || !is_sha256(&participant.claim_snapshot_digest)
++            || !is_sha256(&participant.file_manifest_digest)
++            || !is_sha256(&participant.resource_manifest_digest)
++            || !is_sha256(&participant.run_identity)
++            || !is_sha256(&participant.worker_identity)
++            || participant.fence == 0
++            || participant.lease_generation == 0
++            || participant.observed_at_ms > snapshot.captured_at_ms
++            || participant.expires_at_ms < snapshot.expires_at_ms
++            || participant.expires_at_ms <= participant.observed_at_ms
++            || !is_sha256(&participant.assumption_digest)
++            || !is_sha256(&participant.policy_digest)
++            || !is_sha256(&participant.active_state_digest)
++            || participant
++                .dependencies
++                .windows(2)
++                .any(|pair| pair[0] >= pair[1])
++            || participant.dependencies.iter().any(|dependency| {
++                !is_sha256(dependency)
++                    || dependency == &participant.participant_id
++                    || !participant_ids.contains(dependency.as_str())
++            })
++        {
++            return Err(SnapshotError::InvalidAnalysis);
++        }
++    }
++    if dependency_graph_has_cycle(&snapshot.participants) {
++        return Err(SnapshotError::InvalidAnalysis);
++    }
++    for conflict in &snapshot.conflicts {
++        if !is_sha256(&conflict.conflict_id)
++            || !is_sha256(&conflict.left_participant_id)
++            || !is_sha256(&conflict.right_participant_id)
++            || !is_sha256(&conflict.left_claim_id)
++            || !is_sha256(&conflict.right_claim_id)
++            || conflict.left_participant_id == conflict.right_participant_id
++            || conflict.left_participant_id >= conflict.right_participant_id
++            || !participant_ids.contains(conflict.left_participant_id.as_str())
++            || !participant_ids.contains(conflict.right_participant_id.as_str())
++            || conflict.bases.is_empty()
++            || conflict.bases.windows(2).any(|pair| pair[0] >= pair[1])
++        {
++            return Err(SnapshotError::InvalidAnalysis);
++        }
++    }
++    let verdict_shape_is_valid = match snapshot.verdict {
++        AssessmentVerdict::Clear => {
++            snapshot.conflicts.is_empty() && snapshot.unknown_reason.is_none()
++        }
++        AssessmentVerdict::Wait => {
++            !snapshot.conflicts.is_empty()
++                && snapshot.unknown_reason.is_none()
++                && snapshot
++                    .conflicts
++                    .iter()
++                    .all(|conflict| conflict.disposition == Some(ConflictDisposition::Wait))
++        }
++        AssessmentVerdict::Replan => {
++            !snapshot.conflicts.is_empty()
++                && snapshot.unknown_reason.is_none()
++                && snapshot
++                    .conflicts
++                    .iter()
++                    .all(|conflict| conflict.disposition == Some(ConflictDisposition::Replan))
++        }
++        AssessmentVerdict::UserDecision => {
++            !snapshot.conflicts.is_empty()
++                && snapshot.unknown_reason.is_none()
++                && snapshot
++                    .conflicts
++                    .iter()
++                    .all(|conflict| conflict.disposition == Some(ConflictDisposition::UserDecision))
++        }
++        AssessmentVerdict::Unknown => snapshot.unknown_reason.is_some(),
++    };
++    if !verdict_shape_is_valid {
++        return Err(SnapshotError::InvalidAnalysis);
++    }
++    if assessment_snapshot_hash(snapshot)? != snapshot.snapshot_hash {
++        return Err(SnapshotError::InvalidHash);
++    }
++    Ok(())
++}
++
++fn assessment_snapshot_hash(snapshot: &AssessmentSnapshot) -> Result<String, SnapshotError> {
++    #[derive(Serialize)]
++    #[serde(rename_all = "camelCase")]
++    struct HashPayload<'a> {
++        schema_version: u32,
++        registry_generation: u64,
++        census_input_digest: &'a str,
++        participants: &'a [SnapshotParticipant],
++        conflicts: &'a [SnapshotConflict],
++        verdict: AssessmentVerdict,
++        unknown_reason: Option<SnapshotUnknownReason>,
++        captured_at_ms: u64,
++        expires_at_ms: u64,
++    }
++    let payload = serde_json::to_vec(&HashPayload {
++        schema_version: snapshot.schema_version,
++        registry_generation: snapshot.registry_generation,
++        census_input_digest: &snapshot.census_input_digest,
++        participants: &snapshot.participants,
++        conflicts: &snapshot.conflicts,
++        verdict: snapshot.verdict,
++        unknown_reason: snapshot.unknown_reason,
++        captured_at_ms: snapshot.captured_at_ms,
++        expires_at_ms: snapshot.expires_at_ms,
++    })?;
++    let mut digest = Sha256::new();
++    digest.update(b"perfect-planner:assessment-snapshot:v1");
++    digest.update((payload.len() as u64).to_le_bytes());
++    digest.update(payload);
++    Ok(format!("{:x}", digest.finalize()))
++}
++
++#[derive(Clone)]
++pub(crate) struct SnapshotStore {
++    directory: PathBuf,
++    store_binding: String,
++}
++
++impl fmt::Debug for SnapshotStore {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter
++            .debug_struct("SnapshotStore")
++            .field("directory", &"<native-app-data>")
++            .field("store_binding", &self.store_binding)
++            .finish()
++    }
++}
++
++impl SnapshotStore {
++    /// B07 has no production constructor. B20 must construct the canonical store from a
++    /// native-owned, physically verified app-data directory and anchor its authority.
++    #[cfg(test)]
++    pub(crate) fn new_for_test(directory: impl Into<PathBuf>) -> Self {
++        let directory = directory.into();
++        let store_binding = opaque_parts(
++            b"perfect-planner:snapshot-store-binding:v1",
++            &[&directory.to_string_lossy()],
++        );
++        Self {
++            directory,
++            store_binding,
++        }
++    }
++
++    pub(crate) fn persist(
++        &self,
++        snapshot: &VerifiedAssessmentSnapshot,
++    ) -> Result<StoredSnapshotReceipt, SnapshotError> {
++        let snapshot = &snapshot.0;
++        validate_assessment_snapshot(snapshot)?;
++        fs::create_dir_all(&self.directory)?;
++        let final_path = self.path_for_hash(&snapshot.snapshot_hash)?;
++        let mut encoded = serde_json::to_vec(snapshot)?;
++        encoded.push(b'\n');
++        if encoded.len() as u64 > MAX_SNAPSHOT_BYTES {
++            return Err(SnapshotError::LimitExceeded);
++        }
++        if final_path.exists() {
++            return self
++                .verify_existing(&final_path, &encoded)
++                .map(|_| self.receipt(snapshot, encoded.len() as u64));
++        }
++
++        let temp_path = self.directory.join(format!(
++            ".{}.{}.{}.tmp",
++            snapshot.snapshot_hash,
++            std::process::id(),
++            TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
++        ));
++        let write_result = (|| -> Result<(), SnapshotError> {
++            let mut file = OpenOptions::new()
++                .write(true)
++                .create_new(true)
++                .open(&temp_path)?;
++            file.write_all(&encoded)?;
++            file.sync_all()?;
++            drop(file);
++            match fs::hard_link(&temp_path, &final_path) {
++                Ok(()) => {
++                    fs::remove_file(&temp_path)?;
++                    self.verify_existing(&final_path, &encoded)?;
++                    Ok(())
++                }
++                Err(_error) if final_path.exists() => {
++                    self.verify_existing(&final_path, &encoded)?;
++                    fs::remove_file(&temp_path)?;
++                    Ok(())
++                }
++                Err(error) => Err(error.into()),
++            }
++        })();
++        if write_result.is_err() {
++            let _ = fs::remove_file(&temp_path);
++        }
++        write_result?;
++        self.verify_existing(&final_path, &encoded)?;
++        Ok(self.receipt(snapshot, encoded.len() as u64))
++    }
++
++    fn read_unrecorded(
++        &self,
++        snapshot_hash: &str,
++    ) -> Result<(VerifiedAssessmentSnapshot, StoredSnapshotReceipt), SnapshotError> {
++        let path = self.path_for_hash(snapshot_hash)?;
++        let file = open_snapshot_read(&path)?;
++        let size = file.metadata()?.len();
++        if size == 0 || size > MAX_SNAPSHOT_BYTES {
++            return Err(SnapshotError::LimitExceeded);
++        }
++        let mut bytes = Vec::with_capacity(size as usize);
++        file.take(MAX_SNAPSHOT_BYTES + 1).read_to_end(&mut bytes)?;
++        if bytes.len() as u64 > MAX_SNAPSHOT_BYTES {
++            return Err(SnapshotError::LimitExceeded);
++        }
++        let snapshot: AssessmentSnapshot = serde_json::from_slice(&bytes)?;
++        validate_assessment_snapshot(&snapshot)?;
++        if snapshot.snapshot_hash != snapshot_hash {
++            return Err(SnapshotError::InvalidHash);
++        }
++        let receipt = self.receipt(&snapshot, size);
++        Ok((VerifiedAssessmentSnapshot(snapshot), receipt))
++    }
++
++    /// Reopens a snapshot only when the exact store receipt was already committed to the
++    /// verified journal and has not subsequently been revoked.
++    pub(crate) fn read_recorded(
++        &self,
++        snapshot_hash: &str,
++        journal: &AssessmentJournal,
++    ) -> Result<(VerifiedAssessmentSnapshot, StoredSnapshotReceipt), SnapshotError> {
++        let (snapshot, receipt) = self.read_unrecorded(snapshot_hash)?;
++        if !journal.assessment_is_live(&snapshot, &receipt)? {
++            return Err(SnapshotError::AlreadyExistsMismatch);
++        }
++        Ok((snapshot, receipt))
++    }
++
++    pub(crate) fn verify_receipt(
++        &self,
++        snapshot: &VerifiedAssessmentSnapshot,
++        receipt: &StoredSnapshotReceipt,
++    ) -> Result<(), SnapshotError> {
++        if receipt.store_binding != self.store_binding
++            || receipt.snapshot_hash != snapshot.snapshot_hash()
++        {
++            return Err(SnapshotError::AlreadyExistsMismatch);
++        }
++        let path = self.path_for_hash(snapshot.snapshot_hash())?;
++        let mut expected = serde_json::to_vec(&snapshot.0)?;
++        expected.push(b'\n');
++        if receipt.encoded_bytes != expected.len() as u64 {
++            return Err(SnapshotError::AlreadyExistsMismatch);
++        }
++        self.verify_existing(&path, &expected)
++    }
++
++    fn path_for_hash(&self, snapshot_hash: &str) -> Result<PathBuf, SnapshotError> {
++        if !is_sha256(snapshot_hash) {
++            return Err(SnapshotError::InvalidHash);
++        }
++        Ok(self.directory.join(format!("{snapshot_hash}.json")))
++    }
++
++    fn verify_existing(&self, path: &Path, expected: &[u8]) -> Result<(), SnapshotError> {
++        let mut file = open_snapshot_read(path)?;
++        let metadata = file.metadata()?;
++        if !metadata.file_type().is_file()
++            || metadata.file_type().is_symlink()
++            || metadata.len() != expected.len() as u64
++            || metadata.len() > MAX_SNAPSHOT_BYTES
++        {
++            return Err(SnapshotError::AlreadyExistsMismatch);
++        }
++        let mut actual = Vec::with_capacity(metadata.len() as usize);
++        (&mut file)
++            .take(MAX_SNAPSHOT_BYTES + 1)
++            .read_to_end(&mut actual)?;
++        if actual != expected {
++            return Err(SnapshotError::AlreadyExistsMismatch);
++        }
++        Ok(())
++    }
++
++    fn receipt(&self, snapshot: &AssessmentSnapshot, encoded_bytes: u64) -> StoredSnapshotReceipt {
++        StoredSnapshotReceipt {
++            snapshot_hash: snapshot.snapshot_hash.clone(),
++            encoded_bytes,
++            store_binding: self.store_binding.clone(),
++        }
++    }
++
++    #[cfg(test)]
++    pub(crate) fn delete_for_test(&self, snapshot_hash: &str) {
++        let path = self.path_for_hash(snapshot_hash).unwrap();
++        fs::remove_file(path).unwrap();
++    }
++}
++
++fn dependency_graph_has_cycle(participants: &[SnapshotParticipant]) -> bool {
++    let mut indegree = participants
++        .iter()
++        .map(|participant| {
++            (
++                participant.participant_id.as_str(),
++                participant.dependencies.len(),
++            )
++        })
++        .collect::<BTreeMap<_, _>>();
++    let mut dependents = BTreeMap::<&str, Vec<&str>>::new();
++    for participant in participants {
++        for dependency in &participant.dependencies {
++            dependents
++                .entry(dependency.as_str())
++                .or_default()
++                .push(participant.participant_id.as_str());
++        }
++    }
++    let mut ready = indegree
++        .iter()
++        .filter_map(|(participant, degree)| (*degree == 0).then_some(*participant))
++        .collect::<BTreeSet<_>>();
++    let mut visited = 0usize;
++    while let Some(participant) = ready.pop_first() {
++        visited += 1;
++        if let Some(items) = dependents.get(participant) {
++            for dependent in items {
++                let Some(degree) = indegree.get_mut(dependent) else {
++                    return true;
++                };
++                *degree -= 1;
++                if *degree == 0 {
++                    ready.insert(dependent);
++                }
++            }
++        }
++    }
++    visited != participants.len()
++}
++
++#[cfg(windows)]
++fn open_snapshot_read(path: &Path) -> io::Result<File> {
++    use std::os::windows::fs::OpenOptionsExt;
++    const FILE_SHARE_READ: u32 = 0x0000_0001;
++    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
++    OpenOptions::new()
++        .read(true)
++        .share_mode(FILE_SHARE_READ)
++        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
++        .open(path)
++}
++
++#[cfg(not(windows))]
++fn open_snapshot_read(path: &Path) -> io::Result<File> {
++    File::open(path)
++}
++
++fn is_sha256(value: &str) -> bool {
++    value.len() == 64
++        && value
++            .bytes()
++            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
++}
++
++fn is_bounded_id(value: &str) -> bool {
++    let bytes = value.as_bytes();
++    !bytes.is_empty()
++        && bytes.len() <= 128
++        && bytes
++            .iter()
++            .all(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'-' | b'_' | b'.' | b':'))
++}
++
++fn participant_binding(
++    repository_identity: &str,
++    planner_id: &str,
++    plan_id: &str,
++    node_id: &str,
++) -> String {
++    opaque_parts(
++        b"perfect-planner:claim-participant:v1",
++        &[repository_identity, planner_id, plan_id, node_id],
++    )
++}
++
++fn manifest_list_digest(domain: &[u8], values: &[String]) -> String {
++    let parts = values.iter().map(String::as_str).collect::<Vec<_>>();
++    opaque_parts(domain, &parts)
++}
++
++fn opaque_parts(domain: &[u8], parts: &[&str]) -> String {
++    let mut digest = Sha256::new();
++    digest.update((domain.len() as u64).to_le_bytes());
++    digest.update(domain);
++    for part in parts {
++        digest.update((part.len() as u64).to_le_bytes());
++        digest.update(part.as_bytes());
++    }
++    format!("{:x}", digest.finalize())
++}
++
++#[cfg(test)]
++pub(crate) mod tests {
++    use super::*;
++    use crate::collision_assessor::model::{
++        ActiveClaimContract, CanonicalClaimSnapshot, ClaimSnapshotStatus,
++    };
++    use crate::collision_assessor::registry::{
++        DiscoveryCensus, PlannerCensusMetadata, PlannerNodeManifest, RegistryDocument,
++        REGISTRY_SCHEMA_VERSION,
++    };
++    use std::time::{SystemTime, UNIX_EPOCH};
++
++    #[derive(Debug, Clone, Copy)]
++    pub(crate) enum FixtureSnapshotDrift {
++        RegistryGeneration,
++        CapturedAt,
++        RepositoryIdentity,
++        PlanContentDigest,
++        PlannerManifestDigest,
++        ClaimSnapshotDigest,
++        FileManifestDigest,
++        ResourceManifestDigest,
++        RunIdentity,
++        WorkerIdentity,
++        Fence,
++        LeaseGeneration,
++        AssumptionDigest,
++        PolicyDigest,
++        ActiveStateDigest,
++    }
++
++    fn temp_store(name: &str) -> SnapshotStore {
++        let nonce = SystemTime::now()
++            .duration_since(UNIX_EPOCH)
++            .unwrap()
++            .as_nanos();
++        SnapshotStore::new_for_test(std::env::temp_dir().join(format!(
++            "perfect-planner-snapshot-{name}-{}-{nonce}",
++            std::process::id()
++        )))
++    }
++
++    pub(crate) fn fixture_snapshot(verdict: AssessmentVerdict) -> VerifiedAssessmentSnapshot {
++        let mut snapshot = AssessmentSnapshot {
++            schema_version: SNAPSHOT_SCHEMA_VERSION,
++            registry_generation: 7,
++            census_input_digest: "a".repeat(64),
++            participants: vec![fixture_participant("b", "node-a")],
++            conflicts: Vec::new(),
++            verdict,
++            unknown_reason: (verdict == AssessmentVerdict::Unknown)
++                .then_some(SnapshotUnknownReason::RegistryUnknown),
++            captured_at_ms: 1_000,
++            expires_at_ms: 5_000,
++            snapshot_hash: String::new(),
++        };
++        snapshot.snapshot_hash = assessment_snapshot_hash(&snapshot).unwrap();
++        VerifiedAssessmentSnapshot(snapshot)
++    }
++
++    pub(crate) fn fixture_snapshot_with_drift(
++        drift: FixtureSnapshotDrift,
++    ) -> VerifiedAssessmentSnapshot {
++        let mut snapshot = fixture_snapshot(AssessmentVerdict::Clear);
++        let participant = &mut snapshot.0.participants[0];
++        match drift {
++            FixtureSnapshotDrift::RegistryGeneration => snapshot.0.registry_generation += 1,
++            FixtureSnapshotDrift::CapturedAt => snapshot.0.captured_at_ms += 1,
++            FixtureSnapshotDrift::RepositoryIdentity => {
++                participant.repository_identity = "e".repeat(64);
++                participant.participant_id = participant_binding(
++                    &participant.repository_identity,
++                    &participant.planner_id,
++                    &participant.plan_id,
++                    &participant.node_id,
++                );
++            }
++            FixtureSnapshotDrift::PlanContentDigest => {
++                participant.plan_content_digest = "e".repeat(64)
++            }
++            FixtureSnapshotDrift::PlannerManifestDigest => {
++                participant.planner_manifest_digest = "e".repeat(64)
++            }
++            FixtureSnapshotDrift::ClaimSnapshotDigest => {
++                participant.claim_snapshot_digest = "e".repeat(64)
++            }
++            FixtureSnapshotDrift::FileManifestDigest => {
++                participant.file_manifest_digest = "e".repeat(64)
++            }
++            FixtureSnapshotDrift::ResourceManifestDigest => {
++                participant.resource_manifest_digest = "e".repeat(64)
++            }
++            FixtureSnapshotDrift::RunIdentity => participant.run_identity = "e".repeat(64),
++            FixtureSnapshotDrift::WorkerIdentity => participant.worker_identity = "e".repeat(64),
++            FixtureSnapshotDrift::Fence => participant.fence += 1,
++            FixtureSnapshotDrift::LeaseGeneration => participant.lease_generation += 1,
++            FixtureSnapshotDrift::AssumptionDigest => {
++                participant.assumption_digest = "e".repeat(64)
++            }
++            FixtureSnapshotDrift::PolicyDigest => participant.policy_digest = "e".repeat(64),
++            FixtureSnapshotDrift::ActiveStateDigest => {
++                participant.active_state_digest = "e".repeat(64)
++            }
++        }
++        rehash_snapshot(&mut snapshot);
++        validate_assessment_snapshot(&snapshot.0).unwrap();
++        snapshot
++    }
++
++    pub(crate) fn rehash_snapshot(snapshot: &mut VerifiedAssessmentSnapshot) {
++        snapshot.0.snapshot_hash = assessment_snapshot_hash(&snapshot.0).unwrap();
++    }
++
++    fn fixture_participant(hex: &str, node_id: &str) -> SnapshotParticipant {
++        let repository_identity = hex.repeat(64);
++        let planner_id = "planner-a".to_string();
++        let plan_id = "plan-a".to_string();
++        let participant_id =
++            participant_binding(&repository_identity, &planner_id, &plan_id, node_id);
++        SnapshotParticipant {
++            participant_id,
++            planner_id,
++            plan_id,
++            node_id: node_id.into(),
++            repository_identity,
++            worktree_identity: "0".repeat(64),
++            branch_digest: "2".repeat(64),
++            plan_content_digest: "3".repeat(64),
++            planner_manifest_digest: "4".repeat(64),
++            claim_snapshot_digest: "5".repeat(64),
++            file_manifest_digest: "6".repeat(64),
++            resource_manifest_digest: "7".repeat(64),
++            run_identity: "8".repeat(64),
++            worker_identity: "9".repeat(64),
++            fence: 1,
++            lease_generation: 1,
++            state: SnapshotClaimState::Planned,
++            dependencies: Vec::new(),
++            assumption_digest: "a".repeat(64),
++            policy_digest: "b".repeat(64),
++            active_state_digest: "c".repeat(64),
++            observed_at_ms: 900,
++            expires_at_ms: 6_000,
++        }
++    }
++
++    fn census_planner(name: &str, state: SnapshotClaimState) -> PlannerCensusMetadata {
++        let repository_identity = "1".repeat(64);
++        let planner_id = format!("planner-{name}");
++        let plan_id = format!("PP-{name}");
++        let node_id = format!("B-{name}");
++        let participant_id =
++            participant_binding(&repository_identity, &planner_id, &plan_id, &node_id);
++        let active_state = match state {
++            SnapshotClaimState::Planned => ActiveClaimState::Planned,
++            SnapshotClaimState::Claimed => ActiveClaimState::Claimed,
++            SnapshotClaimState::Running => ActiveClaimState::Running,
++            SnapshotClaimState::Waiting => ActiveClaimState::Waiting,
++            SnapshotClaimState::Completed => ActiveClaimState::Completed,
++            SnapshotClaimState::Released => ActiveClaimState::Released,
++        };
++        let contract = ActiveClaimContract {
++            participant_id,
++            run_identity: "2".repeat(64),
++            worker_identity: "3".repeat(64),
++            fence: 1,
++            lease_generation: 2,
++            state: active_state,
++            dependencies: Vec::new(),
++            assumption_digest: "4".repeat(64),
++            policy_digest: "5".repeat(64),
++            active_state_digest: "6".repeat(64),
++            disposition_rules: Vec::new(),
++            observed_at_ms: 1_500,
++            expires_at_ms: 5_000,
++        };
++        PlannerCensusMetadata {
++            planner_id,
++            repository_id: format!("display-{name}"),
++            repository_identity: repository_identity.clone(),
++            worktree_identity: if name == "active" {
++                "7".repeat(64)
++            } else {
++                "8".repeat(64)
++            },
++            branch: format!("feature/private-{name}"),
++            plan_id,
++            plan_content_digest: "9".repeat(64),
++            manifest_digest: "a".repeat(64),
++            claim_snapshot: CanonicalClaimSnapshot {
++                schema_version: 1,
++                status: ClaimSnapshotStatus::Complete,
++                failure: None,
++                repository_identity,
++                source_manifest_digest: "b".repeat(64),
++                claims: Vec::new(),
++                contracts: vec![contract],
++                digest: "c".repeat(64),
++            },
++            files: vec![format!("src/private-{name}.rs")],
++            resources: vec![format!("database:private-{name}")],
++            nodes: vec![PlannerNodeManifest {
++                node_id,
++                files: vec![format!("src/private-{name}.rs")],
++                resources: vec![format!("database:private-{name}")],
++            }],
++            lease_generation: 2,
++            registered_at_ms: 1_000,
++            updated_at_ms: 1_500,
++            heartbeat_at_ms: 1_500,
++            lease_expires_at_ms: 5_000,
++        }
++    }
++
++    #[test]
++    fn sealed_census_snapshot_preserves_active_and_terminal_participants_without_raw_paths() {
++        let planners = vec![
++            census_planner("active", SnapshotClaimState::Planned),
++            census_planner("terminal", SnapshotClaimState::Completed),
++        ];
++        let census_digest = "d".repeat(64);
++        let read = RegistryRead::complete_for_test(RegistryDocument {
++            schema_version: REGISTRY_SCHEMA_VERSION,
++            generation: 7,
++            updated_at_ms: 1_500,
++            authority_issuer_epoch: 1,
++            authority_verifying_key: "e".repeat(64),
++            authority_key_fingerprint: "f".repeat(64),
++            configured_roots: Vec::new(),
++            registrations: Vec::new(),
++            claim_authorities: Vec::new(),
++            authority_set_receipt: None,
++            census: Some(DiscoveryCensus {
++                registry_generation: 7,
++                input_digest: census_digest.clone(),
++                captured_at_ms: 1_500,
++                expires_at_ms: 4_000,
++                roots: Vec::new(),
++                planners,
++            }),
++        });
++        let analysis = CollisionAnalysis {
++            schema_version: 1,
++            verdict: CollisionVerdict::Clear,
++            registry_generation: Some(7),
++            census_input_digest: Some(census_digest),
++            conflicts: Vec::new(),
++            unknown_reason: None,
++        };
++        let snapshot = prepare_assessment_snapshot_inner(&read, &analysis, 1_600, 1_000).unwrap();
++        assert_eq!(snapshot.participants().len(), 2);
++        assert!(snapshot
++            .participants()
++            .iter()
++            .any(|participant| participant.state == SnapshotClaimState::Completed));
++        assert!(snapshot
++            .participants()
++            .iter()
++            .any(|participant| participant.state == SnapshotClaimState::Planned));
++        let encoded = serde_json::to_string(&snapshot.0).unwrap();
++        for forbidden in [
++            "src/private-active.rs",
++            "database:private-active",
++            "feature/private-active",
++            "display-active",
++        ] {
++            assert!(!encoded.contains(forbidden));
++        }
++        validate_assessment_snapshot(&snapshot.0).unwrap();
++    }
++
++    #[test]
++    fn immutable_store_round_trips_and_rejects_different_existing_bytes() {
++        let store = temp_store("immutable");
++        let snapshot = fixture_snapshot(AssessmentVerdict::Clear);
++        let receipt = store.persist(&snapshot).unwrap();
++        assert_eq!(store.persist(&snapshot).unwrap(), receipt);
++        let (read, read_receipt) = store.read_unrecorded(snapshot.snapshot_hash()).unwrap();
++        assert_eq!(read, snapshot);
++        assert_eq!(read_receipt, receipt);
++        store.verify_receipt(&snapshot, &receipt).unwrap();
++
++        let path = store.path_for_hash(snapshot.snapshot_hash()).unwrap();
++        fs::write(&path, b"different\n").unwrap();
++        assert!(matches!(
++            store.persist(&snapshot),
++            Err(SnapshotError::AlreadyExistsMismatch)
++        ));
++        let _ = fs::remove_dir_all(store.directory);
++    }
++
++    #[test]
++    fn tamper_expiry_and_participant_order_invalidate_the_hash_or_shape() {
++        let snapshot = fixture_snapshot(AssessmentVerdict::Clear);
++        let mut expiry = snapshot.clone();
++        expiry.0.expires_at_ms += 1;
++        assert!(matches!(
++            validate_assessment_snapshot(&expiry.0),
++            Err(SnapshotError::InvalidHash)
++        ));
++
++        let mut order = snapshot;
++        let mut participants = vec![
++            fixture_participant("c", "node-c"),
++            fixture_participant("b", "node-b"),
++        ];
++        participants.sort_by(|left, right| left.participant_id.cmp(&right.participant_id));
++        participants.reverse();
++        order.0.participants = participants;
++        rehash_snapshot(&mut order);
++        assert!(matches!(
++            validate_assessment_snapshot(&order.0),
++            Err(SnapshotError::InvalidAnalysis)
++        ));
++    }
++
++    #[test]
++    fn clear_snapshot_cannot_hide_a_conflict() {
++        let mut snapshot = fixture_snapshot(AssessmentVerdict::Clear);
++        snapshot
++            .0
++            .participants
++            .push(fixture_participant("c", "node-c"));
++        snapshot
++            .0
++            .participants
++            .sort_by(|left, right| left.participant_id.cmp(&right.participant_id));
++        let left_participant_id = snapshot.0.participants[0].participant_id.clone();
++        let right_participant_id = snapshot.0.participants[1].participant_id.clone();
++        snapshot.0.conflicts.push(SnapshotConflict {
++            conflict_id: "d".repeat(64),
++            left_participant_id,
++            right_participant_id,
++            left_claim_id: "e".repeat(64),
++            right_claim_id: "f".repeat(64),
++            bases: vec![SnapshotConflictBasis::Resource],
++            disposition: Some(ConflictDisposition::Wait),
++        });
++        rehash_snapshot(&mut snapshot);
++        assert!(matches!(
++            validate_assessment_snapshot(&snapshot.0),
++            Err(SnapshotError::InvalidAnalysis)
++        ));
++    }
++
++    #[test]
++    fn self_rehashed_participant_binding_and_dependency_cycle_are_rejected() {
++        let mut forged = fixture_snapshot(AssessmentVerdict::Clear);
++        forged.0.participants[0].participant_id = "d".repeat(64);
++        rehash_snapshot(&mut forged);
++        assert!(matches!(
++            validate_assessment_snapshot(&forged.0),
++            Err(SnapshotError::InvalidAnalysis)
++        ));
++
++        let mut cyclic = fixture_snapshot(AssessmentVerdict::Clear);
++        cyclic.0.participants = vec![
++            fixture_participant("b", "node-b"),
++            fixture_participant("c", "node-c"),
++        ];
++        cyclic
++            .0
++            .participants
++            .sort_by(|left, right| left.participant_id.cmp(&right.participant_id));
++        let left = cyclic.0.participants[0].participant_id.clone();
++        let right = cyclic.0.participants[1].participant_id.clone();
++        cyclic.0.participants[0].dependencies = vec![right];
++        cyclic.0.participants[1].dependencies = vec![left];
++        rehash_snapshot(&mut cyclic);
++        assert!(matches!(
++            validate_assessment_snapshot(&cyclic.0),
++            Err(SnapshotError::InvalidAnalysis)
++        ));
++    }
++
++    #[test]
++    fn non_clear_verdict_requires_conflicts_with_one_exact_disposition() {
++        let mut empty_wait = fixture_snapshot(AssessmentVerdict::Clear);
++        empty_wait.0.verdict = AssessmentVerdict::Wait;
++        rehash_snapshot(&mut empty_wait);
++        assert!(matches!(
++            validate_assessment_snapshot(&empty_wait.0),
++            Err(SnapshotError::InvalidAnalysis)
++        ));
++
++        let mut mismatched = fixture_snapshot(AssessmentVerdict::Clear);
++        mismatched
++            .0
++            .participants
++            .push(fixture_participant("c", "node-c"));
++        mismatched
++            .0
++            .participants
++            .sort_by(|left, right| left.participant_id.cmp(&right.participant_id));
++        mismatched.0.verdict = AssessmentVerdict::Wait;
++        mismatched.0.conflicts.push(SnapshotConflict {
++            conflict_id: "d".repeat(64),
++            left_participant_id: mismatched.0.participants[0].participant_id.clone(),
++            right_participant_id: mismatched.0.participants[1].participant_id.clone(),
++            left_claim_id: "e".repeat(64),
++            right_claim_id: "f".repeat(64),
++            bases: vec![SnapshotConflictBasis::Resource],
++            disposition: Some(ConflictDisposition::Replan),
++        });
++        rehash_snapshot(&mut mismatched);
++        assert!(matches!(
++            validate_assessment_snapshot(&mismatched.0),
++            Err(SnapshotError::InvalidAnalysis)
++        ));
++    }
++}
