@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "allow-board-discovery",
-    "allow-control-plane"
+    "allow-control-plane",
+    "allow-orchestrator-pipeline"
   ]
 }

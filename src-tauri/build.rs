@@ -8,6 +8,18 @@ fn main() {
             "reconcile_session_leases",
             "supervisor_snapshot",
             "recover_board_session",
+            "orchestrator_create_run",
+            "orchestrator_preflight_inspect",
+            "orchestrator_pipeline_snapshot",
+            "orchestrator_claim_node",
+            "orchestrator_heartbeat",
+            "orchestrator_authorize_fenced_completion",
+            "orchestrator_record_failure",
+            "orchestrator_reap_expired",
+            "orchestrator_validate_worker_submission",
+            "orchestrator_reconcile",
+            "orchestrator_evaluate_release",
+            "orchestrator_deliver",
         ]),
     ))
     .expect("failed to build Perfect Planner Desktop");

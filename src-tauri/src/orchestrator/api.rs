@@ -154,7 +154,11 @@ pub struct ReapApiRequest {
 }
 
 #[derive(Clone, Debug, Serialize)]
-#[serde(tag = "action", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(
+    tag = "action",
+    rename_all = "SCREAMING_SNAKE_CASE",
+    rename_all_fields = "camelCase"
+)]
 pub enum ReapActionResponse {
     Reassigned {
         node_id: String,

@@ -19,6 +19,12 @@ use control_plane_api::{
     acknowledge_control_message, claim_control_deliveries, control_plane_snapshot,
     post_control_message, record_control_delivery,
 };
+use orchestrator::api::{
+    orchestrator_authorize_fenced_completion, orchestrator_claim_node, orchestrator_create_run,
+    orchestrator_deliver, orchestrator_evaluate_release, orchestrator_heartbeat,
+    orchestrator_pipeline_snapshot, orchestrator_preflight_inspect, orchestrator_reap_expired,
+    orchestrator_reconcile, orchestrator_record_failure, orchestrator_validate_worker_submission,
+};
 use supervisor::{unix_ms, SessionObservation, SupervisorSnapshot, SupervisorStore};
 
 /// Loopback window the app is allowed to look in. perfect-planning's default board port is
@@ -310,7 +316,19 @@ pub fn run() {
             control_plane_snapshot,
             claim_control_deliveries,
             record_control_delivery,
-            acknowledge_control_message
+            acknowledge_control_message,
+            orchestrator_create_run,
+            orchestrator_preflight_inspect,
+            orchestrator_pipeline_snapshot,
+            orchestrator_claim_node,
+            orchestrator_heartbeat,
+            orchestrator_authorize_fenced_completion,
+            orchestrator_record_failure,
+            orchestrator_reap_expired,
+            orchestrator_validate_worker_submission,
+            orchestrator_reconcile,
+            orchestrator_evaluate_release,
+            orchestrator_deliver
         ])
         .run(tauri::generate_context!())
         .expect("error while running perfect planner desktop");

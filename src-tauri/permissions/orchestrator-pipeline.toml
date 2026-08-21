@@ -1,0 +1,17 @@
+[[permission]]
+identifier = "allow-orchestrator-pipeline"
+description = "Allows the main Perfect Planner window to operate the repository-scoped, fenced orchestrator pipeline and read its bounded audit state."
+commands.allow = [
+  "orchestrator_create_run",
+  "orchestrator_preflight_inspect",
+  "orchestrator_pipeline_snapshot",
+  "orchestrator_claim_node",
+  "orchestrator_heartbeat",
+  "orchestrator_authorize_fenced_completion",
+  "orchestrator_record_failure",
+  "orchestrator_reap_expired",
+  "orchestrator_validate_worker_submission",
+  "orchestrator_reconcile",
+  "orchestrator_evaluate_release",
+  "orchestrator_deliver"
+]
