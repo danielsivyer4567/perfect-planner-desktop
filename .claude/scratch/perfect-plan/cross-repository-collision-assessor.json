@@ -3124,7 +3124,8 @@
         "B03",
         "B06",
         "B07",
-        "B15"
+        "B15",
+        "B20"
       ],
       "est": {
         "tokens": 80000,
@@ -3450,7 +3451,8 @@
         "B08",
         "B09",
         "B10",
-        "B15"
+        "B15",
+        "B20"
       ],
       "est": {
         "tokens": 80000,
@@ -4803,7 +4805,7 @@
       "spineId": "P3",
       "side": "L",
       "title": "Canonical claim snapshot and disposition contract",
-      "status": "in-progress",
+      "status": "done",
       "dependsOn": [
         "B04",
         "B05"
@@ -4833,39 +4835,553 @@
       "checklist": [
         {
           "text": "Derive one opaque repository identity from real .git gitdir and commondir metadata plus a restricted Windows handle, and prove sibling worktrees converge while unrelated repositories do not",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "at": "2026-08-21T19:37:25.451Z",
+            "git": {
+              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": null,
+            "loc": {
+              "baseline": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-21T19:37:37.808Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "note": "Full native suite: 175 passed, 0 failed, 3 intentional helper fixtures ignored; integration contracts 3/3 and 3/3",
+            "log": "PP-002-B19-0-1787341051945.log",
+            "sha256": "c0c619c5af1592edebb5f17fde3224fd6a357eb90f7486017f44ba53b0c57130",
+            "exit": 0,
+            "durationMs": 5490,
+            "git": {
+              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B19-0-1787341051945.diff",
+            "diffSha256": "1abb2832ad216c1f7b4d9030d5ac7160e2ae99c5bdcdc872c0f99dbdc925726a",
+            "diffBaseline": "f6b84a32b74baeadfefa2e9056cbebf5424dcf97",
+            "diffFiles": [
+              "docs/collision-assessor-guarantee.md",
+              "src-tauri/Cargo.lock",
+              "src-tauri/Cargo.toml",
+              "src-tauri/src/collision_assessor/discovery.rs",
+              "src-tauri/src/collision_assessor/identity.rs",
+              "src-tauri/src/collision_assessor/model.rs",
+              "src-tauri/src/collision_assessor/registry.rs",
+              "src-tauri/src/lib.rs",
+              "src-tauri/tests/collision_claim_contract.rs"
+            ],
+            "tokensEst": null,
+            "loc": {
+              "baseline": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Project every file and resource declaration into a bounded typed ExactFile, DirectoryTree or Resource claim with canonical logical keys and physical alias evidence; every glob is UNKNOWN",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "at": "2026-08-21T19:37:04.017Z",
+            "git": {
+              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": false
+            },
+            "tokensEst": null,
+            "loc": {
+              "baseline": "f6b84a32b74baeadfefa2e9056cbebf5424dcf97",
+              "scope": "files",
+              "added": 5515,
+              "removed": 1014,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "docs/collision-assessor-guarantee.md",
+                  "added": 37,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/Cargo.lock",
+                  "added": 138,
+                  "removed": 7
+                },
+                {
+                  "file": "src-tauri/Cargo.toml",
+                  "added": 1,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/discovery.rs",
+                  "added": 247,
+                  "removed": 20
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/identity.rs",
+                  "added": 584,
+                  "removed": 4
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/model.rs",
+                  "added": 107,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/collision_assessor/registry.rs",
+                  "added": 4348,
+                  "removed": 983
+                },
+                {
+                  "file": "src-tauri/src/lib.rs",
+                  "added": 3,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/tests/collision_claim_contract.rs",
+                  "added": 50,
+                  "removed": 0
+                }
+              ],
+              "fileCount": 9,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-21T19:37:44.322Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "note": "Full native suite: 175 passed, 0 failed, 3 intentional helper fixtures ignored; integration contracts 3/3 and 3/3",
+            "log": "PP-002-B19-1-1787341059536.log",
+            "sha256": "3b95cb725d70e992eeffc58ae0839b5293b3971a1ae33a9a12fa6922ab5d7c9c",
+            "exit": 0,
+            "durationMs": 4385,
+            "git": {
+              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B19-1-1787341059536.diff",
+            "diffSha256": "1abb2832ad216c1f7b4d9030d5ac7160e2ae99c5bdcdc872c0f99dbdc925726a",
+            "diffBaseline": "f6b84a32b74baeadfefa2e9056cbebf5424dcf97",
+            "diffFiles": [
+              "docs/collision-assessor-guarantee.md",
+              "src-tauri/Cargo.lock",
+              "src-tauri/Cargo.toml",
+              "src-tauri/src/collision_assessor/discovery.rs",
+              "src-tauri/src/collision_assessor/identity.rs",
+              "src-tauri/src/collision_assessor/model.rs",
+              "src-tauri/src/collision_assessor/registry.rs",
+              "src-tauri/src/lib.rs",
+              "src-tauri/tests/collision_claim_contract.rs"
+            ],
+            "tokensEst": null,
+            "loc": {
+              "baseline": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Persist a trusted per-claim conflict disposition and active-node lease contract containing run, node, worker, fence, state, dependencies and assumption evidence; missing or contradictory policy is UNKNOWN",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "at": "2026-08-21T19:37:06.031Z",
+            "git": {
+              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": null,
+            "loc": {
+              "baseline": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-21T19:37:50.543Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "note": "Full native suite: 175 passed, 0 failed, 3 intentional helper fixtures ignored; integration contracts 3/3 and 3/3",
+            "log": "PP-002-B19-2-1787341065780.log",
+            "sha256": "affd05deaf920afe3262bbaed65042384a7cbd3c36e92bba5806fb31a8dca9c6",
+            "exit": 0,
+            "durationMs": 4142,
+            "git": {
+              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B19-2-1787341065780.diff",
+            "diffSha256": "1abb2832ad216c1f7b4d9030d5ac7160e2ae99c5bdcdc872c0f99dbdc925726a",
+            "diffBaseline": "f6b84a32b74baeadfefa2e9056cbebf5424dcf97",
+            "diffFiles": [
+              "docs/collision-assessor-guarantee.md",
+              "src-tauri/Cargo.lock",
+              "src-tauri/Cargo.toml",
+              "src-tauri/src/collision_assessor/discovery.rs",
+              "src-tauri/src/collision_assessor/identity.rs",
+              "src-tauri/src/collision_assessor/model.rs",
+              "src-tauri/src/collision_assessor/registry.rs",
+              "src-tauri/src/lib.rs",
+              "src-tauri/tests/collision_claim_contract.rs"
+            ],
+            "tokensEst": null,
+            "loc": {
+              "baseline": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Verify machine-issued exact-scope authority receipts across the spawned census helper with a verification-only Ed25519 public key, reject injection/replay/rollback/illegal lifecycle transitions and rotate issuer epochs without recovery bricking",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "at": "2026-08-21T19:37:08.022Z",
+            "git": {
+              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": null,
+            "loc": {
+              "baseline": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-21T19:37:56.413Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "note": "Full native suite: 175 passed, 0 failed, 3 intentional helper fixtures ignored; integration contracts 3/3 and 3/3",
+            "log": "PP-002-B19-3-1787341071894.log",
+            "sha256": "c56bf79a9280474140e2e287174eb81c430d6021138684a3280e7f6c7a03b900",
+            "exit": 0,
+            "durationMs": 4044,
+            "git": {
+              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B19-3-1787341071894.diff",
+            "diffSha256": "1abb2832ad216c1f7b4d9030d5ac7160e2ae99c5bdcdc872c0f99dbdc925726a",
+            "diffBaseline": "f6b84a32b74baeadfefa2e9056cbebf5424dcf97",
+            "diffFiles": [
+              "docs/collision-assessor-guarantee.md",
+              "src-tauri/Cargo.lock",
+              "src-tauri/Cargo.toml",
+              "src-tauri/src/collision_assessor/discovery.rs",
+              "src-tauri/src/collision_assessor/identity.rs",
+              "src-tauri/src/collision_assessor/model.rs",
+              "src-tauri/src/collision_assessor/registry.rs",
+              "src-tauri/src/lib.rs",
+              "src-tauri/tests/collision_claim_contract.rs"
+            ],
+            "tokensEst": null,
+            "loc": {
+              "baseline": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Bind sorted claims, alias edges, lease/disposition evidence and their source manifests into the attested census digest and reject any handle, inventory or manifest drift before persistence and on restart",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "at": "2026-08-21T19:37:09.905Z",
+            "git": {
+              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": null,
+            "loc": {
+              "baseline": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-21T19:38:02.663Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "note": "Full native suite: 175 passed, 0 failed, 3 intentional helper fixtures ignored; integration contracts 3/3 and 3/3",
+            "log": "PP-002-B19-4-1787341077760.log",
+            "sha256": "027fbe876cd29177295136d49f0542041dd51919f3b848253aaa2802b8813fa4",
+            "exit": 0,
+            "durationMs": 4002,
+            "git": {
+              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B19-4-1787341077760.diff",
+            "diffSha256": "1abb2832ad216c1f7b4d9030d5ac7160e2ae99c5bdcdc872c0f99dbdc925726a",
+            "diffBaseline": "f6b84a32b74baeadfefa2e9056cbebf5424dcf97",
+            "diffFiles": [
+              "docs/collision-assessor-guarantee.md",
+              "src-tauri/Cargo.lock",
+              "src-tauri/Cargo.toml",
+              "src-tauri/src/collision_assessor/discovery.rs",
+              "src-tauri/src/collision_assessor/identity.rs",
+              "src-tauri/src/collision_assessor/model.rs",
+              "src-tauri/src/collision_assessor/registry.rs",
+              "src-tauri/src/lib.rs",
+              "src-tauri/tests/collision_claim_contract.rs"
+            ],
+            "tokensEst": null,
+            "loc": {
+              "baseline": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Prove Git common-dir, hardlink, case, verbatim, UNC, SUBST, reparse, directory-boundary, resource-namespace, duplicate, permutation and glob-UNKNOWN adversarial cases",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "at": "2026-08-21T19:37:11.983Z",
+            "git": {
+              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": null,
+            "loc": {
+              "baseline": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-21T19:38:08.580Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-a1b7589d",
+            "note": "Full native suite: 175 passed, 0 failed, 3 intentional helper fixtures ignored; integration contracts 3/3 and 3/3",
+            "log": "PP-002-B19-5-1787341084086.log",
+            "sha256": "00037b95fed81ce8118fe11079a2b61237d8eff8cff25c2509def8c1a95e1452",
+            "exit": 0,
+            "durationMs": 3883,
+            "git": {
+              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B19-5-1787341084086.diff",
+            "diffSha256": "1abb2832ad216c1f7b4d9030d5ac7160e2ae99c5bdcdc872c0f99dbdc925726a",
+            "diffBaseline": "f6b84a32b74baeadfefa2e9056cbebf5424dcf97",
+            "diffFiles": [
+              "docs/collision-assessor-guarantee.md",
+              "src-tauri/Cargo.lock",
+              "src-tauri/Cargo.toml",
+              "src-tauri/src/collision_assessor/discovery.rs",
+              "src-tauri/src/collision_assessor/identity.rs",
+              "src-tauri/src/collision_assessor/model.rs",
+              "src-tauri/src/collision_assessor/registry.rs",
+              "src-tauri/src/lib.rs",
+              "src-tauri/tests/collision_claim_contract.rs"
+            ],
+            "tokensEst": null,
+            "loc": {
+              "baseline": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         }
       ],
       "startSha": "f6b84a32b74baeadfefa2e9056cbebf5424dcf97",
@@ -4875,7 +5391,88 @@
         "user": "danielsivyer4567",
         "session": "s-8c319d34",
         "at": "2026-08-21T18:33:37.297Z"
+      },
+      "lastStampSha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+      "doneAt": "2026-08-21T19:38:15.728Z",
+      "doneBy": {
+        "model": null,
+        "user": "danielsivyer4567",
+        "session": "s-a1b7589d",
+        "at": "2026-08-21T19:38:15.728Z",
+        "forced": false
       }
+    },
+    {
+      "id": "B20",
+      "spineId": "P3",
+      "side": "R",
+      "title": "Exclusive scheduler authority issuer",
+      "status": "pending",
+      "dependsOn": [
+        "B15",
+        "B19"
+      ],
+      "est": {
+        "tokens": 70000,
+        "minutes": 120
+      },
+      "files": [
+        "docs/collision-assessor-guarantee.md",
+        "src-tauri/src/collision_assessor/authority.rs",
+        "src-tauri/src/collision_assessor/mod.rs",
+        "src-tauri/src/collision_assessor/registry.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/orchestrator/authority_projection.rs",
+        "src-tauri/src/orchestrator/mod.rs",
+        "src-tauri/src/orchestrator/model.rs",
+        "src-tauri/src/orchestrator/scheduler.rs",
+        "src-tauri/tests/collision_authority_issuer_contract.rs"
+      ],
+      "resources": [
+        "protocol:exclusive-authority-issuer",
+        "protocol:preclaim-scheduler-reservation",
+        "mutex:scheduler-authority-store",
+        "crypto:ed25519-native-issuer-owner"
+      ],
+      "notes": "Corrective production bridge required by the B19 adversarial review. B19 deliberately provides verification-only fail-closed plumbing and cannot mint production authority. B20 gives exactly one native scheduler-owned process the signing secret and makes machine authority a projection of the scheduler's locked pre-claim reservation, clearance and delivered approval facts. The scheduler must reserve without granting write authority, publish the complete signed authority set, obtain a fresh census and CLEAR result, then atomically consume the clearance into the worker claim. Renderer, model and worker inputs are never issuer authority. Lock loss, process restart, generation drift, stale fence, partial set, replay, rollback or publication failure remains UNKNOWN and grants no worker. B09 and B12 are hard-dependent on this node.",
+      "checklist": [
+        {
+          "text": "Persist a non-writing pre-claim reservation containing exact run, node, worker, lease generation, fence, manifest, policy and delivered-approval digests under an operating-system lock plus generation-and-digest CAS",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Give exactly one native issuer owner the in-memory Ed25519 signing key and expose only verification authority; restart or owner loss rotates the epoch and leaves admission UNKNOWN until a complete republish",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Project the scheduler reservation, immutable clearance and durable approval receipt into one exact complete signed authority set for every registered Planner with no renderer, model or worker issuance path",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Enforce reserve then publish then census then CLEAR then atomic clearance-consumption then worker-claim ordering; every failure or crash grants zero write authority and recovers as UNKNOWN",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Sign heartbeat, transition and terminal updates without permitting run, worker, fence, manifest, policy, assumption, dependency or disposition drift outside the scheduler's authorized transition",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Prove cross-process claim races, lock loss, restart, stale-fence replay, partial publication, rollback and one-hundred-worker mixed conflicting and non-conflicting stress without duplicate ownership or lost authority events",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        }
+      ]
     }
   ]
 }
