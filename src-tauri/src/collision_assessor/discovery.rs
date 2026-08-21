@@ -4,12 +4,17 @@
 //! They are never accepted from the renderer and never appear in the child response.
 
 use super::identity::{
-    physical_path_identity, PhysicalPathIdentity, PhysicalPathKind, RestrictedAuthorityHandle,
+    native_git_authority, physical_path_identity, PhysicalPathIdentity, PhysicalPathKind,
+    RestrictedAuthorityHandle,
 };
+use super::model::{CanonicalClaimSnapshot, ClaimSnapshotFailure};
 use super::registry::{
+    authority_scope_projection_digest, derive_canonical_claim_snapshot_guarded,
     inventory_attestation, opaque_identity_from_parts, planner_manifest_digest,
-    CensusInputSnapshot, DiscoveryCensus, DiscoveryRootCensus, PlannerCensusMetadata,
-    PlannerNodeManifest, PlannerRegistration, RootInventoryAttestation,
+    unknown_claim_snapshot, validate_canonical_claim_snapshot, verify_authority_set_receipt,
+    AuthorityScopePlannerProjection, AuthorityScopeRootProjection, CensusInputSnapshot,
+    DiscoveryCensus, DiscoveryRootCensus, MachineAuthoritySetReceipt, MachineClaimAuthority,
+    PlannerCensusMetadata, PlannerNodeManifest, PlannerRegistration, RootInventoryAttestation,
     ValidatedPlannerRegistration, MAX_PLAN_DIRECTORY_ENTRIES,
 };
 use crate::supervisor::unix_ms;
@@ -42,6 +47,8 @@ pub(crate) struct CensusHelperRequest {
     pub registry_generation: u64,
     pub input_digest: String,
     pub capability_deadline_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authority_set_receipt: Option<MachineAuthoritySetReceipt>,
     pub roots: Vec<RootInput>,
     pub planners: Vec<PlannerInput>,
 }
@@ -57,8 +64,16 @@ pub(crate) struct RootInput {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct PlannerInput {
     pub registration: PlannerRegistration,
+    pub claim_snapshot: CanonicalClaimSnapshot,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim_authority: Option<MachineClaimAuthority>,
+    pub authority_issuer_epoch: u64,
+    pub authority_verifying_key: String,
+    pub authority_key_fingerprint: String,
     pub repository_root: PathAuthority,
     pub worktree_root: PathAuthority,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_common: Option<PathAuthority>,
     pub plan: PathAuthority,
 }
 
@@ -124,6 +139,7 @@ pub(crate) fn request_from_snapshot(
         registry_generation: input.attestation.registry_generation,
         input_digest: input.attestation.digest_hex(),
         capability_deadline_ms,
+        authority_set_receipt: input.authority_set_receipt.clone(),
         roots,
         planners,
     })
@@ -151,6 +167,7 @@ pub(crate) fn execute_request(
     let mut planner_ids = BTreeSet::new();
     let mut plan_identities = BTreeSet::new();
     let mut metadata = Vec::with_capacity(request.planners.len());
+    let mut claim_authority_attestations = Vec::with_capacity(request.planners.len());
     for planner in &request.planners {
         if unix_ms() >= request.capability_deadline_ms {
             return Err(DiscoveryError::Timeout);
@@ -201,7 +218,14 @@ pub(crate) fn execute_request(
         roots[matching_roots[0]]
             .1
             .push(registration.identity.planner_id.clone());
-        metadata.push(metadata_from(planner, plan_digest)?);
+        let (native_snapshot, native_attestation) = derive_snapshot_from_input(planner, &bytes)?;
+        if native_snapshot != planner.claim_snapshot {
+            return Err(DiscoveryError::IdentityChanged);
+        }
+        if let Some(attestation) = native_attestation {
+            claim_authority_attestations.push(attestation);
+        }
+        metadata.push(metadata_from(planner, plan_digest, native_snapshot)?);
 
         validate_authority(&planner.repository_root, PhysicalPathKind::Directory)?;
         validate_authority(&planner.worktree_root, PhysicalPathKind::Directory)?;
@@ -225,6 +249,14 @@ pub(crate) fn execute_request(
             inventory_digest: inventory.inventory_digest,
             failure: None,
         });
+    }
+    // Hold and revalidate every native claim/Git authority until the response is complete. This
+    // catches absent-prefix and absent-commondir entries that can appear after projection even
+    // though existing objects remain protected by their open handles.
+    for attestation in &claim_authority_attestations {
+        attestation
+            .revalidate()
+            .map_err(|_| DiscoveryError::IdentityChanged)?;
     }
     let captured_at_ms = unix_ms();
     if captured_at_ms < started_at_ms || captured_at_ms >= request.capability_deadline_ms {
@@ -262,7 +294,13 @@ pub(crate) fn validate_response(
         .planners
         .iter()
         .zip(&request.planners)
-        .map(|(actual, planner)| metadata_from(planner, actual.plan_content_digest.clone()))
+        .map(|(actual, planner)| {
+            metadata_from(
+                planner,
+                actual.plan_content_digest.clone(),
+                planner.claim_snapshot.clone(),
+            )
+        })
         .collect::<Result<Vec<_>, _>>()?;
     expected.sort();
     if response.planners.len() != expected.len() {
@@ -287,6 +325,11 @@ pub(crate) fn validate_response(
 fn planner_input(planner: &ValidatedPlannerRegistration) -> Result<PlannerInput, DiscoveryError> {
     Ok(PlannerInput {
         registration: planner.registration.clone(),
+        claim_snapshot: planner.claim_snapshot.clone(),
+        claim_authority: planner.claim_authority.clone(),
+        authority_issuer_epoch: planner.authority_issuer_epoch,
+        authority_verifying_key: hex_bytes(&planner.authority_verifying_key),
+        authority_key_fingerprint: planner.authority_key_fingerprint.clone(),
         repository_root: authority(
             Path::new(&planner.registration.identity.repository_root),
             &planner.repository_root_identity,
@@ -295,6 +338,13 @@ fn planner_input(planner: &ValidatedPlannerRegistration) -> Result<PlannerInput,
             Path::new(&planner.registration.identity.worktree_root),
             &planner.worktree_root_identity,
         )?,
+        git_common: if planner.claim_authority.is_some() {
+            let git = native_git_authority(Path::new(&planner.registration.identity.worktree_root))
+                .map_err(|_| DiscoveryError::IdentityChanged)?;
+            Some(authority(&git.common_dir.canonical_path, &git.common_dir)?)
+        } else {
+            None
+        },
         plan: authority(
             Path::new(&planner.registration.identity.plan_path),
             &planner.plan_identity,
@@ -315,7 +365,7 @@ fn authority(
     })
 }
 
-fn validate_request(request: &CensusHelperRequest) -> Result<(), DiscoveryError> {
+pub(crate) fn validate_request(request: &CensusHelperRequest) -> Result<(), DiscoveryError> {
     if request.protocol_version != PROTOCOL_VERSION
         || request.protocol_domain != PROTOCOL_DOMAIN
         || request.registry_generation == 0
@@ -328,6 +378,89 @@ fn validate_request(request: &CensusHelperRequest) -> Result<(), DiscoveryError>
     bounded_count(request.planners.len(), MAX_PLANNERS)?;
     if request.roots.is_empty() {
         return Err(DiscoveryError::Malformed);
+    }
+    let live = request
+        .planners
+        .iter()
+        .filter(|planner| planner.claim_authority.is_some())
+        .collect::<Vec<_>>();
+    if live.is_empty() {
+        if request.authority_set_receipt.is_some() {
+            return Err(DiscoveryError::Malformed);
+        }
+    } else {
+        if live.len() != request.planners.len() {
+            return Err(DiscoveryError::Malformed);
+        }
+        let receipt = request
+            .authority_set_receipt
+            .as_ref()
+            .ok_or(DiscoveryError::Malformed)?;
+        let first = live[0];
+        let verifier = decode_key32(&first.authority_verifying_key)?;
+        if receipt.registry_generation != request.registry_generation
+            || live.iter().any(|planner| {
+                planner.authority_issuer_epoch != first.authority_issuer_epoch
+                    || planner.authority_verifying_key != first.authority_verifying_key
+                    || planner.authority_key_fingerprint != first.authority_key_fingerprint
+                    || planner.claim_authority.as_ref().is_none_or(|authority| {
+                        authority.registry_generation != request.registry_generation
+                    })
+            })
+            || !verify_authority_set_receipt(
+                receipt,
+                first.authority_issuer_epoch,
+                &verifier,
+                &first.authority_key_fingerprint,
+            )
+        {
+            return Err(DiscoveryError::Malformed);
+        }
+        let roots = request
+            .roots
+            .iter()
+            .map(|root| {
+                Ok(AuthorityScopeRootProjection {
+                    root_id: root.root_id.clone(),
+                    identity: authority_identity(&root.authority)?,
+                })
+            })
+            .collect::<Result<Vec<_>, DiscoveryError>>()?;
+        let planners = request
+            .planners
+            .iter()
+            .map(|planner| {
+                let authority = planner
+                    .claim_authority
+                    .as_ref()
+                    .ok_or(DiscoveryError::Malformed)?;
+                Ok(AuthorityScopePlannerProjection {
+                    registration: planner.registration.clone(),
+                    repository_identity: authority_identity(&planner.repository_root)?,
+                    worktree_identity: authority_identity(&planner.worktree_root)?,
+                    plan_identity: authority_identity(&planner.plan)?,
+                    git_common_identity: authority_identity(
+                        planner
+                            .git_common
+                            .as_ref()
+                            .ok_or(DiscoveryError::Malformed)?,
+                    )?,
+                    plan_content_digest: authority.plan_content_digest.clone(),
+                    authority_digest: authority.authority_digest.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, DiscoveryError>>()?;
+        let recomputed = authority_scope_projection_digest(
+            request.registry_generation,
+            first.authority_issuer_epoch,
+            &first.authority_key_fingerprint,
+            roots,
+            planners,
+        )
+        .map_err(|_| DiscoveryError::Malformed)?;
+        if recomputed != receipt.scope_digest {
+            return Err(DiscoveryError::Malformed);
+        }
     }
     Ok(())
 }
@@ -350,6 +483,15 @@ fn validate_planner_input(planner: &PlannerInput) -> Result<(), DiscoveryError> 
     {
         return Err(DiscoveryError::Malformed);
     }
+    validate_canonical_claim_snapshot(&planner.claim_snapshot)
+        .map_err(|_| DiscoveryError::Malformed)?;
+    if planner.claim_authority.is_some()
+        && (planner.authority_issuer_epoch == 0
+            || planner.authority_verifying_key.len() != 64
+            || !is_sha256(&planner.authority_key_fingerprint))
+    {
+        return Err(DiscoveryError::Malformed);
+    }
     for node in &registration.identity.nodes {
         bounded(&node.node_id)?;
         bounded_count(node.files.len(), MAX_FILES)?;
@@ -361,7 +503,24 @@ fn validate_planner_input(planner: &PlannerInput) -> Result<(), DiscoveryError> 
     validate_manifest_values(&registration.identity.resources, true)?;
     validate_authority(&planner.repository_root, PhysicalPathKind::Directory)?;
     validate_authority(&planner.worktree_root, PhysicalPathKind::Directory)?;
+    if let Some(git_common) = planner.git_common.as_ref() {
+        validate_authority(git_common, PhysicalPathKind::Directory)?;
+    }
     validate_authority(&planner.plan, PhysicalPathKind::RegularFile)?;
+    if planner.claim_authority.is_some() {
+        let git = native_git_authority(Path::new(&planner.worktree_root.path))
+            .map_err(|_| DiscoveryError::IdentityChanged)?;
+        if (git.common_dir.volume_id, git.common_dir.file_id)
+            != identity_key(
+                planner
+                    .git_common
+                    .as_ref()
+                    .ok_or(DiscoveryError::Malformed)?,
+            )?
+        {
+            return Err(DiscoveryError::IdentityChanged);
+        }
+    }
     Ok(())
 }
 
@@ -512,6 +671,7 @@ fn validate_projection(
 fn metadata_from(
     planner: &PlannerInput,
     plan_content_digest: String,
+    claim_snapshot: CanonicalClaimSnapshot,
 ) -> Result<PlannerCensusMetadata, DiscoveryError> {
     let registration = &planner.registration;
     let mut nodes = registration.identity.nodes.clone();
@@ -535,6 +695,7 @@ fn metadata_from(
         plan_id: registration.identity.plan_id.clone(),
         plan_content_digest,
         manifest_digest: String::new(),
+        claim_snapshot,
         files: registration.identity.files.clone(),
         resources: registration.identity.resources.clone(),
         nodes,
@@ -546,6 +707,65 @@ fn metadata_from(
     };
     metadata.manifest_digest = planner_manifest_digest(&metadata);
     Ok(metadata)
+}
+
+fn derive_snapshot_from_input(
+    planner: &PlannerInput,
+    plan_bytes: &[u8],
+) -> Result<
+    (
+        CanonicalClaimSnapshot,
+        Option<super::identity::NativeClaimAuthorityBundle>,
+    ),
+    DiscoveryError,
+> {
+    let repository_file_id = decode_file_id(&planner.repository_root.file_id)?;
+    let worktree_file_id = decode_file_id(&planner.worktree_root.file_id)?;
+    let plan_file_id = decode_file_id(&planner.plan.file_id)?;
+    let validated = ValidatedPlannerRegistration {
+        registration: planner.registration.clone(),
+        repository_root_identity: PhysicalPathIdentity {
+            canonical_path: PathBuf::from(&planner.repository_root.path),
+            volume_id: planner.repository_root.volume_id,
+            file_id: repository_file_id,
+        },
+        worktree_root_identity: PhysicalPathIdentity {
+            canonical_path: PathBuf::from(&planner.worktree_root.path),
+            volume_id: planner.worktree_root.volume_id,
+            file_id: worktree_file_id,
+        },
+        plan_identity: PhysicalPathIdentity {
+            canonical_path: PathBuf::from(&planner.plan.path),
+            volume_id: planner.plan.volume_id,
+            file_id: plan_file_id,
+        },
+        claim_snapshot: planner.claim_snapshot.clone(),
+        claim_authority: planner.claim_authority.clone(),
+        authority_verifying_key: decode_key32(&planner.authority_verifying_key)?,
+        authority_issuer_epoch: planner.authority_issuer_epoch,
+        authority_key_fingerprint: planner.authority_key_fingerprint.clone(),
+        claim_authority_attestation: None,
+    };
+    Ok(derive_canonical_claim_snapshot_guarded(
+        &validated, plan_bytes,
+    ))
+}
+
+fn decode_key32(value: &str) -> Result<[u8; 32], DiscoveryError> {
+    if value.len() != 64 {
+        return Err(DiscoveryError::Malformed);
+    }
+    let mut output = [0u8; 32];
+    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+        let high = (pair[0] as char)
+            .to_digit(16)
+            .ok_or(DiscoveryError::Malformed)? as u8;
+        let low = (pair[1] as char)
+            .to_digit(16)
+            .ok_or(DiscoveryError::Malformed)? as u8;
+        output[index] = (high << 4) | low;
+    }
+    Ok(output)
 }
 
 fn enumerate_root_plans(
@@ -977,21 +1197,18 @@ mod tests {
                     let resource = format!("mutex:{planner_id}");
                     let plan_id = format!("PP-{:03}", index + 1);
                     let branch = format!("feature/{planner_id}");
-                    fs::write(
-                        &plan_path,
-                        serde_json::to_vec(&serde_json::json!({
-                            "meta": {"number": plan_id, "branch": branch},
-                            "vertebrae": [{
-                                "id": "B04",
-                                "files": [file],
-                                "resources": [resource]
-                            }],
-                            "notes": "SENTINEL-RAW-PLAN-NOTES",
-                            "commands": ["SENTINEL-DO-NOT-LEAK"]
-                        }))
-                        .unwrap(),
-                    )
+                    let plan_bytes = serde_json::to_vec(&serde_json::json!({
+                        "meta": {"number": plan_id, "branch": branch},
+                        "vertebrae": [{
+                            "id": "B04",
+                            "files": [file],
+                            "resources": [resource]
+                        }],
+                        "notes": "SENTINEL-RAW-PLAN-NOTES",
+                        "commands": ["SENTINEL-DO-NOT-LEAK"]
+                    }))
                     .unwrap();
+                    fs::write(&plan_path, &plan_bytes).unwrap();
                     ValidatedPlannerRegistration {
                         registration: PlannerRegistration {
                             identity: PlannerRegistrationSeed {
@@ -1031,6 +1248,15 @@ mod tests {
                             PhysicalPathKind::RegularFile,
                         )
                         .unwrap(),
+                        claim_snapshot: unknown_claim_snapshot(
+                            ClaimSnapshotFailure::MissingGitAuthority,
+                            &hex_sha256(&plan_bytes),
+                        ),
+                        claim_authority: None,
+                        authority_verifying_key: [0; 32],
+                        authority_issuer_epoch: 0,
+                        authority_key_fingerprint: String::new(),
+                        claim_authority_attestation: None,
                     }
                 })
                 .collect();
@@ -1046,6 +1272,7 @@ mod tests {
                         .unwrap(),
                 }],
                 registrations,
+                authority_set_receipt: None,
             }
         }
     }

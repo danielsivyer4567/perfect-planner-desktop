@@ -59,6 +59,43 @@ prior census output are deliberately excluded, so merely recording a census cann
 its own authority input. Freshness is validated separately both when the snapshot is issued and
 when its result is consumed.
 
+### Canonical claim and disposition authority
+
+File equality is derived from the real Git worktree administration chain and the operating
+system's physical identities. The caller-supplied repository label and repository-root text are
+display fields, never collision equality authority. A linked worktree is accepted only when its
+`.git` file, administrative directory, `commondir`, and `gitdir` backlink form one physically
+consistent chain. Existing files become opaque `ExactFile` claims, existing directories become
+opaque `DirectoryTree` claims, and resources become grammar-validated opaque `Resource` claims.
+Stable hardlinks share physical-alias evidence. Globs, ambiguous missing-path kinds, reparse
+components, or any identity that cannot be retained and revalidated yield `UNKNOWN`.
+
+A model-writable plan cannot authorize its own worker, fence, dependency or disposition. Those
+facts require a machine-issued claim authority bound to the exact registry generation, issuer
+epoch, planner, plan content, native repository identity, lease generation and complete sorted
+node set. Every non-terminal claim has exactly one signed, claim-scoped disposition rule. Policy,
+assumption, dependency, run, worker and fence changes are rejected during ordinary lifecycle
+transitions. `COMPLETED` and `RELEASED` retain a signed, path-free participant tombstone so
+dependencies remain resolvable, but atomically clear every ownership claim and disposition rule.
+
+Machine authorities are published as one atomic complete set, never one planner at a time. An
+Ed25519 aggregate receipt binds the exact sorted configured roots, registrations, physical
+identities, plan digests and individual authority digests. The parent pins both the registry
+generation and an always-on canonical registry-input digest, including generations with no live
+receipt; the helper receives only the verification key in its nonce-bound private request and
+independently recomputes the aggregate scope. Dropped roots or planners, cross-set splicing,
+same-generation disk edits, receipt replay, key substitution and partial publication therefore
+yield `UNKNOWN` and cannot be laundered by a later heartbeat.
+
+The schema-v1 startup migration is bounded, locked and one-way. It preserves structurally valid
+roots and registrations, including expired leases, advances the generation, and clears prior
+census and claim authority. Malformed legacy bytes are left untouched, and a current schema-v2
+registry is validated without rewrite. A restarted process never trusts a public key merely
+because it was stored beside the signed records: without the live native issuer owner it may
+inspect only as `UNKNOWN` and cannot mutate signed state. B19 deliberately exposes no production
+issuer API; until the trusted scheduler/reservation integration is delivered, machine authority
+publication remains unavailable and admission stays `UNKNOWN`.
+
 Census output is persisted through one conditional operation. It reacquires the registry lock,
 rebuilds the current authority snapshot, compares both generation and digest, revalidates every
 physical identity and writes only if the input is unchanged. A concurrent heartbeat, manifest

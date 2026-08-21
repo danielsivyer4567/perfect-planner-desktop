@@ -3,6 +3,113 @@
 //! This module intentionally has no I/O or scheduler authority. Later components may serialize
 //! these values, but the admission predicate remains a pure function that defaults to denial.
 
+use serde::{Deserialize, Serialize};
+
+/// Native, metadata-only claim inventory frozen by the read-only census. None of these DTOs
+/// contain a filesystem path, branch, resource spelling, worker token, or other caller authority.
+/// Equality is expressed only through domain-separated opaque SHA-256 keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CanonicalClaimKind {
+    ExactFile,
+    DirectoryTree,
+    Resource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ClaimSnapshotStatus {
+    Complete,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ClaimSnapshotFailure {
+    MissingGitAuthority,
+    InvalidGitAuthority,
+    UnsupportedGlob,
+    InvalidClaim,
+    MissingActiveContract,
+    InvalidActiveContract,
+    IdentityChanged,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ActiveClaimState {
+    Planned,
+    Claimed,
+    Running,
+    Waiting,
+    Completed,
+    Released,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ConflictDisposition {
+    Wait,
+    Replan,
+    UserDecision,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CanonicalClaim {
+    pub claim_id: String,
+    pub participant_id: String,
+    pub kind: CanonicalClaimKind,
+    pub canonical_key: String,
+    #[serde(default)]
+    pub ancestor_keys: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub physical_alias_key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ClaimDispositionRule {
+    pub claim_id: String,
+    pub disposition: ConflictDisposition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ActiveClaimContract {
+    pub participant_id: String,
+    pub run_identity: String,
+    pub worker_identity: String,
+    pub fence: u64,
+    pub lease_generation: u64,
+    pub state: ActiveClaimState,
+    #[serde(default)]
+    pub dependencies: Vec<String>,
+    pub assumption_digest: String,
+    pub policy_digest: String,
+    pub active_state_digest: String,
+    #[serde(default)]
+    pub disposition_rules: Vec<ClaimDispositionRule>,
+    pub observed_at_ms: u64,
+    pub expires_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CanonicalClaimSnapshot {
+    pub schema_version: u32,
+    pub status: ClaimSnapshotStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<ClaimSnapshotFailure>,
+    pub repository_identity: String,
+    pub source_manifest_digest: String,
+    #[serde(default)]
+    pub claims: Vec<CanonicalClaim>,
+    #[serde(default)]
+    pub contracts: Vec<ActiveClaimContract>,
+    pub digest: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CollisionVerdict {
     Clear,

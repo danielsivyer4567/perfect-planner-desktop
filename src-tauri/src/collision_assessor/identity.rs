@@ -7,7 +7,7 @@
 
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 const ACCEPTED_RESOURCE_NAMESPACES: &[&str] = &[
@@ -144,6 +144,65 @@ pub struct ResourceIdentity {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NativeClaimPathKind {
+    ExactFile,
+    DirectoryTree,
+}
+
+pub(crate) struct NativeClaimPath {
+    pub(crate) repository_relative_path: String,
+    pub(crate) kind: NativeClaimPathKind,
+    pub(crate) physical_alias: Option<PhysicalPathIdentity>,
+    pub(crate) authority: NativeClaimAuthority,
+}
+
+pub(crate) struct NativeClaimAuthority {
+    guard: RestrictedAuthorityHandle,
+    expected_absent: Vec<PathBuf>,
+}
+
+pub(crate) struct NativeClaimAuthorityBundle {
+    pub(crate) git: NativeGitAuthority,
+    pub(crate) claims: Vec<NativeClaimAuthority>,
+}
+
+impl fmt::Debug for NativeClaimAuthorityBundle {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("NativeClaimAuthorityBundle")
+            .field("claim_count", &self.claims.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl NativeClaimAuthorityBundle {
+    pub(crate) fn revalidate(&self) -> Result<(), IdentityError> {
+        self.git.revalidate()?;
+        for claim in &self.claims {
+            claim.revalidate()?;
+        }
+        Ok(())
+    }
+}
+
+impl NativeClaimAuthority {
+    pub(crate) fn revalidate(&self) -> Result<(), IdentityError> {
+        self.guard.revalidate()?;
+        for path in &self.expected_absent {
+            match fs::symlink_metadata(path) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                _ => {
+                    return Err(IdentityError::AmbiguousPhysicalIdentity(
+                        "a previously missing claim segment appeared during assessment".into(),
+                    ))
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PhysicalPathKind {
     Directory,
     RegularFile,
@@ -205,6 +264,38 @@ pub(crate) struct RestrictedAuthorityHandle {
     kind: PhysicalPathKind,
 }
 
+/// Native Git equality authority held open for the lifetime of claim derivation. The caller may
+/// retain the opaque physical tuple, but path text is never an equality fallback.
+pub(crate) struct NativeGitAuthority {
+    pub(crate) common_dir: PhysicalPathIdentity,
+    guards: Vec<RestrictedAuthorityHandle>,
+    commondir_marker: PathBuf,
+    commondir_was_present: bool,
+}
+
+impl NativeGitAuthority {
+    pub(crate) fn revalidate(&self) -> Result<(), IdentityError> {
+        for guard in &self.guards {
+            guard.revalidate()?;
+        }
+        let present = match fs::symlink_metadata(&self.commondir_marker) {
+            Ok(_) => true,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(_) => {
+                return Err(IdentityError::AmbiguousPhysicalIdentity(
+                    "linked-worktree commondir cannot be inspected".into(),
+                ))
+            }
+        };
+        if present != self.commondir_was_present {
+            return Err(IdentityError::AmbiguousPhysicalIdentity(
+                "linked-worktree commondir presence changed".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl RestrictedAuthorityHandle {
     pub(crate) fn open(
         path: &Path,
@@ -214,7 +305,7 @@ impl RestrictedAuthorityHandle {
         Self::open_with_before_open(path, kind, expected, || {})
     }
 
-    fn open_with_before_open<F>(
+    pub(crate) fn open_with_before_open<F>(
         path: &Path,
         kind: PhysicalPathKind,
         expected: &PhysicalPathIdentity,
@@ -280,6 +371,182 @@ impl RestrictedAuthorityHandle {
             ))
         }
     }
+}
+
+/// Resolve a worktree's real `.git` authority, including linked-worktree `gitdir` and
+/// `commondir` indirection, while holding every metadata object share-restricted. The common
+/// directory's operating-system file identity is the repository equality authority.
+pub(crate) fn native_git_authority(
+    worktree_root: &Path,
+) -> Result<NativeGitAuthority, IdentityError> {
+    let root_identity = physical_path_identity(worktree_root, PhysicalPathKind::Directory)?;
+    let root_guard = RestrictedAuthorityHandle::open(
+        worktree_root,
+        PhysicalPathKind::Directory,
+        &root_identity,
+    )?;
+    let dot_git = worktree_root.join(".git");
+    let mut guards = vec![root_guard];
+
+    let mut linked_dot_git_identity = None;
+    let git_dir = if dot_git.is_dir() {
+        let identity = physical_path_identity(&dot_git, PhysicalPathKind::Directory)?;
+        guards.push(RestrictedAuthorityHandle::open(
+            &dot_git,
+            PhysicalPathKind::Directory,
+            &identity,
+        )?);
+        identity.canonical_path
+    } else if dot_git.is_file() {
+        let identity = physical_path_identity(&dot_git, PhysicalPathKind::RegularFile)?;
+        let mut guard =
+            RestrictedAuthorityHandle::open(&dot_git, PhysicalPathKind::RegularFile, &identity)?;
+        let text = bounded_utf8_authority(&mut guard, 16 * 1024)?;
+        let declared = text
+            .strip_prefix("gitdir: ")
+            .ok_or_else(|| IdentityError::InvalidGitIdentity("invalid .git file".into()))?;
+        let declared = declared.trim();
+        if declared.is_empty() || declared.contains(['\0', '\r', '\n']) {
+            return Err(IdentityError::InvalidGitIdentity(
+                "invalid linked-worktree gitdir".into(),
+            ));
+        }
+        let path = PathBuf::from(declared);
+        let path = if path.is_absolute() {
+            path
+        } else {
+            worktree_root.join(path)
+        };
+        linked_dot_git_identity = Some(identity.clone());
+        guards.push(guard);
+        let git_dir_identity = physical_path_identity(&path, PhysicalPathKind::Directory)?;
+        guards.push(RestrictedAuthorityHandle::open(
+            &path,
+            PhysicalPathKind::Directory,
+            &git_dir_identity,
+        )?);
+        git_dir_identity.canonical_path
+    } else {
+        return Err(IdentityError::MissingGitIdentity);
+    };
+
+    let common_marker = git_dir.join("commondir");
+    let commondir_was_present = match fs::symlink_metadata(&common_marker) {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(_) => {
+            return Err(IdentityError::AmbiguousPhysicalIdentity(
+                "linked-worktree commondir cannot be inspected".into(),
+            ))
+        }
+    };
+    let common_dir_path = if commondir_was_present {
+        let marker_identity =
+            physical_path_identity(&common_marker, PhysicalPathKind::RegularFile)?;
+        let mut marker_guard = RestrictedAuthorityHandle::open(
+            &common_marker,
+            PhysicalPathKind::RegularFile,
+            &marker_identity,
+        )?;
+        let declared = bounded_utf8_authority(&mut marker_guard, 16 * 1024)?;
+        let declared = declared.trim();
+        if declared.is_empty() || declared.contains(['\0', '\r', '\n']) {
+            return Err(IdentityError::InvalidGitIdentity(
+                "invalid linked-worktree commondir".into(),
+            ));
+        }
+        let path = PathBuf::from(declared);
+        guards.push(marker_guard);
+        if path.is_absolute() {
+            path
+        } else {
+            git_dir.join(path)
+        }
+    } else {
+        git_dir.clone()
+    };
+
+    let common_dir = physical_path_identity(&common_dir_path, PhysicalPathKind::Directory)?;
+    guards.push(RestrictedAuthorityHandle::open(
+        &common_dir_path,
+        PhysicalPathKind::Directory,
+        &common_dir,
+    )?);
+    for (path, kind) in [
+        (
+            common_dir.canonical_path.join("HEAD"),
+            PhysicalPathKind::RegularFile,
+        ),
+        (
+            common_dir.canonical_path.join("objects"),
+            PhysicalPathKind::Directory,
+        ),
+    ] {
+        let identity = physical_path_identity(&path, kind).map_err(|_| {
+            IdentityError::InvalidGitIdentity("Git common directory is incomplete".into())
+        })?;
+        guards.push(RestrictedAuthorityHandle::open(&path, kind, &identity)?);
+    }
+    if let Some(dot_git_identity) = linked_dot_git_identity {
+        let backlink = git_dir.join("gitdir");
+        let backlink_identity = physical_path_identity(&backlink, PhysicalPathKind::RegularFile)
+            .map_err(|_| {
+                IdentityError::InvalidGitIdentity("linked worktree backlink is missing".into())
+            })?;
+        let mut backlink_guard = RestrictedAuthorityHandle::open(
+            &backlink,
+            PhysicalPathKind::RegularFile,
+            &backlink_identity,
+        )?;
+        let declared = bounded_utf8_authority(&mut backlink_guard, 16 * 1024)?;
+        let declared_path = PathBuf::from(declared.trim());
+        let declared_path = if declared_path.is_absolute() {
+            declared_path
+        } else {
+            git_dir.join(declared_path)
+        };
+        let declared_identity =
+            physical_path_identity(&declared_path, PhysicalPathKind::RegularFile)?;
+        if declared_identity != dot_git_identity {
+            return Err(IdentityError::InvalidGitIdentity(
+                "linked worktree backlink targets a different worktree".into(),
+            ));
+        }
+        let worktrees_directory = git_dir
+            .parent()
+            .filter(|path| path.file_name().is_some_and(|name| name == "worktrees"))
+            .ok_or_else(|| {
+                IdentityError::InvalidGitIdentity("linked worktree admin path is invalid".into())
+            })?;
+        let membership = worktrees_directory.parent().ok_or_else(|| {
+            IdentityError::InvalidGitIdentity("linked worktree admin path is invalid".into())
+        })?;
+        let membership_identity = physical_path_identity(membership, PhysicalPathKind::Directory)?;
+        if membership_identity != common_dir {
+            return Err(IdentityError::InvalidGitIdentity(
+                "linked worktree admin directory is outside the Git common directory".into(),
+            ));
+        }
+        guards.push(backlink_guard);
+    }
+    let authority = NativeGitAuthority {
+        common_dir,
+        guards,
+        commondir_marker: common_marker,
+        commondir_was_present,
+    };
+    authority.revalidate()?;
+    Ok(authority)
+}
+
+fn bounded_utf8_authority(
+    guard: &mut RestrictedAuthorityHandle,
+    maximum: u64,
+) -> Result<String, IdentityError> {
+    let bytes = guard.read_bounded(maximum)?;
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| IdentityError::InvalidGitIdentity("Git metadata is not UTF-8".into()))?;
+    Ok(text.to_owned())
 }
 
 #[cfg(test)]
@@ -518,6 +785,108 @@ pub fn canonical_logical_file_identity(
     })
 }
 
+/// Native typed claim projection. Existing directories own a segment-bounded tree; existing
+/// regular files and all missing paths are exact claims. A missing declaration with directory
+/// syntax is intentionally unknowable, and globs are rejected by normalization.
+pub(crate) fn canonical_native_claim_path(
+    worktree_root: &Path,
+    declared_path: &str,
+) -> Result<NativeClaimPath, IdentityError> {
+    if !worktree_root.is_absolute() {
+        return Err(IdentityError::InvalidWorktree(
+            "root must be absolute".into(),
+        ));
+    }
+    let canonical_root = worktree_root.canonicalize().map_err(|error| {
+        IdentityError::InvalidWorktree(format!("root cannot be resolved: {error}"))
+    })?;
+    let lexical = normalize_declared_relative_path(declared_path)?;
+    let candidate = canonical_root.join(lexical);
+    reject_existing_reparse_prefixes(&candidate)?;
+    let (resolved, existed, missing_tail) = resolve_with_missing_tail(&candidate)?;
+    #[cfg(windows)]
+    if missing_tail
+        .iter()
+        .any(|component| !component.to_string_lossy().is_ascii())
+    {
+        return Err(IdentityError::AmbiguousNewPathCase(
+            declared_path.to_owned(),
+        ));
+    }
+    if !resolved.starts_with(&canonical_root) || resolved == canonical_root {
+        return Err(IdentityError::OutsideRepository);
+    }
+    let relative = resolved
+        .strip_prefix(&canonical_root)
+        .map_err(|_| IdentityError::OutsideRepository)?;
+    let repository_relative_path = normalized_repository_relative_path(relative)?;
+    if !existed {
+        if declared_path.trim_end().ends_with(['/', '\\']) {
+            return Err(IdentityError::InvalidWorktree(
+                "missing directory claims require native type evidence".into(),
+            ));
+        }
+        let mut deepest_parent = resolved.clone();
+        for _ in &missing_tail {
+            deepest_parent.pop();
+        }
+        let parent_identity = physical_path_identity(&deepest_parent, PhysicalPathKind::Directory)?;
+        let parent_guard = RestrictedAuthorityHandle::open(
+            &deepest_parent,
+            PhysicalPathKind::Directory,
+            &parent_identity,
+        )?;
+        let mut expected_absent = Vec::with_capacity(missing_tail.len());
+        let mut absence_cursor = deepest_parent.clone();
+        for component in missing_tail.iter().rev() {
+            absence_cursor.push(component);
+            expected_absent.push(absence_cursor.clone());
+        }
+        return Ok(NativeClaimPath {
+            repository_relative_path,
+            kind: NativeClaimPathKind::ExactFile,
+            physical_alias: None,
+            authority: NativeClaimAuthority {
+                guard: parent_guard,
+                expected_absent,
+            },
+        });
+    }
+    let metadata = fs::metadata(&resolved)
+        .map_err(|_| IdentityError::UnresolvedPath(declared_path.to_owned()))?;
+    if metadata.is_dir() {
+        let identity = physical_path_identity(&resolved, PhysicalPathKind::Directory)?;
+        let guard =
+            RestrictedAuthorityHandle::open(&resolved, PhysicalPathKind::Directory, &identity)?;
+        guard.revalidate()?;
+        Ok(NativeClaimPath {
+            repository_relative_path,
+            kind: NativeClaimPathKind::DirectoryTree,
+            physical_alias: None,
+            authority: NativeClaimAuthority {
+                guard,
+                expected_absent: Vec::new(),
+            },
+        })
+    } else if metadata.is_file() {
+        let identity = physical_path_identity(&resolved, PhysicalPathKind::RegularFile)?;
+        let guard =
+            RestrictedAuthorityHandle::open(&resolved, PhysicalPathKind::RegularFile, &identity)?;
+        guard.revalidate()?;
+        Ok(NativeClaimPath {
+            repository_relative_path,
+            kind: NativeClaimPathKind::ExactFile,
+            physical_alias: Some(identity),
+            authority: NativeClaimAuthority {
+                guard,
+                expected_absent: Vec::new(),
+            },
+        })
+    } else {
+        Err(IdentityError::UnexpectedPhysicalType)
+    }
+}
+
 /// Normalize a declared shared-resource lock. Producers use symbolic, secret-free resource
 /// names, never raw connection strings. Unknown namespaces and ambiguous syntax are denied.
 pub fn canonical_resource_identity(raw: &str) -> Result<ResourceIdentity, IdentityError> {
@@ -604,6 +973,41 @@ pub fn canonical_resource_identity(raw: &str) -> Result<ResourceIdentity, Identi
 pub(crate) fn canonical_declared_path(raw: &str) -> Result<String, IdentityError> {
     let normalized = normalize_declared_relative_path(raw)?;
     normalized_repository_relative_path(&normalized)
+}
+
+/// Canonical text binding for a declared manifest entry. Unsupported glob syntax is retained in
+/// the signed/census input so the participant cannot disappear, while native claim projection
+/// still calls `canonical_declared_path` and therefore fails closed with `AmbiguousGlob`.
+pub(crate) fn canonical_manifest_declaration(raw: &str) -> Result<String, IdentityError> {
+    match canonical_declared_path(raw) {
+        Ok(value) => Ok(value),
+        Err(IdentityError::AmbiguousGlob) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty()
+                || trimmed.starts_with(['/', '\\'])
+                || trimmed.as_bytes().get(1).is_some_and(|byte| *byte == b':')
+            {
+                return Err(IdentityError::AbsolutePath);
+            }
+            let portable = trimmed.replace('\\', "/");
+            let mut normalized = PathBuf::new();
+            for component in portable.split('/') {
+                if component.is_empty() || component == "." {
+                    continue;
+                }
+                if component == ".." {
+                    return Err(IdentityError::PathEscape);
+                }
+                validate_windows_component(component)?;
+                normalized.push(component);
+            }
+            if normalized.as_os_str().is_empty() {
+                return Err(IdentityError::EmptyPath);
+            }
+            normalized_repository_relative_path(&normalized)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn normalize_declared_relative_path(raw: &str) -> Result<PathBuf, IdentityError> {
@@ -763,6 +1167,27 @@ fn reject_reparse_ancestors(path: &Path) -> Result<(), IdentityError> {
         cursor = candidate.parent();
     }
     Ok(())
+}
+
+fn reject_existing_reparse_prefixes(path: &Path) -> Result<(), IdentityError> {
+    let mut cursor = path;
+    loop {
+        match fs::symlink_metadata(cursor) {
+            Ok(_) => return reject_reparse_ancestors(cursor),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                cursor = cursor.parent().ok_or_else(|| {
+                    IdentityError::AmbiguousPhysicalIdentity(
+                        "declared claim has no inspectable parent authority".into(),
+                    )
+                })?;
+            }
+            Err(_) => {
+                return Err(IdentityError::AmbiguousPhysicalIdentity(
+                    "declared claim authority cannot be inspected".into(),
+                ))
+            }
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -1496,10 +1921,165 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn missing_claim_prefix_appearance_invalidates_retained_authority() {
+        let fixture = Fixture::new();
+        let claim = canonical_native_claim_path(&fixture.worktree_a, "src/generated/deep/new.rs")
+            .expect("missing exact claim");
+        fs::create_dir_all(fixture.worktree_a.join("src/generated")).unwrap();
+        assert!(matches!(
+            claim.authority.revalidate(),
+            Err(IdentityError::AmbiguousPhysicalIdentity(_))
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn declared_junction_component_is_denied_before_claim_projection() {
+        let fixture = Fixture::new();
+        let target = fixture.worktree_a.join("src/real");
+        let alias = fixture.worktree_a.join("src/alias");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("file.rs"), b"x").unwrap();
+        create_directory_alias(&alias, &target);
+        assert!(matches!(
+            canonical_native_claim_path(&fixture.worktree_a, "src/alias/file.rs"),
+            Err(IdentityError::AmbiguousPhysicalIdentity(_))
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn real_linked_worktrees_share_native_common_identity() {
+        let root = std::env::temp_dir().join(format!(
+            "pp-real-git-authority-{}-{}",
+            std::process::id(),
+            TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let repository = root.join("repository");
+        let sibling = root.join("sibling");
+        let unrelated = root.join("unrelated");
+        let forged = root.join("forged");
+        fs::create_dir_all(&repository).unwrap();
+        fs::create_dir_all(&unrelated).unwrap();
+        fs::create_dir_all(&forged).unwrap();
+        let run = |cwd: &Path, args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .current_dir(cwd)
+                .args(args)
+                .output()
+                .expect("start git");
+            assert!(
+                output.status.success(),
+                "git {:?}: {}{}",
+                args,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        run(&repository, &["init"]);
+        run(
+            &repository,
+            &["config", "user.email", "collision@example.invalid"],
+        );
+        run(&repository, &["config", "user.name", "Collision Test"]);
+        fs::write(repository.join("seed.txt"), b"seed").unwrap();
+        run(&repository, &["add", "seed.txt"]);
+        run(&repository, &["commit", "-m", "seed"]);
+        run(
+            &repository,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "collision-sibling",
+                sibling.to_str().unwrap(),
+            ],
+        );
+        run(&unrelated, &["init"]);
+        let primary = native_git_authority(&repository).expect("primary authority");
+        let linked = native_git_authority(&sibling).expect("linked authority");
+        let independent = native_git_authority(&unrelated).expect("independent authority");
+        assert_eq!(
+            (primary.common_dir.volume_id, primary.common_dir.file_id),
+            (linked.common_dir.volume_id, linked.common_dir.file_id)
+        );
+        assert_ne!(
+            (primary.common_dir.volume_id, primary.common_dir.file_id),
+            (
+                independent.common_dir.volume_id,
+                independent.common_dir.file_id
+            )
+        );
+        fs::copy(sibling.join(".git"), forged.join(".git")).unwrap();
+        assert!(matches!(
+            native_git_authority(&forged),
+            Err(IdentityError::InvalidGitIdentity(_))
+                | Err(IdentityError::AmbiguousPhysicalIdentity(_))
+        ));
+        primary.revalidate().unwrap();
+        linked.revalidate().unwrap();
+        independent.revalidate().unwrap();
+        drop(primary);
+        drop(linked);
+        drop(independent);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn subst_drive_is_never_accepted_as_physical_authority() {
+        struct SubstGuard(char);
+        impl Drop for SubstGuard {
+            fn drop(&mut self) {
+                let _ = std::process::Command::new("subst")
+                    .args([format!("{}:", self.0), "/D".into()])
+                    .status();
+            }
+        }
+
+        let root = std::env::temp_dir().join(format!(
+            "pp-subst-authority-{}-{}",
+            std::process::id(),
+            TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("probe.txt"), b"physical authority probe").unwrap();
+        let mapped = (b'D'..=b'Z').rev().find_map(|letter| {
+            let letter = letter as char;
+            if PathBuf::from(format!("{letter}:\\")).exists() {
+                return None;
+            }
+            std::process::Command::new("subst")
+                .arg(format!("{letter}:"))
+                .arg(&root)
+                .status()
+                .ok()
+                .filter(|status| status.success())
+                .map(|_| letter)
+        });
+        let letter = mapped.expect(
+            "SUBST proof fixture unavailable: no free drive letter or subst.exe was denied",
+        );
+        let guard = SubstGuard(letter);
+        let alias = PathBuf::from(format!("{letter}:\\probe.txt"));
+        assert!(matches!(
+            physical_path_identity(&alias, PhysicalPathKind::RegularFile),
+            Err(IdentityError::AmbiguousPhysicalIdentity(_))
+        ));
+        drop(guard);
+        let _ = fs::remove_dir_all(&root);
+    }
+
     #[cfg(windows)]
     fn create_directory_alias(link: &Path, target: &Path) {
-        let output = std::process::Command::new("cmd")
-            .args(["/D", "/S", "/C", "mklink", "/J"])
+        let output = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "& { param($Link,$Target) New-Item -ItemType Junction -Path $Link -Target $Target | Out-Null }",
+            ])
             .arg(link)
             .arg(target)
             .output()

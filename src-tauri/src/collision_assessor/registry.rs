@@ -6,9 +6,17 @@
 //! Invalid state is reported as `UNKNOWN`; it is never interpreted as an empty registry.
 
 use super::identity::{
-    canonical_declared_path, canonical_resource_identity, physical_path_identity,
-    PhysicalPathIdentity, PhysicalPathKind, RestrictedAuthorityHandle,
+    canonical_manifest_declaration, canonical_native_claim_path, canonical_resource_identity,
+    native_git_authority, physical_path_identity, NativeClaimAuthority, NativeClaimAuthorityBundle,
+    NativeClaimPathKind, NativeGitAuthority, PhysicalPathIdentity, PhysicalPathKind,
+    RestrictedAuthorityHandle,
 };
+use super::model::{
+    ActiveClaimContract, ActiveClaimState, CanonicalClaim, CanonicalClaimKind,
+    CanonicalClaimSnapshot, ClaimDispositionRule, ClaimSnapshotFailure, ClaimSnapshotStatus,
+    ConflictDisposition,
+};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -20,11 +28,11 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-pub const REGISTRY_SCHEMA_VERSION: u32 = 1;
+pub const REGISTRY_SCHEMA_VERSION: u32 = 2;
 pub const REGISTRY_RELATIVE_PATH: &str = "collision-assessor/registry-v1.json";
 const DEFAULT_LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_REGISTRY_BYTES: u64 = 8 * 1024 * 1024;
@@ -125,6 +133,7 @@ pub struct PlannerCensusMetadata {
     pub plan_id: String,
     pub plan_content_digest: String,
     pub manifest_digest: String,
+    pub claim_snapshot: CanonicalClaimSnapshot,
     #[serde(default)]
     pub files: Vec<String>,
     #[serde(default)]
@@ -160,12 +169,140 @@ pub struct RegistryDocument {
     pub schema_version: u32,
     pub generation: u64,
     pub updated_at_ms: u64,
+    pub authority_issuer_epoch: u64,
+    pub authority_verifying_key: String,
+    pub authority_key_fingerprint: String,
     #[serde(default)]
     pub configured_roots: Vec<ConfiguredDiscoveryRoot>,
     #[serde(default)]
     pub registrations: Vec<PlannerRegistration>,
+    #[serde(default)]
+    pub(crate) claim_authorities: Vec<MachineClaimAuthority>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) authority_set_receipt: Option<MachineAuthoritySetReceipt>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub census: Option<DiscoveryCensus>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LegacyRegistryDocumentV1 {
+    schema_version: u32,
+    generation: u64,
+    updated_at_ms: u64,
+    #[serde(default)]
+    configured_roots: Vec<ConfiguredDiscoveryRoot>,
+    #[serde(default)]
+    registrations: Vec<PlannerRegistration>,
+    #[serde(default)]
+    census: Option<LegacyDiscoveryCensusV1>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LegacyDiscoveryCensusV1 {
+    registry_generation: u64,
+    input_digest: String,
+    captured_at_ms: u64,
+    expires_at_ms: u64,
+    #[serde(default)]
+    roots: Vec<DiscoveryRootCensus>,
+    planners: Vec<LegacyPlannerCensusMetadataV1>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LegacyPlannerCensusMetadataV1 {
+    planner_id: String,
+    repository_id: String,
+    repository_identity: String,
+    worktree_identity: String,
+    branch: String,
+    plan_id: String,
+    plan_content_digest: String,
+    manifest_digest: String,
+    #[serde(default)]
+    files: Vec<String>,
+    #[serde(default)]
+    resources: Vec<String>,
+    #[serde(default)]
+    nodes: Vec<PlannerNodeManifest>,
+    lease_generation: u64,
+    registered_at_ms: u64,
+    updated_at_ms: u64,
+    heartbeat_at_ms: u64,
+    lease_expires_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct MachineDispositionRule {
+    pub(crate) source_binding: String,
+    pub(crate) disposition: ConflictDisposition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct MachineNodeClaimAuthority {
+    pub(crate) participant_binding: String,
+    pub(crate) run_identity: String,
+    pub(crate) worker_identity: String,
+    pub(crate) fence: u64,
+    pub(crate) state: ActiveClaimState,
+    #[serde(default)]
+    pub(crate) dependencies: Vec<String>,
+    pub(crate) assumption_digest: String,
+    pub(crate) policy_digest: String,
+    pub(crate) active_state_digest: String,
+    #[serde(default)]
+    pub(crate) disposition_rules: Vec<MachineDispositionRule>,
+    pub(crate) observed_at_ms: u64,
+    pub(crate) expires_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct MachineClaimAuthority {
+    pub(crate) registry_generation: u64,
+    pub(crate) planner_id: String,
+    pub(crate) plan_id: String,
+    pub(crate) repository_identity: String,
+    pub(crate) plan_content_digest: String,
+    pub(crate) lease_generation: u64,
+    pub(crate) authority_generation: u64,
+    pub(crate) authority_digest: String,
+    pub(crate) issuer_epoch: u64,
+    pub(crate) issuer_fingerprint: String,
+    pub(crate) authority_signature: String,
+    #[serde(default)]
+    pub(crate) nodes: Vec<MachineNodeClaimAuthority>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct MachineAuthoritySetReceipt {
+    pub(crate) registry_generation: u64,
+    pub(crate) issuer_epoch: u64,
+    pub(crate) issuer_fingerprint: String,
+    pub(crate) scope_digest: String,
+    pub(crate) signature: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AuthorityScopeRootProjection {
+    pub(crate) root_id: String,
+    pub(crate) identity: PhysicalPathIdentity,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AuthorityScopePlannerProjection {
+    pub(crate) registration: PlannerRegistration,
+    pub(crate) repository_identity: PhysicalPathIdentity,
+    pub(crate) worktree_identity: PhysicalPathIdentity,
+    pub(crate) plan_identity: PhysicalPathIdentity,
+    pub(crate) git_common_identity: PhysicalPathIdentity,
+    pub(crate) plan_content_digest: String,
+    pub(crate) authority_digest: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -187,19 +324,26 @@ pub(crate) struct ValidatedDiscoveryRoot {
     pub(crate) identity: PhysicalPathIdentity,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct ValidatedPlannerRegistration {
     pub(crate) registration: PlannerRegistration,
     pub(crate) repository_root_identity: PhysicalPathIdentity,
     pub(crate) worktree_root_identity: PhysicalPathIdentity,
     pub(crate) plan_identity: PhysicalPathIdentity,
+    pub(crate) claim_snapshot: CanonicalClaimSnapshot,
+    pub(crate) claim_authority: Option<MachineClaimAuthority>,
+    pub(crate) authority_verifying_key: [u8; 32],
+    pub(crate) authority_issuer_epoch: u64,
+    pub(crate) authority_key_fingerprint: String,
+    pub(crate) claim_authority_attestation: Option<NativeClaimAuthorityBundle>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct CensusInputSnapshot {
     pub(crate) attestation: CensusInputAttestation,
     pub(crate) configured_roots: Vec<ValidatedDiscoveryRoot>,
     pub(crate) registrations: Vec<ValidatedPlannerRegistration>,
+    pub(crate) authority_set_receipt: Option<MachineAuthoritySetReceipt>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -319,10 +463,21 @@ impl fmt::Display for RegistryError {
 
 impl Error for RegistryError {}
 
+#[derive(Debug)]
+struct IssuerVerifier {
+    epoch: u64,
+    verifying_key: [u8; 32],
+    fingerprint: String,
+    registry_high_water: AtomicU64,
+    authority_scope_high_water: Mutex<Option<String>>,
+    registry_scope_high_water: Mutex<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct PlannerRegistryStore {
     path: Arc<PathBuf>,
     lock_timeout: Duration,
+    trusted_issuer: Option<Arc<IssuerVerifier>>,
 }
 
 impl PlannerRegistryStore {
@@ -346,6 +501,7 @@ impl PlannerRegistryStore {
         Ok(Self {
             path: Arc::new(path),
             lock_timeout: DEFAULT_LOCK_TIMEOUT,
+            trusted_issuer: None,
         })
     }
 
@@ -379,7 +535,7 @@ impl PlannerRegistryStore {
 
         match fs::symlink_metadata(self.path.as_path()) {
             Ok(_) => {
-                let read = inspect_registry_file(self.path.as_path(), now_ms);
+                let read = inspect_registry_file(self.path.as_path(), now_ms, None);
                 return match read {
                     RegistryRead::Complete(_) | RegistryRead::Unknown(_) => {
                         Err(RegistryError::Conflict(
@@ -397,12 +553,19 @@ impl PlannerRegistryStore {
             }
         }
 
+        let initial_signer = generate_signing_key();
+        let initial_verifier = initial_signer.verifying_key().to_bytes();
         let document = RegistryDocument {
             schema_version: REGISTRY_SCHEMA_VERSION,
             generation: 1,
             updated_at_ms: now_ms,
+            authority_issuer_epoch: 1,
+            authority_verifying_key: hex_slice(&initial_verifier),
+            authority_key_fingerprint: authority_key_fingerprint(&initial_verifier),
             configured_roots,
             registrations: Vec::new(),
+            claim_authorities: Vec::new(),
+            authority_set_receipt: None,
             census: None,
         };
         persist_document(self.path.as_path(), &document)?;
@@ -410,7 +573,147 @@ impl PlannerRegistryStore {
     }
 
     pub fn inspect(&self, now_ms: u64) -> RegistryRead {
-        inspect_registry_file(self.path.as_path(), now_ms)
+        inspect_registry_file(self.path.as_path(), now_ms, self.trusted_issuer.as_deref())
+    }
+
+    /// One-way bounded migration for the pre-claim schema. No legacy census or authority is
+    /// carried forward: generation advances and the fresh issuer public key starts with an empty
+    /// authority set, so work remains UNKNOWN until the native owner re-attests it.
+    pub(crate) fn migrate_legacy_v1(&self, now_ms: u64) -> Result<RegistryDocument, RegistryError> {
+        if self.trusted_issuer.is_some() {
+            return Err(RegistryError::Conflict(
+                "legacy migration cannot replace a live trusted issuer".into(),
+            ));
+        }
+        validate_timestamp("legacy migration time", now_ms)?;
+        let _lock = RegistryLock::acquire(self.path.as_path(), self.lock_timeout)?;
+        let value =
+            load_registry_value(self.path.as_path()).map_err(RegistryError::UnknownState)?;
+        let schema_version = value.get("schemaVersion").and_then(Value::as_u64);
+        if schema_version == Some(REGISTRY_SCHEMA_VERSION as u64) {
+            let document: RegistryDocument = serde_json::from_value(value).map_err(|error| {
+                RegistryError::UnknownState(vec![RegistryIssue::Malformed(error.to_string())])
+            })?;
+            let mut issues = validate_document_static(&document);
+            issues.extend(validate_nonstale_authority_time(&document, now_ms));
+            if issues.is_empty() {
+                return Ok(document);
+            }
+            return Err(RegistryError::UnknownState(issues));
+        }
+        if schema_version != Some(1) {
+            return Err(RegistryError::Conflict(
+                "only schema-v1 or schema-v2 registry state can be bootstrapped".into(),
+            ));
+        }
+        let legacy: LegacyRegistryDocumentV1 = serde_json::from_value(value).map_err(|error| {
+            RegistryError::UnknownState(vec![RegistryIssue::Malformed(error.to_string())])
+        })?;
+        if legacy.schema_version != 1 || legacy.generation == 0 || legacy.updated_at_ms == 0 {
+            return Err(RegistryError::UnknownState(vec![
+                RegistryIssue::InvalidDocument("legacy registry header is invalid".into()),
+            ]));
+        }
+        let signer = generate_signing_key();
+        let verifier = signer.verifying_key().to_bytes();
+        let document = RegistryDocument {
+            schema_version: REGISTRY_SCHEMA_VERSION,
+            generation: legacy
+                .generation
+                .checked_add(1)
+                .ok_or_else(|| RegistryError::Conflict("registry generation overflow".into()))?,
+            updated_at_ms: now_ms,
+            authority_issuer_epoch: 1,
+            authority_verifying_key: hex_slice(&verifier),
+            authority_key_fingerprint: authority_key_fingerprint(&verifier),
+            configured_roots: legacy.configured_roots,
+            registrations: legacy.registrations,
+            claim_authorities: Vec::new(),
+            authority_set_receipt: None,
+            census: None,
+        };
+        let mut issues = validate_document_static(&document);
+        // Expired leases are expected after an app upgrade or downtime. Preserve them so the
+        // read path can truthfully return UNKNOWN/Stale until a new heartbeat and attestation;
+        // only impossible/future timelines make migration unsafe.
+        issues.extend(validate_nonstale_authority_time(&document, now_ms));
+        if !issues.is_empty() {
+            return Err(RegistryError::UnknownState(issues));
+        }
+        persist_document(self.path.as_path(), &document)?;
+        Ok(document)
+    }
+
+    /// Idempotent native-startup schema gate. A missing registry is valid before the user adds a
+    /// discovery root; a present registry must be either current and structurally valid or the
+    /// exact bounded v1 shape above. Malformed legacy bytes are never rewritten.
+    pub(crate) fn bootstrap_registry_schema(&self, now_ms: u64) -> Result<(), RegistryError> {
+        match fs::symlink_metadata(self.path.as_path()) {
+            Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+                self.migrate_legacy_v1(now_ms).map(|_| ())
+            }
+            Ok(_) => Err(RegistryError::InvalidInput(
+                "registry target is not a regular file".into(),
+            )),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(RegistryError::Io(format!(
+                "cannot inspect registry during startup: {error}"
+            ))),
+        }
+    }
+
+    #[cfg(test)]
+    fn rotate_test_issuer(
+        &self,
+        now_ms: u64,
+    ) -> Result<(PlannerRegistryStore, SigningKey), RegistryError> {
+        if self.trusted_issuer.is_some() {
+            return Err(RegistryError::Conflict(
+                "issuer rotation requires an untrusted structural-recovery store".into(),
+            ));
+        }
+        validate_timestamp("test issuer rotation time", now_ms)?;
+        let _lock = RegistryLock::acquire(self.path.as_path(), self.lock_timeout)?;
+        let mut document = load_document_for_mutation(self.path.as_path(), now_ms)?;
+        let signer = generate_signing_key();
+        let verifier = signer.verifying_key().to_bytes();
+        document.authority_issuer_epoch = document
+            .authority_issuer_epoch
+            .checked_add(1)
+            .ok_or_else(|| RegistryError::Conflict("issuer epoch overflow".into()))?;
+        document.authority_verifying_key = hex_slice(&verifier);
+        document.authority_key_fingerprint = authority_key_fingerprint(&verifier);
+        document.claim_authorities.clear();
+        document.authority_set_receipt = None;
+        document.census = None;
+        document.generation = document
+            .generation
+            .checked_add(1)
+            .ok_or_else(|| RegistryError::Conflict("registry generation overflow".into()))?;
+        document.updated_at_ms = now_ms;
+        // Resolve and retain the complete native authority projection before touching disk.
+        // Rotation is the sole recovery path for a store without a live issuer; it must never
+        // persist a new epoch and only then discover that the roots/plans cannot be attested.
+        let registry_attestation = authority_set_scope_attestation(
+            &document,
+            document.generation,
+            &document.claim_authorities,
+            false,
+        )?;
+        let registry_digest = registry_attestation.digest.clone();
+        persist_document_before(self.path.as_path(), &document, || {
+            registry_attestation.revalidate()
+        })?;
+        let mut trusted_store = self.clone();
+        trusted_store.trusted_issuer = Some(Arc::new(IssuerVerifier {
+            epoch: document.authority_issuer_epoch,
+            verifying_key: verifier,
+            fingerprint: document.authority_key_fingerprint.clone(),
+            registry_high_water: AtomicU64::new(document.generation),
+            authority_scope_high_water: Mutex::new(None),
+            registry_scope_high_water: Mutex::new(registry_digest),
+        }));
+        Ok((trusted_store, signer))
     }
 
     /// Capture the exact authority input for a first or subsequent census. Prior census output
@@ -424,7 +727,7 @@ impl PlannerRegistryStore {
         validate_timestamp("census snapshot time", now_ms)?;
         let _lock = RegistryLock::acquire(self.path.as_path(), self.lock_timeout)?;
         let document = load_document(self.path.as_path()).map_err(RegistryError::UnknownState)?;
-        build_census_input_snapshot(&document, now_ms)
+        build_census_input_snapshot(&document, now_ms, self.trusted_issuer.as_deref())
     }
 
     pub fn register(
@@ -475,18 +778,21 @@ impl PlannerRegistryStore {
         }
         let expires_at_ms = lease_expiry(now_ms, lease_ms)?;
         self.mutate(now_ms, true, |document| {
-            let registration = registration_mut(document, planner_id)?;
-            require_generation(registration, expected_lease_generation)?;
-            registration.lease_generation = registration
-                .lease_generation
-                .checked_add(1)
-                .ok_or_else(|| {
-                    RegistryError::Conflict("planner lease generation overflowed".into())
-                })?;
-            registration.updated_at_ms = now_ms;
-            registration.heartbeat_at_ms = now_ms;
-            registration.lease_expires_at_ms = expires_at_ms;
-            Ok(registration.clone())
+            let output = {
+                let registration = registration_mut(document, planner_id)?;
+                require_generation(registration, expected_lease_generation)?;
+                registration.lease_generation = registration
+                    .lease_generation
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        RegistryError::Conflict("planner lease generation overflowed".into())
+                    })?;
+                registration.updated_at_ms = now_ms;
+                registration.heartbeat_at_ms = now_ms;
+                registration.lease_expires_at_ms = expires_at_ms;
+                registration.clone()
+            };
+            Ok(output)
         })
     }
 
@@ -507,19 +813,22 @@ impl PlannerRegistryStore {
         }
         let expires_at_ms = lease_expiry(now_ms, lease_ms)?;
         self.mutate(now_ms, true, move |document| {
-            let registration = registration_mut(document, planner_id)?;
-            require_generation(registration, expected_lease_generation)?;
-            registration.identity = replacement;
-            registration.lease_generation = registration
-                .lease_generation
-                .checked_add(1)
-                .ok_or_else(|| {
-                    RegistryError::Conflict("planner lease generation overflowed".into())
-                })?;
-            registration.updated_at_ms = now_ms;
-            registration.heartbeat_at_ms = now_ms;
-            registration.lease_expires_at_ms = expires_at_ms;
-            Ok(registration.clone())
+            let output = {
+                let registration = registration_mut(document, planner_id)?;
+                require_generation(registration, expected_lease_generation)?;
+                registration.identity = replacement;
+                registration.lease_generation = registration
+                    .lease_generation
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        RegistryError::Conflict("planner lease generation overflowed".into())
+                    })?;
+                registration.updated_at_ms = now_ms;
+                registration.heartbeat_at_ms = now_ms;
+                registration.lease_expires_at_ms = expires_at_ms;
+                registration.clone()
+            };
+            Ok(output)
         })
     }
 
@@ -531,15 +840,329 @@ impl PlannerRegistryStore {
     ) -> Result<PlannerRegistration, RegistryError> {
         validate_id("planner id", planner_id)?;
         self.mutate(now_ms, true, |document| {
+            if document
+                .claim_authorities
+                .iter()
+                .any(|authority| authority.planner_id == planner_id)
+            {
+                return Err(RegistryError::Conflict(
+                    "planner with signed collision history cannot be unregistered before trusted retirement"
+                        .into(),
+                ));
+            }
             let index = document
                 .registrations
                 .iter()
                 .position(|entry| entry.identity.planner_id == planner_id)
                 .ok_or_else(|| {
                     RegistryError::Conflict(format!("planner {planner_id} is not registered"))
-                })?;
+            })?;
             require_generation(&document.registrations[index], expected_lease_generation)?;
-            Ok(document.registrations.remove(index))
+            let removed = document.registrations.remove(index);
+            document
+                .claim_authorities
+                .retain(|authority| authority.planner_id != planner_id);
+            Ok(removed)
+        })
+    }
+
+    /// Test-only issuer harness for the B19 verifier boundary. It is deliberately crate-private
+    /// and is not a Tauri command. The registry rebinds every opaque record to the live planner
+    /// lease, plan bytes and native Git authority, signs each with the current Ed25519 issuer,
+    /// then signs the exact aggregate scope before one atomic persistence. Production issuance
+    /// remains unavailable until the trusted scheduler/reservation integration is delivered.
+    #[cfg(test)]
+    pub(crate) fn publish_machine_claim_authority_set_for_test(
+        &self,
+        mut authorities: Vec<MachineClaimAuthority>,
+        signer: &SigningKey,
+        expected_registry_generation: u64,
+        now_ms: u64,
+    ) -> Result<Vec<MachineClaimAuthority>, RegistryError> {
+        let (published, scope_digest) = self.mutate(now_ms, true, move |document| {
+            if document.generation != expected_registry_generation
+                || authorities.len() != document.registrations.len()
+                || self.trusted_issuer.as_ref().is_none_or(|issuer| {
+                    issuer.epoch != document.authority_issuer_epoch
+                        || issuer.verifying_key != signer.verifying_key().to_bytes()
+                        || issuer.registry_high_water.load(Ordering::SeqCst) != document.generation
+                })
+            {
+                return Err(RegistryError::Conflict(
+                    "authority-set CAS, issuer, or planner coverage changed".into(),
+                ));
+            }
+            authorities.sort();
+            if authorities
+                .windows(2)
+                .any(|pair| pair[0].planner_id == pair[1].planner_id)
+            {
+                return Err(RegistryError::Conflict(
+                    "authority set contains duplicate planners".into(),
+                ));
+            }
+            let post_generation = document
+                .generation
+                .checked_add(1)
+                .ok_or_else(|| RegistryError::Conflict("registry generation overflow".into()))?;
+            for authority in &mut authorities {
+                let registration = document
+                    .registrations
+                    .iter()
+                    .find(|entry| entry.identity.planner_id == authority.planner_id)
+                    .ok_or_else(|| {
+                        RegistryError::Conflict("authority planner is not registered".into())
+                    })?;
+                if authority.plan_id != registration.identity.plan_id
+                    || authority.lease_generation != registration.lease_generation
+                {
+                    return Err(RegistryError::Conflict(
+                        "authority set contains stale planner scope".into(),
+                    ));
+                }
+                let plan_path = Path::new(&registration.identity.plan_path);
+                let plan_identity =
+                    physical_path_identity(plan_path, PhysicalPathKind::RegularFile).map_err(
+                        |_| RegistryError::Conflict("plan authority is ambiguous".into()),
+                    )?;
+                if plan_content_digest_expected(plan_path, &plan_identity)?
+                    != authority.plan_content_digest
+                {
+                    return Err(RegistryError::Conflict(
+                        "authority plan digest is stale".into(),
+                    ));
+                }
+                let git = native_git_authority(Path::new(&registration.identity.worktree_root))
+                    .map_err(|_| {
+                        RegistryError::Conflict("native Git authority is ambiguous".into())
+                    })?;
+                let repository_identity = opaque_physical_identity(b"git-common", &git.common_dir);
+                if authority.repository_identity != repository_identity
+                    || authority.issuer_epoch != document.authority_issuer_epoch
+                {
+                    return Err(RegistryError::Conflict(
+                        "authority repository or issuer is stale".into(),
+                    ));
+                }
+                let expected_participants = registration
+                    .identity
+                    .nodes
+                    .iter()
+                    .map(|node| {
+                        opaque_parts(
+                            b"perfect-planner:claim-participant:v1",
+                            &[
+                                &repository_identity,
+                                &registration.identity.planner_id,
+                                &registration.identity.plan_id,
+                                &node.node_id,
+                            ],
+                        )
+                    })
+                    .collect::<BTreeSet<_>>();
+                let actual_participants = authority
+                    .nodes
+                    .iter()
+                    .map(|node| node.participant_binding.clone())
+                    .collect::<BTreeSet<_>>();
+                if actual_participants.len() != authority.nodes.len()
+                    || actual_participants != expected_participants
+                {
+                    return Err(RegistryError::Conflict(
+                        "authority participant coverage is incomplete".into(),
+                    ));
+                }
+                let previous = document
+                    .claim_authorities
+                    .iter()
+                    .find(|entry| entry.planner_id == authority.planner_id);
+                let previous_generation = previous
+                    .map(|entry| entry.authority_generation)
+                    .unwrap_or(0);
+                if authority.authority_generation != previous_generation.saturating_add(1) {
+                    return Err(RegistryError::Conflict(
+                        "authority generation is stale".into(),
+                    ));
+                }
+                authority.registry_generation = post_generation;
+                authority.nodes.sort();
+                for node in &mut authority.nodes {
+                    node.dependencies.sort();
+                    node.disposition_rules.sort();
+                }
+                if let Some(previous) = previous {
+                    validate_machine_authority_transition(previous, authority)?;
+                }
+                sign_machine_claim_authority(authority, signer);
+                validate_machine_claim_authority(
+                    authority,
+                    registration,
+                    document.authority_issuer_epoch,
+                    &signer.verifying_key().to_bytes(),
+                    &document.authority_key_fingerprint,
+                )?;
+                git.revalidate()
+                    .map_err(|_| RegistryError::Conflict("native Git authority changed".into()))?;
+            }
+            document.claim_authorities = authorities.clone();
+            let scope_attestation =
+                authority_set_scope_attestation(document, post_generation, &authorities, true)?;
+            let scope_digest = scope_attestation.digest.clone();
+            let mut receipt = MachineAuthoritySetReceipt {
+                registry_generation: post_generation,
+                issuer_epoch: document.authority_issuer_epoch,
+                issuer_fingerprint: document.authority_key_fingerprint.clone(),
+                scope_digest: scope_digest.clone(),
+                signature: String::new(),
+            };
+            sign_authority_set_receipt(&mut receipt, signer);
+            document.authority_set_receipt = Some(receipt);
+            Ok((authorities.clone(), scope_digest))
+        })?;
+        let issuer = self.trusted_issuer.as_ref().ok_or_else(|| {
+            RegistryError::Conflict("authority set lost its native issuer owner".into())
+        })?;
+        *issuer
+            .authority_scope_high_water
+            .lock()
+            .map_err(|_| RegistryError::Conflict("issuer scope pin is poisoned".into()))? =
+            Some(scope_digest);
+        Ok(published)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn publish_machine_claim_authority_for_test(
+        &self,
+        mut authority: MachineClaimAuthority,
+        signer: &SigningKey,
+        expected_lease_generation: u64,
+        expected_authority_generation: u64,
+        now_ms: u64,
+    ) -> Result<MachineClaimAuthority, RegistryError> {
+        validate_id("planner id", &authority.planner_id)?;
+        validate_id("plan id", &authority.plan_id)?;
+        self.mutate(now_ms, true, move |document| {
+            if document.registrations.len() != 1 {
+                return Err(RegistryError::Conflict(
+                    "single-planner publication is forbidden for a multi-planner registry".into(),
+                ));
+            }
+            let registration = document
+                .registrations
+                .iter()
+                .find(|entry| entry.identity.planner_id == authority.planner_id)
+                .cloned()
+                .ok_or_else(|| RegistryError::Conflict("planner is not registered".into()))?;
+            require_generation(&registration, expected_lease_generation)?;
+            if registration.identity.plan_id != authority.plan_id
+                || authority.lease_generation != expected_lease_generation
+            {
+                return Err(RegistryError::Conflict(
+                    "claim authority scope does not match the planner lease".into(),
+                ));
+            }
+            authority.registry_generation = document
+                .generation
+                .checked_add(1)
+                .ok_or_else(|| RegistryError::Conflict("registry generation overflow".into()))?;
+            let plan_path = Path::new(&registration.identity.plan_path);
+            let plan_identity = physical_path_identity(plan_path, PhysicalPathKind::RegularFile)
+                .map_err(|_| RegistryError::Conflict("plan authority is ambiguous".into()))?;
+            let plan_digest = plan_content_digest_expected(plan_path, &plan_identity)?;
+            if authority.plan_content_digest != plan_digest {
+                return Err(RegistryError::Conflict(
+                    "claim authority plan digest is stale or mismatched".into(),
+                ));
+            }
+            let native_git = native_git_authority(Path::new(&registration.identity.worktree_root))
+                .map_err(|_| RegistryError::Conflict("native Git authority is ambiguous".into()))?;
+            let repository_identity =
+                opaque_physical_identity(b"git-common", &native_git.common_dir);
+            if authority.repository_identity != repository_identity
+                || document.authority_issuer_epoch != authority.issuer_epoch
+                || signer.verifying_key().to_bytes()
+                    != decode_fixed_hex::<32>(&document.authority_verifying_key).map_err(|_| {
+                        RegistryError::Conflict("issuer verifier is malformed".into())
+                    })?
+            {
+                return Err(RegistryError::Conflict(
+                    "claim authority issuer or repository scope is stale".into(),
+                ));
+            }
+            let current_generation = document
+                .claim_authorities
+                .iter()
+                .find(|entry| entry.planner_id == authority.planner_id)
+                .map(|entry| entry.authority_generation)
+                .unwrap_or(0);
+            if current_generation != expected_authority_generation
+                || authority.authority_generation
+                    != expected_authority_generation
+                        .checked_add(1)
+                        .ok_or_else(|| {
+                            RegistryError::Conflict("authority generation overflow".into())
+                        })?
+            {
+                return Err(RegistryError::Conflict(
+                    "claim authority generation is stale".into(),
+                ));
+            }
+            authority.nodes.sort();
+            for node in &mut authority.nodes {
+                node.dependencies.sort();
+                node.disposition_rules.sort();
+            }
+            if let Some(previous) = document
+                .claim_authorities
+                .iter()
+                .find(|entry| entry.planner_id == authority.planner_id)
+            {
+                validate_machine_authority_transition(previous, &authority)?;
+            }
+            sign_machine_claim_authority(&mut authority, signer);
+            let verifier = signer.verifying_key().to_bytes();
+            validate_machine_claim_authority(
+                &authority,
+                &registration,
+                document.authority_issuer_epoch,
+                &verifier,
+                &document.authority_key_fingerprint,
+            )?;
+            document
+                .claim_authorities
+                .retain(|entry| entry.planner_id != authority.planner_id);
+            document.claim_authorities.push(authority.clone());
+            document.claim_authorities.sort();
+            Ok(authority)
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn revoke_machine_claim_authority_for_test(
+        &self,
+        planner_id: &str,
+        expected_lease_generation: u64,
+        expected_authority_generation: u64,
+        now_ms: u64,
+    ) -> Result<(), RegistryError> {
+        validate_id("planner id", planner_id)?;
+        self.mutate(now_ms, true, |document| {
+            let registration = document
+                .registrations
+                .iter()
+                .find(|entry| entry.identity.planner_id == planner_id)
+                .ok_or_else(|| RegistryError::Conflict("planner is not registered".into()))?;
+            require_generation(registration, expected_lease_generation)?;
+            let index = document
+                .claim_authorities
+                .iter()
+                .position(|entry| {
+                    entry.planner_id == planner_id
+                        && entry.authority_generation == expected_authority_generation
+                })
+                .ok_or_else(|| RegistryError::Conflict("claim authority is stale".into()))?;
+            document.claim_authorities.remove(index);
+            Ok(())
         })
     }
 
@@ -614,7 +1237,11 @@ impl PlannerRegistryStore {
         }
         let mut document =
             load_document(self.path.as_path()).map_err(RegistryError::UnknownState)?;
-        let current = build_census_input_snapshot(&document, validation_now_ms)?;
+        let current = build_census_input_snapshot(
+            &document,
+            validation_now_ms,
+            self.trusted_issuer.as_deref(),
+        )?;
         if &current.attestation != expected {
             return Err(RegistryError::Conflict(
                 "registry census authority changed during collection".into(),
@@ -660,6 +1287,7 @@ impl PlannerRegistryStore {
         }
         persist_document_before(self.path.as_path(), &document, || {
             validate_census_root_inventories(&census, &current)?;
+            validate_census_claims_fresh(&census, &current)?;
             let replace_now_ms = trusted_now();
             validate_timestamp("census atomic-replace time", replace_now_ms)?;
             if replace_now_ms < persistence_now_ms {
@@ -668,6 +1296,10 @@ impl PlannerRegistryStore {
             if replace_now_ms >= capability_expires_at_ms {
                 return Err(RegistryError::CapabilityExpired);
             }
+            // This must be the final authority operation before MoveFileEx. Existing objects are
+            // held share-fenced for the snapshot lifetime; this last pass also detects a newly
+            // appeared missing-prefix entry or commondir marker.
+            revalidate_snapshot_identities(&current)?;
             Ok(())
         })?;
         Ok(census)
@@ -691,24 +1323,295 @@ impl PlannerRegistryStore {
         })?;
         let _lock = RegistryLock::acquire(self.path.as_path(), self.lock_timeout)?;
         let mut document = load_document_for_mutation(self.path.as_path(), now_ms)?;
+        if self.trusted_issuer.is_none()
+            && (!document.claim_authorities.is_empty() || document.authority_set_receipt.is_some())
+        {
+            return Err(RegistryError::Conflict(
+                "untrusted registry instance cannot mutate signed collision authority state".into(),
+            ));
+        }
+        let (trusted_generation, mut trusted_scope_attestation, mut trusted_registry_attestation) =
+            if let Some(issuer) = self.trusted_issuer.as_ref() {
+                let high_water = issuer.registry_high_water.load(Ordering::SeqCst);
+                if document.generation != high_water
+                    || document.authority_issuer_epoch != issuer.epoch
+                    || document.authority_verifying_key != hex_slice(&issuer.verifying_key)
+                    || document.authority_key_fingerprint != issuer.fingerprint
+                {
+                    return Err(RegistryError::Conflict(
+                        "registry rollback or issuer substitution detected before mutation".into(),
+                    ));
+                }
+                let pinned_scope = issuer
+                    .authority_scope_high_water
+                    .lock()
+                    .map_err(|_| RegistryError::Conflict("issuer scope pin is poisoned".into()))?
+                    .clone();
+                let stored_scope = document
+                    .authority_set_receipt
+                    .as_ref()
+                    .map(|receipt| receipt.scope_digest.clone());
+                let scope_attestation = if document.authority_set_receipt.is_some() {
+                    Some(authority_set_scope_attestation(
+                        &document,
+                        document.generation,
+                        &document.claim_authorities,
+                        true,
+                    )?)
+                } else {
+                    None
+                };
+                let recomputed_scope = scope_attestation
+                    .as_ref()
+                    .map(|attestation| attestation.digest.clone());
+                if pinned_scope != stored_scope || recomputed_scope != stored_scope {
+                    return Err(RegistryError::Conflict(
+                        "registry aggregate authority scope changed before mutation".into(),
+                    ));
+                }
+                let registry_attestation = authority_set_scope_attestation(
+                    &document,
+                    document.generation,
+                    &document.claim_authorities,
+                    false,
+                )?;
+                let pinned_registry_scope = issuer
+                    .registry_scope_high_water
+                    .lock()
+                    .map_err(|_| RegistryError::Conflict("registry scope pin is poisoned".into()))?
+                    .clone();
+                if registry_attestation.digest != pinned_registry_scope {
+                    return Err(RegistryError::Conflict(
+                        "registry authority input changed at the pinned generation".into(),
+                    ));
+                }
+                (
+                    Some(high_water),
+                    scope_attestation,
+                    Some(registry_attestation),
+                )
+            } else {
+                (None, None, None)
+            };
         let result = operation(&mut document)?;
         if advance_generation {
-            document.generation = document
+            let next_generation = document
                 .generation
                 .checked_add(1)
                 .ok_or_else(|| RegistryError::Conflict("registry generation overflowed".into()))?;
+            document.census = None;
+            document.generation = next_generation;
+            if document
+                .authority_set_receipt
+                .as_ref()
+                .is_none_or(|receipt| receipt.registry_generation != next_generation)
+            {
+                document.authority_set_receipt = None;
+            }
         }
         document.updated_at_ms = now_ms;
         let static_issues = validate_document_static(&document);
         if !static_issues.is_empty() {
             return Err(RegistryError::UnknownState(static_issues));
         }
-        persist_document(self.path.as_path(), &document)?;
+        let final_registry_attestation = if self.trusted_issuer.is_some() {
+            Some(authority_set_scope_attestation(
+                &document,
+                document.generation,
+                &document.claim_authorities,
+                false,
+            )?)
+        } else {
+            None
+        };
+        let final_registry_digest = final_registry_attestation
+            .as_ref()
+            .map(|attestation| attestation.digest.clone());
+        let final_receipt_attestation = if document.authority_set_receipt.is_some() {
+            Some(authority_set_scope_attestation(
+                &document,
+                document.generation,
+                &document.claim_authorities,
+                true,
+            )?)
+        } else {
+            None
+        };
+        persist_document_before(self.path.as_path(), &document, || {
+            if let Some(attestation) = trusted_scope_attestation.take() {
+                attestation.revalidate()?;
+            }
+            if let Some(attestation) = trusted_registry_attestation.take() {
+                attestation.revalidate()?;
+            }
+            if let (Some(receipt), Some(current)) = (
+                document.authority_set_receipt.as_ref(),
+                final_receipt_attestation.as_ref(),
+            ) {
+                current.revalidate()?;
+                if current.digest != receipt.scope_digest {
+                    return Err(RegistryError::Conflict(
+                        "authority-set scope changed before atomic replace".into(),
+                    ));
+                }
+            }
+            if let Some(attestation) = final_registry_attestation.as_ref() {
+                attestation.revalidate()?;
+            }
+            Ok(())
+        })?;
+        if let (Some(issuer), Some(expected_generation)) =
+            (self.trusted_issuer.as_ref(), trusted_generation)
+        {
+            issuer
+                .registry_high_water
+                .compare_exchange(
+                    expected_generation,
+                    document.generation,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                )
+                .map_err(|_| {
+                    RegistryError::Conflict(
+                        "trusted issuer high-water changed during atomic mutation".into(),
+                    )
+                })?;
+            *issuer
+                .authority_scope_high_water
+                .lock()
+                .map_err(|_| RegistryError::Conflict("issuer scope pin is poisoned".into()))? =
+                document
+                    .authority_set_receipt
+                    .as_ref()
+                    .map(|receipt| receipt.scope_digest.clone());
+            *issuer
+                .registry_scope_high_water
+                .lock()
+                .map_err(|_| RegistryError::Conflict("registry scope pin is poisoned".into()))? =
+                final_registry_digest.ok_or_else(|| {
+                    RegistryError::Conflict("registry scope pin was not advanced".into())
+                })?;
+        }
         Ok(result)
     }
 }
 
-fn inspect_registry_file(path: &Path, now_ms: u64) -> RegistryRead {
+#[cfg(test)]
+fn validate_machine_authority_transition(
+    previous: &MachineClaimAuthority,
+    next: &MachineClaimAuthority,
+) -> Result<(), RegistryError> {
+    if next.authority_generation != previous.authority_generation.saturating_add(1)
+        || next.nodes.len() != previous.nodes.len()
+    {
+        return Err(RegistryError::Conflict(
+            "machine authority generation or node coverage is stale".into(),
+        ));
+    }
+    let previous_nodes = previous
+        .nodes
+        .iter()
+        .map(|node| (&node.participant_binding, node))
+        .collect::<BTreeMap<_, _>>();
+    for node in &next.nodes {
+        let prior = previous_nodes
+            .get(&node.participant_binding)
+            .ok_or_else(|| RegistryError::Conflict("machine participant scope changed".into()))?;
+        let legal_state = matches!(
+            (prior.state, node.state),
+            (
+                ActiveClaimState::Planned,
+                ActiveClaimState::Planned | ActiveClaimState::Claimed | ActiveClaimState::Released
+            ) | (
+                ActiveClaimState::Claimed,
+                ActiveClaimState::Claimed
+                    | ActiveClaimState::Running
+                    | ActiveClaimState::Waiting
+                    | ActiveClaimState::Released
+            ) | (
+                ActiveClaimState::Running,
+                ActiveClaimState::Running
+                    | ActiveClaimState::Waiting
+                    | ActiveClaimState::Completed
+                    | ActiveClaimState::Released
+            ) | (
+                ActiveClaimState::Waiting,
+                ActiveClaimState::Waiting
+                    | ActiveClaimState::Running
+                    | ActiveClaimState::Completed
+                    | ActiveClaimState::Released
+            ) | (
+                ActiveClaimState::Completed,
+                ActiveClaimState::Completed | ActiveClaimState::Released
+            ) | (ActiveClaimState::Released, ActiveClaimState::Released)
+        );
+        let terminal_next = matches!(
+            node.state,
+            ActiveClaimState::Completed | ActiveClaimState::Released
+        );
+        let disposition_transition_is_legal = if terminal_next {
+            // Terminal tombstones keep the trusted identity/dependency proof but own nothing.
+            // Clearing the exact claim rules is the only disposition mutation B19 permits.
+            node.disposition_rules.is_empty()
+        } else {
+            node.disposition_rules == prior.disposition_rules
+        };
+        if !legal_state
+            || node.fence != prior.fence
+            || node.run_identity != prior.run_identity
+            || node.worker_identity != prior.worker_identity
+            || node.policy_digest != prior.policy_digest
+            || node.assumption_digest != prior.assumption_digest
+            || node.dependencies != prior.dependencies
+            || !disposition_transition_is_legal
+        {
+            return Err(RegistryError::Conflict(
+                "machine authority state, fence, identity, policy, or dependency replayed".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_census_claims_fresh(
+    census: &DiscoveryCensus,
+    snapshot: &CensusInputSnapshot,
+) -> Result<(), RegistryError> {
+    for registration in &snapshot.registrations {
+        let planner_id = &registration.registration.identity.planner_id;
+        let actual = census
+            .planners
+            .iter()
+            .find(|planner| &planner.planner_id == planner_id)
+            .ok_or_else(|| RegistryError::Conflict("census claim metadata is incomplete".into()))?;
+        let path = Path::new(&registration.registration.identity.plan_path);
+        let mut handle = RestrictedAuthorityHandle::open(
+            path,
+            PhysicalPathKind::RegularFile,
+            &registration.plan_identity,
+        )
+        .map_err(|_| RegistryError::Conflict("census plan authority changed".into()))?;
+        let bytes = handle
+            .read_bounded(MAX_PLAN_BYTES)
+            .map_err(|_| RegistryError::Conflict("census plan cannot be read safely".into()))?;
+        let fresh = derive_canonical_claim_snapshot(registration, &bytes);
+        handle
+            .revalidate()
+            .map_err(|_| RegistryError::Conflict("census plan authority changed".into()))?;
+        if fresh != actual.claim_snapshot {
+            return Err(RegistryError::Conflict(
+                "canonical claim authority changed immediately before persistence".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn inspect_registry_file(
+    path: &Path,
+    now_ms: u64,
+    trusted_issuer: Option<&IssuerVerifier>,
+) -> RegistryRead {
     let document = match load_document(path) {
         Ok(document) => document,
         Err(issues) => {
@@ -721,7 +1624,7 @@ fn inspect_registry_file(path: &Path, now_ms: u64) -> RegistryRead {
     };
     let mut issues = validate_document_static(&document);
     issues.extend(validate_authority_time(&document, now_ms));
-    issues.extend(validate_completeness(&document, now_ms));
+    issues.extend(validate_completeness(&document, now_ms, trusted_issuer));
     if issues.is_empty() {
         RegistryRead::Complete(document)
     } else {
@@ -745,27 +1648,7 @@ fn load_document_for_mutation(path: &Path, now_ms: u64) -> Result<RegistryDocume
 }
 
 fn load_document(path: &Path) -> Result<RegistryDocument, Vec<RegistryIssue>> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return Err(vec![RegistryIssue::MissingRegistry])
-        }
-        Err(error) => return Err(vec![RegistryIssue::Unreadable(error.to_string())]),
-    };
-    if metadata.file_type().is_symlink() || !metadata.is_file() {
-        return Err(vec![RegistryIssue::Unreadable(
-            "registry target is not a regular file".into(),
-        )]);
-    }
-    if metadata.len() > MAX_REGISTRY_BYTES {
-        return Err(vec![RegistryIssue::Unreadable(format!(
-            "registry exceeds {MAX_REGISTRY_BYTES} bytes"
-        ))]);
-    }
-    let bytes =
-        fs::read(path).map_err(|error| vec![RegistryIssue::Unreadable(error.to_string())])?;
-    let value: Value = serde_json::from_slice(&bytes)
-        .map_err(|error| vec![RegistryIssue::Malformed(error.to_string())])?;
+    let value = load_registry_value(path)?;
     let version = value
         .get("schemaVersion")
         .and_then(Value::as_u64)
@@ -780,6 +1663,57 @@ fn load_document(path: &Path) -> Result<RegistryDocument, Vec<RegistryIssue>> {
     serde_json::from_value(value).map_err(|error| vec![RegistryIssue::Malformed(error.to_string())])
 }
 
+fn load_registry_value(path: &Path) -> Result<Value, Vec<RegistryIssue>> {
+    load_registry_value_before_open(path, || {})
+}
+
+fn load_registry_value_before_open<F>(
+    path: &Path,
+    before_open: F,
+) -> Result<Value, Vec<RegistryIssue>>
+where
+    F: FnOnce(),
+{
+    match fs::symlink_metadata(path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Err(vec![RegistryIssue::MissingRegistry])
+        }
+        Err(error) => return Err(vec![RegistryIssue::Unreadable(error.to_string())]),
+    }
+    // Bind type, identity and bounded bytes to one share-restricted handle. A path-level
+    // metadata check followed by `fs::read` can be swapped between operations and can bypass
+    // the size cap; the exact handle below remains authoritative through the final revalidation.
+    let identity = physical_path_identity(path, PhysicalPathKind::RegularFile).map_err(|_| {
+        vec![RegistryIssue::Unreadable(
+            "registry authority is not an unambiguous regular file".into(),
+        )]
+    })?;
+    let mut handle = RestrictedAuthorityHandle::open_with_before_open(
+        path,
+        PhysicalPathKind::RegularFile,
+        &identity,
+        before_open,
+    )
+    .map_err(|_| {
+        vec![RegistryIssue::Unreadable(
+            "registry authority changed before read".into(),
+        )]
+    })?;
+    let bytes = handle.read_bounded(MAX_REGISTRY_BYTES).map_err(|_| {
+        vec![RegistryIssue::Unreadable(format!(
+            "registry cannot be read within {MAX_REGISTRY_BYTES} bytes"
+        ))]
+    })?;
+    handle.revalidate().map_err(|_| {
+        vec![RegistryIssue::Unreadable(
+            "registry authority changed during read".into(),
+        )]
+    })?;
+    serde_json::from_slice(&bytes)
+        .map_err(|error| vec![RegistryIssue::Malformed(error.to_string())])
+}
+
 fn validate_document_static(document: &RegistryDocument) -> Vec<RegistryIssue> {
     let mut issues = Vec::new();
     if document.schema_version != REGISTRY_SCHEMA_VERSION {
@@ -790,6 +1724,18 @@ fn validate_document_static(document: &RegistryDocument) -> Vec<RegistryIssue> {
     if document.generation == 0 || document.updated_at_ms == 0 {
         issues.push(RegistryIssue::InvalidDocument(
             "generation and updatedAtMs must be non-zero".into(),
+        ));
+    }
+    let authority_verifier = decode_fixed_hex::<32>(&document.authority_verifying_key).ok();
+    if document.authority_issuer_epoch == 0
+        || authority_verifier.is_none()
+        || !is_lower_sha256(&document.authority_key_fingerprint)
+        || authority_verifier
+            .as_ref()
+            .is_some_and(|key| authority_key_fingerprint(key) != document.authority_key_fingerprint)
+    {
+        issues.push(RegistryIssue::InvalidDocument(
+            "authority issuer epoch or verifying key is invalid".into(),
         ));
     }
 
@@ -821,6 +1767,71 @@ fn validate_document_static(document: &RegistryDocument) -> Vec<RegistryIssue> {
             issues.push(RegistryIssue::InvalidDocument(error.to_string()));
         }
         last_planner = Some(registration.identity.planner_id.as_str());
+    }
+
+    let mut last_authority = None::<(&str, &str)>;
+    for authority in &document.claim_authorities {
+        let key = (authority.planner_id.as_str(), authority.plan_id.as_str());
+        if last_authority.is_some_and(|last| last >= key) {
+            issues.push(RegistryIssue::InvalidDocument(
+                "claim authorities must be sorted and unique by planner/plan".into(),
+            ));
+        }
+        let Some(registration) = document
+            .registrations
+            .iter()
+            .find(|entry| entry.identity.planner_id == authority.planner_id)
+        else {
+            issues.push(RegistryIssue::InvalidDocument(
+                "claim authority has no registered planner".into(),
+            ));
+            continue;
+        };
+        if let Some(verifier) = authority_verifier.as_ref() {
+            if authority.registry_generation == 0
+                || authority.registry_generation > document.generation
+            {
+                issues.push(RegistryIssue::InvalidDocument(
+                    "claim authority registry generation is invalid".into(),
+                ));
+            }
+            if let Err(error) = validate_machine_claim_authority_history(
+                authority,
+                document.authority_issuer_epoch,
+                verifier,
+                &document.authority_key_fingerprint,
+            ) {
+                issues.push(RegistryIssue::InvalidDocument(error.to_string()));
+            }
+        }
+        last_authority = Some(key);
+    }
+    let live_authority_count = document
+        .claim_authorities
+        .iter()
+        .filter(|authority| authority.registry_generation == document.generation)
+        .count();
+    match (&document.authority_set_receipt, authority_verifier.as_ref()) {
+        (Some(receipt), Some(verifier)) => {
+            if receipt.registry_generation != document.generation
+                || live_authority_count != document.registrations.len()
+                || live_authority_count != document.claim_authorities.len()
+                || !verify_authority_set_receipt(
+                    receipt,
+                    document.authority_issuer_epoch,
+                    verifier,
+                    &document.authority_key_fingerprint,
+                )
+            {
+                issues.push(RegistryIssue::InvalidDocument(
+                    "authority-set receipt or exact live coverage is invalid".into(),
+                ));
+            }
+        }
+        (None, _) if live_authority_count != 0 => issues.push(RegistryIssue::InvalidDocument(
+            "live claim authorities have no aggregate set receipt".into(),
+        )),
+        _ => {}
     }
 
     let mut root_ids = BTreeSet::new();
@@ -857,7 +1868,11 @@ fn validate_document_static(document: &RegistryDocument) -> Vec<RegistryIssue> {
     issues
 }
 
-fn validate_completeness(document: &RegistryDocument, now_ms: u64) -> Vec<RegistryIssue> {
+fn validate_completeness(
+    document: &RegistryDocument,
+    now_ms: u64,
+    trusted_issuer: Option<&IssuerVerifier>,
+) -> Vec<RegistryIssue> {
     let mut issues = Vec::new();
     let Some(census) = &document.census else {
         issues.push(RegistryIssue::MissingCensus);
@@ -869,7 +1884,7 @@ fn validate_completeness(document: &RegistryDocument, now_ms: u64) -> Vec<Regist
             census_generation: census.registry_generation,
         });
     }
-    let input = match build_census_input_snapshot(document, now_ms) {
+    let input = match build_census_input_snapshot(document, now_ms, trusted_issuer) {
         Ok(input) if census.input_digest != input.attestation.digest_hex() => {
             issues.push(RegistryIssue::CensusInputDigestMismatch);
             None
@@ -944,6 +1959,13 @@ fn validate_completeness(document: &RegistryDocument, now_ms: u64) -> Vec<Regist
             (*planner_id).to_string(),
         ));
     }
+    if let Some(input) = input.as_ref() {
+        if revalidate_snapshot_identities(input).is_err() {
+            issues.push(RegistryIssue::InvalidDocument(
+                "census native claim authority changed during restart validation".into(),
+            ));
+        }
+    }
     issues
 }
 
@@ -985,9 +2007,20 @@ fn validate_authority_time(document: &RegistryDocument, now_ms: u64) -> Vec<Regi
     issues
 }
 
+fn validate_nonstale_authority_time(
+    document: &RegistryDocument,
+    now_ms: u64,
+) -> Vec<RegistryIssue> {
+    validate_authority_time(document, now_ms)
+        .into_iter()
+        .filter(|issue| !matches!(issue, RegistryIssue::StaleRegistration { .. }))
+        .collect()
+}
+
 fn build_census_input_snapshot(
     document: &RegistryDocument,
     now_ms: u64,
+    trusted_issuer: Option<&IssuerVerifier>,
 ) -> Result<CensusInputSnapshot, RegistryError> {
     let mut issues = validate_document_static(document);
     issues.extend(validate_authority_time(document, now_ms));
@@ -999,6 +2032,84 @@ fn build_census_input_snapshot(
     if !issues.is_empty() {
         return Err(RegistryError::UnknownState(issues));
     }
+    if !document.claim_authorities.is_empty()
+        && !trusted_issuer.is_some_and(|trusted| {
+            trusted.epoch == document.authority_issuer_epoch
+                && trusted.fingerprint == document.authority_key_fingerprint
+                && hex_slice(&trusted.verifying_key) == document.authority_verifying_key
+                && trusted.registry_high_water.load(Ordering::SeqCst) == document.generation
+        })
+    {
+        return Err(RegistryError::UnknownState(vec![
+            RegistryIssue::InvalidDocument(
+                "claim authority issuer is not bound to the live native owner".into(),
+            ),
+        ]));
+    }
+    if let Some(trusted) = trusted_issuer {
+        let registry_scope = authority_set_scope_attestation(
+            document,
+            document.generation,
+            &document.claim_authorities,
+            false,
+        )?;
+        let pinned = trusted
+            .registry_scope_high_water
+            .lock()
+            .map_err(|_| RegistryError::Conflict("registry scope pin is poisoned".into()))?
+            .clone();
+        if registry_scope.digest != pinned {
+            return Err(RegistryError::UnknownState(vec![
+                RegistryIssue::InvalidDocument(
+                    "registry authority input changed at the pinned generation".into(),
+                ),
+            ]));
+        }
+    }
+    let live_authorities = document
+        .claim_authorities
+        .iter()
+        .filter(|authority| authority.registry_generation == document.generation)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !live_authorities.is_empty() {
+        let receipt = document.authority_set_receipt.as_ref().ok_or_else(|| {
+            RegistryError::UnknownState(vec![RegistryIssue::InvalidDocument(
+                "live claim authorities have no aggregate set receipt".into(),
+            )])
+        })?;
+        let expected_scope = authority_set_scope_attestation(
+            document,
+            document.generation,
+            &live_authorities,
+            true,
+        )?;
+        let pinned_scope = trusted_issuer
+            .and_then(|issuer| issuer.authority_scope_high_water.lock().ok())
+            .and_then(|scope| scope.clone());
+        if receipt.scope_digest != expected_scope.digest
+            || pinned_scope.as_deref() != Some(receipt.scope_digest.as_str())
+        {
+            return Err(RegistryError::UnknownState(vec![
+                RegistryIssue::InvalidDocument(
+                    "authority-set scope was omitted, substituted, or is not owner-pinned".into(),
+                ),
+            ]));
+        }
+    } else if document.authority_set_receipt.is_some() {
+        return Err(RegistryError::UnknownState(vec![
+            RegistryIssue::InvalidDocument(
+                "authority-set receipt has no live authority set".into(),
+            ),
+        ]));
+    }
+    let authority_verifying_key = trusted_issuer
+        .map(|issuer| issuer.verifying_key)
+        .unwrap_or([0; 32]);
+    let authority_issuer_epoch = trusted_issuer.map(|issuer| issuer.epoch).unwrap_or(0);
+    let authority_key_fingerprint = trusted_issuer
+        .map(|issuer| issuer.fingerprint.clone())
+        .unwrap_or_default();
 
     let configured_roots = document
         .configured_roots
@@ -1063,14 +2174,48 @@ fn build_census_input_snapshot(
                     )),
                 ]));
             }
-            Ok(ValidatedPlannerRegistration {
+            let mut validated = ValidatedPlannerRegistration {
                 registration: registration.clone(),
                 repository_root_identity,
                 worktree_root_identity,
                 plan_identity,
-            })
+                claim_snapshot: unknown_claim_snapshot(ClaimSnapshotFailure::IdentityChanged, ""),
+                claim_authority: document
+                    .claim_authorities
+                    .iter()
+                    .find(|authority| {
+                        authority.planner_id == registration.identity.planner_id
+                            && authority.plan_id == registration.identity.plan_id
+                            && authority.registry_generation == document.generation
+                    })
+                    .cloned(),
+                authority_verifying_key,
+                authority_issuer_epoch,
+                authority_key_fingerprint: authority_key_fingerprint.clone(),
+                claim_authority_attestation: None,
+            };
+            let plan_path = Path::new(&registration.identity.plan_path);
+            let mut plan_guard = RestrictedAuthorityHandle::open(
+                plan_path,
+                PhysicalPathKind::RegularFile,
+                &validated.plan_identity,
+            )
+            .map_err(|_| authority_identity_error(&registration.identity.planner_id, "plan"))?;
+            let plan_bytes = plan_guard
+                .read_bounded(MAX_PLAN_BYTES)
+                .map_err(|_| authority_identity_error(&registration.identity.planner_id, "plan"))?;
+            let (claim_snapshot, claim_authority_attestation) =
+                derive_canonical_claim_snapshot_guarded(&validated, &plan_bytes);
+            validated.claim_snapshot = claim_snapshot;
+            validated.claim_authority_attestation = claim_authority_attestation;
+            plan_guard
+                .revalidate()
+                .map_err(|_| authority_identity_error(&registration.identity.planner_id, "plan"))?;
+            Ok(validated)
         })
         .collect::<Result<Vec<_>, RegistryError>>()?;
+
+    validate_global_claim_contracts(&registrations)?;
 
     let input_digest = census_input_digest(document, &configured_roots, &registrations)?;
     let snapshot = CensusInputSnapshot {
@@ -1080,9 +2225,40 @@ fn build_census_input_snapshot(
         },
         configured_roots,
         registrations,
+        authority_set_receipt: document.authority_set_receipt.clone(),
     };
     revalidate_snapshot_identities(&snapshot)?;
     Ok(snapshot)
+}
+
+fn validate_global_claim_contracts(
+    registrations: &[ValidatedPlannerRegistration],
+) -> Result<(), RegistryError> {
+    let contracts = registrations
+        .iter()
+        .flat_map(|registration| registration.claim_snapshot.contracts.iter())
+        .cloned()
+        .collect::<Vec<_>>();
+    let participant_ids = contracts
+        .iter()
+        .map(|contract| contract.participant_id.as_str())
+        .collect::<BTreeSet<_>>();
+    if participant_ids.len() != contracts.len()
+        || contracts.iter().any(|contract| {
+            contract
+                .dependencies
+                .iter()
+                .any(|dependency| !participant_ids.contains(dependency.as_str()))
+        })
+        || has_dependency_cycle(&contracts)
+    {
+        return Err(RegistryError::UnknownState(vec![
+            RegistryIssue::InvalidDocument(
+                "global claim participants or dependency graph are incomplete".into(),
+            ),
+        ]));
+    }
+    Ok(())
 }
 
 fn authority_identity_error(planner_id: &str, subject: &str) -> RegistryError {
@@ -1127,6 +2303,24 @@ fn revalidate_snapshot_identities(snapshot: &CensusInputSnapshot) -> Result<(), 
                 identity.planner_id
             )));
         }
+        match (
+            registration.claim_snapshot.status,
+            registration.claim_authority_attestation.as_ref(),
+        ) {
+            (ClaimSnapshotStatus::Complete, Some(attestation)) => {
+                attestation.revalidate().map_err(|_| {
+                    RegistryError::Conflict(
+                        "canonical claim authority changed during census snapshot".into(),
+                    )
+                })?
+            }
+            (ClaimSnapshotStatus::Complete, None) => {
+                return Err(RegistryError::Conflict(
+                    "complete canonical claims lost their native authority handles".into(),
+                ))
+            }
+            (ClaimSnapshotStatus::Unknown, _) => {}
+        }
     }
     Ok(())
 }
@@ -1151,6 +2345,7 @@ pub(crate) fn planner_census_metadata(
         plan_id: identity.plan_id.clone(),
         plan_content_digest,
         manifest_digest: String::new(),
+        claim_snapshot: registration.claim_snapshot.clone(),
         files: identity.files.clone(),
         resources: identity.resources.clone(),
         nodes: identity.nodes.clone(),
@@ -1500,6 +2695,1088 @@ fn opaque_physical_identity(domain: &[u8], identity: &PhysicalPathIdentity) -> S
     hex_digest(&encoder.finish())
 }
 
+pub(crate) fn unknown_claim_snapshot(
+    failure: ClaimSnapshotFailure,
+    source_manifest_digest: &str,
+) -> CanonicalClaimSnapshot {
+    let mut snapshot = CanonicalClaimSnapshot {
+        schema_version: 1,
+        status: ClaimSnapshotStatus::Unknown,
+        failure: Some(failure),
+        repository_identity: String::new(),
+        source_manifest_digest: source_manifest_digest.to_string(),
+        claims: Vec::new(),
+        contracts: Vec::new(),
+        digest: String::new(),
+    };
+    snapshot.digest = canonical_claim_snapshot_digest(&snapshot);
+    snapshot
+}
+
+pub(crate) fn machine_claim_authority_digest(authority: &MachineClaimAuthority) -> String {
+    let mut encoder = DigestEncoder::new(b"perfect-planner:machine-claim-authority:v1");
+    encoder.u64(authority.registry_generation);
+    encoder.text(&authority.planner_id);
+    encoder.text(&authority.plan_id);
+    encoder.text(&authority.repository_identity);
+    encoder.text(&authority.plan_content_digest);
+    encoder.u64(authority.lease_generation);
+    encoder.u64(authority.authority_generation);
+    encoder.u64(authority.nodes.len() as u64);
+    for node in &authority.nodes {
+        encoder.text(&node.participant_binding);
+        encoder.text(&node.run_identity);
+        encoder.text(&node.worker_identity);
+        encoder.u64(node.fence);
+        encoder.text(match node.state {
+            ActiveClaimState::Planned => "PLANNED",
+            ActiveClaimState::Claimed => "CLAIMED",
+            ActiveClaimState::Running => "RUNNING",
+            ActiveClaimState::Waiting => "WAITING",
+            ActiveClaimState::Completed => "COMPLETED",
+            ActiveClaimState::Released => "RELEASED",
+        });
+        encoder.u64(node.dependencies.len() as u64);
+        for dependency in &node.dependencies {
+            encoder.text(dependency);
+        }
+        encoder.text(&node.assumption_digest);
+        encoder.text(&node.policy_digest);
+        encoder.text(&node.active_state_digest);
+        encoder.u64(node.disposition_rules.len() as u64);
+        for rule in &node.disposition_rules {
+            encoder.text(&rule.source_binding);
+            encoder.text(match rule.disposition {
+                ConflictDisposition::Wait => "WAIT",
+                ConflictDisposition::Replan => "REPLAN",
+                ConflictDisposition::UserDecision => "USER_DECISION",
+            });
+        }
+        encoder.u64(node.observed_at_ms);
+        encoder.u64(node.expires_at_ms);
+    }
+    hex_digest(&encoder.finish())
+}
+
+fn authority_key_fingerprint(verifying_key: &[u8; 32]) -> String {
+    let mut encoder = DigestEncoder::new(b"perfect-planner:authority-verifying-key:v1");
+    encoder.bytes(verifying_key);
+    hex_digest(&encoder.finish())
+}
+
+fn machine_authority_message(authority: &MachineClaimAuthority) -> [u8; 32] {
+    let mut encoder = DigestEncoder::new(b"perfect-planner:machine-claim-signature:v1");
+    encoder.u64(authority.issuer_epoch);
+    encoder.text(&authority.issuer_fingerprint);
+    encoder.text(&authority.authority_digest);
+    encoder.finish()
+}
+
+fn authority_set_message(receipt: &MachineAuthoritySetReceipt) -> [u8; 32] {
+    let mut encoder = DigestEncoder::new(b"perfect-planner:machine-authority-set-signature:v1");
+    encoder.u64(receipt.registry_generation);
+    encoder.u64(receipt.issuer_epoch);
+    encoder.text(&receipt.issuer_fingerprint);
+    encoder.text(&receipt.scope_digest);
+    encoder.finish()
+}
+
+fn sign_authority_set_receipt(receipt: &mut MachineAuthoritySetReceipt, signer: &SigningKey) {
+    receipt.issuer_fingerprint = authority_key_fingerprint(&signer.verifying_key().to_bytes());
+    receipt.signature = hex_slice(&signer.sign(&authority_set_message(receipt)).to_bytes());
+}
+
+pub(crate) fn verify_authority_set_receipt(
+    receipt: &MachineAuthoritySetReceipt,
+    issuer_epoch: u64,
+    verifying_key: &[u8; 32],
+    expected_fingerprint: &str,
+) -> bool {
+    if receipt.registry_generation == 0
+        || receipt.issuer_epoch != issuer_epoch
+        || receipt.issuer_fingerprint != expected_fingerprint
+        || receipt.issuer_fingerprint != authority_key_fingerprint(verifying_key)
+        || !is_lower_sha256(&receipt.scope_digest)
+    {
+        return false;
+    }
+    let Ok(signature_bytes) = decode_fixed_hex::<64>(&receipt.signature) else {
+        return false;
+    };
+    let Ok(key) = VerifyingKey::from_bytes(verifying_key) else {
+        return false;
+    };
+    key.verify_strict(
+        &authority_set_message(receipt),
+        &Signature::from_bytes(&signature_bytes),
+    )
+    .is_ok()
+}
+
+struct AuthoritySetScopeAttestation {
+    digest: String,
+    handles: Vec<RestrictedAuthorityHandle>,
+    git: Vec<NativeGitAuthority>,
+}
+
+impl AuthoritySetScopeAttestation {
+    fn revalidate(&self) -> Result<(), RegistryError> {
+        for handle in &self.handles {
+            handle
+                .revalidate()
+                .map_err(|_| RegistryError::Conflict("authority-set path changed".into()))?;
+        }
+        for git in &self.git {
+            git.revalidate()
+                .map_err(|_| RegistryError::Conflict("authority-set Git scope changed".into()))?;
+        }
+        Ok(())
+    }
+}
+
+fn authority_set_scope_attestation(
+    document: &RegistryDocument,
+    generation: u64,
+    authorities: &[MachineClaimAuthority],
+    require_exact_authorities: bool,
+) -> Result<AuthoritySetScopeAttestation, RegistryError> {
+    let mut handles = Vec::new();
+    let mut git_authorities = Vec::new();
+    let mut root_projections = Vec::with_capacity(document.configured_roots.len());
+    let mut planner_projections = Vec::with_capacity(document.registrations.len());
+    for root in &document.configured_roots {
+        let identity =
+            physical_path_identity(Path::new(&root.canonical_path), PhysicalPathKind::Directory)
+                .map_err(|_| {
+                    RegistryError::Conflict("configured-root authority is ambiguous".into())
+                })?;
+        root_projections.push(AuthorityScopeRootProjection {
+            root_id: root.root_id.clone(),
+            identity: identity.clone(),
+        });
+        handles.push(
+            RestrictedAuthorityHandle::open(
+                Path::new(&root.canonical_path),
+                PhysicalPathKind::Directory,
+                &identity,
+            )
+            .map_err(|_| RegistryError::Conflict("configured-root handle is unavailable".into()))?,
+        );
+    }
+    for registration in &document.registrations {
+        let mut identities = Vec::with_capacity(3);
+        for (path, kind) in [
+            (
+                &registration.identity.repository_root,
+                PhysicalPathKind::Directory,
+            ),
+            (
+                &registration.identity.worktree_root,
+                PhysicalPathKind::Directory,
+            ),
+            (
+                &registration.identity.plan_path,
+                PhysicalPathKind::RegularFile,
+            ),
+        ] {
+            let identity = physical_path_identity(Path::new(path), kind)
+                .map_err(|_| RegistryError::Conflict("planner authority is ambiguous".into()))?;
+            identities.push(identity.clone());
+            handles.push(
+                RestrictedAuthorityHandle::open(Path::new(path), kind, &identity).map_err(
+                    |_| RegistryError::Conflict("planner scope handle is unavailable".into()),
+                )?,
+            );
+        }
+        let plan_handle = handles.last_mut().ok_or_else(|| {
+            RegistryError::Conflict("plan authority handle was not retained".into())
+        })?;
+        let plan_bytes = plan_handle
+            .read_bounded(MAX_PLAN_BYTES)
+            .map_err(|_| RegistryError::Conflict("plan authority cannot be read".into()))?;
+        let plan_content_digest = format!("{:x}", Sha256::digest(&plan_bytes));
+        let git = native_git_authority(Path::new(&registration.identity.worktree_root))
+            .map_err(|_| RegistryError::Conflict("native Git scope is ambiguous".into()))?;
+        let authority_digest = authorities
+            .iter()
+            .find(|authority| authority.planner_id == registration.identity.planner_id)
+            .map(|authority| authority.authority_digest.clone())
+            .unwrap_or_default();
+        if require_exact_authorities && authority_digest.is_empty() {
+            return Err(RegistryError::Conflict(
+                "authority-set planner coverage is incomplete".into(),
+            ));
+        }
+        planner_projections.push(AuthorityScopePlannerProjection {
+            registration: registration.clone(),
+            repository_identity: identities[0].clone(),
+            worktree_identity: identities[1].clone(),
+            plan_identity: identities[2].clone(),
+            git_common_identity: git.common_dir.clone(),
+            plan_content_digest,
+            authority_digest,
+        });
+        git_authorities.push(git);
+    }
+    let digest = authority_scope_projection_digest(
+        generation,
+        document.authority_issuer_epoch,
+        &document.authority_key_fingerprint,
+        root_projections,
+        planner_projections,
+    )?;
+    let attestation = AuthoritySetScopeAttestation {
+        digest,
+        handles,
+        git: git_authorities,
+    };
+    attestation.revalidate()?;
+    Ok(attestation)
+}
+
+pub(crate) fn authority_scope_projection_digest(
+    generation: u64,
+    issuer_epoch: u64,
+    issuer_fingerprint: &str,
+    mut roots: Vec<AuthorityScopeRootProjection>,
+    mut planners: Vec<AuthorityScopePlannerProjection>,
+) -> Result<String, RegistryError> {
+    roots.sort_by(|left, right| left.root_id.cmp(&right.root_id));
+    planners.sort_by(|left, right| {
+        left.registration
+            .identity
+            .planner_id
+            .cmp(&right.registration.identity.planner_id)
+    });
+    if roots
+        .windows(2)
+        .any(|pair| pair[0].root_id == pair[1].root_id)
+        || planners.windows(2).any(|pair| {
+            pair[0].registration.identity.planner_id == pair[1].registration.identity.planner_id
+        })
+    {
+        return Err(RegistryError::Conflict(
+            "authority-scope projection contains duplicate roots or planners".into(),
+        ));
+    }
+    let mut encoder = DigestEncoder::new(b"perfect-planner:machine-authority-set-scope:v1");
+    encoder.u64(REGISTRY_SCHEMA_VERSION as u64);
+    encoder.u64(generation);
+    encoder.u64(issuer_epoch);
+    encoder.text(issuer_fingerprint);
+    encoder.u64(roots.len() as u64);
+    for root in roots {
+        encoder.text(&root.root_id);
+        encoder.physical(&root.identity);
+    }
+    encoder.u64(planners.len() as u64);
+    for planner in planners {
+        let seed_bytes = serde_json::to_vec(&planner.registration)
+            .map_err(|error| RegistryError::InvalidInput(error.to_string()))?;
+        encoder.bytes(&seed_bytes);
+        encoder.physical(&planner.repository_identity);
+        encoder.physical(&planner.worktree_identity);
+        encoder.physical(&planner.plan_identity);
+        encoder.text(&planner.plan_content_digest);
+        encoder.physical(&planner.git_common_identity);
+        encoder.text(&planner.registration.identity.planner_id);
+        encoder.text(&planner.registration.identity.plan_id);
+        encoder.text(&planner.authority_digest);
+    }
+    Ok(hex_digest(&encoder.finish()))
+}
+
+fn sign_machine_claim_authority(authority: &mut MachineClaimAuthority, signer: &SigningKey) {
+    authority.authority_digest = machine_claim_authority_digest(authority);
+    authority.issuer_fingerprint = authority_key_fingerprint(&signer.verifying_key().to_bytes());
+    authority.authority_signature = hex_slice(
+        &signer
+            .sign(&machine_authority_message(authority))
+            .to_bytes(),
+    );
+}
+
+fn verify_machine_claim_authority_signature(
+    authority: &MachineClaimAuthority,
+    issuer_epoch: u64,
+    verifying_key: &[u8; 32],
+    expected_fingerprint: &str,
+) -> bool {
+    if authority.issuer_epoch != issuer_epoch
+        || authority.issuer_fingerprint != expected_fingerprint
+        || authority.issuer_fingerprint != authority_key_fingerprint(verifying_key)
+        || machine_claim_authority_digest(authority) != authority.authority_digest
+    {
+        return false;
+    }
+    let Ok(signature_bytes) = decode_fixed_hex::<64>(&authority.authority_signature) else {
+        return false;
+    };
+    let Ok(key) = VerifyingKey::from_bytes(verifying_key) else {
+        return false;
+    };
+    key.verify_strict(
+        &machine_authority_message(authority),
+        &Signature::from_bytes(&signature_bytes),
+    )
+    .is_ok()
+}
+
+fn hex_slice(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
+}
+
+fn decode_fixed_hex<const N: usize>(value: &str) -> Result<[u8; N], ()> {
+    if value.len() != N * 2 {
+        return Err(());
+    }
+    let mut output = [0u8; N];
+    for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
+        let high = (chunk[0] as char).to_digit(16).ok_or(())? as u8;
+        let low = (chunk[1] as char).to_digit(16).ok_or(())? as u8;
+        output[index] = (high << 4) | low;
+    }
+    Ok(output)
+}
+
+#[cfg(windows)]
+fn generate_authority_secret() -> [u8; 32] {
+    const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x0000_0002;
+    #[link(name = "Bcrypt")]
+    unsafe extern "system" {
+        fn BCryptGenRandom(
+            algorithm: *mut std::ffi::c_void,
+            buffer: *mut u8,
+            length: u32,
+            flags: u32,
+        ) -> i32;
+    }
+    let mut key = [0u8; 32];
+    let status = unsafe {
+        BCryptGenRandom(
+            std::ptr::null_mut(),
+            key.as_mut_ptr(),
+            key.len() as u32,
+            BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+        )
+    };
+    if status < 0 || key == [0; 32] {
+        panic!("operating-system random authority key is unavailable");
+    }
+    key
+}
+
+#[cfg(not(windows))]
+fn generate_authority_secret() -> [u8; 32] {
+    panic!("machine claim authority is unavailable outside Windows")
+}
+
+fn generate_signing_key() -> SigningKey {
+    SigningKey::from_bytes(&generate_authority_secret())
+}
+
+pub(crate) fn derive_canonical_claim_snapshot(
+    registration: &ValidatedPlannerRegistration,
+    plan_bytes: &[u8],
+) -> CanonicalClaimSnapshot {
+    derive_canonical_claim_snapshot_guarded(registration, plan_bytes).0
+}
+
+pub(crate) fn derive_canonical_claim_snapshot_guarded(
+    registration: &ValidatedPlannerRegistration,
+    plan_bytes: &[u8],
+) -> (CanonicalClaimSnapshot, Option<NativeClaimAuthorityBundle>) {
+    let source_manifest_digest = format!("{:x}", Sha256::digest(plan_bytes));
+    match derive_complete_claim_snapshot(registration, plan_bytes, &source_manifest_digest) {
+        Ok(result) => (result.0, Some(result.1)),
+        Err(failure) => (
+            unknown_claim_snapshot(failure, &source_manifest_digest),
+            None,
+        ),
+    }
+}
+
+fn derive_complete_claim_snapshot(
+    validated: &ValidatedPlannerRegistration,
+    plan_bytes: &[u8],
+    source_manifest_digest: &str,
+) -> Result<(CanonicalClaimSnapshot, NativeClaimAuthorityBundle), ClaimSnapshotFailure> {
+    let registration = &validated.registration;
+    let seed = &registration.identity;
+    let git = native_git_authority(Path::new(&seed.worktree_root)).map_err(|error| {
+        if matches!(error, super::identity::IdentityError::MissingGitIdentity) {
+            ClaimSnapshotFailure::MissingGitAuthority
+        } else {
+            ClaimSnapshotFailure::InvalidGitAuthority
+        }
+    })?;
+    let repository_identity = opaque_physical_identity(b"git-common", &git.common_dir);
+    let plan: Value = serde_json::from_slice(plan_bytes)
+        .map_err(|_| ClaimSnapshotFailure::InvalidActiveContract)?;
+    let entries = plan
+        .get("vertebrae")
+        .and_then(Value::as_array)
+        .ok_or(ClaimSnapshotFailure::InvalidActiveContract)?;
+    if entries.len() != seed.nodes.len() {
+        return Err(ClaimSnapshotFailure::InvalidActiveContract);
+    }
+    let entry_ids = entries
+        .iter()
+        .map(|entry| {
+            let object = entry
+                .as_object()
+                .ok_or(ClaimSnapshotFailure::InvalidActiveContract)?;
+            let id = object
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or(ClaimSnapshotFailure::InvalidActiveContract)?;
+            Ok(id.to_string())
+        })
+        .collect::<Result<BTreeSet<_>, ClaimSnapshotFailure>>()?;
+    let registered_ids = seed
+        .nodes
+        .iter()
+        .map(|node| node.node_id.clone())
+        .collect::<BTreeSet<_>>();
+    if entry_ids.len() != entries.len() || entry_ids != registered_ids {
+        return Err(ClaimSnapshotFailure::InvalidActiveContract);
+    }
+
+    let authority = validated
+        .claim_authority
+        .as_ref()
+        .ok_or(ClaimSnapshotFailure::MissingActiveContract)?;
+    if authority.planner_id != seed.planner_id
+        || authority.plan_id != seed.plan_id
+        || authority.plan_content_digest != source_manifest_digest
+        || authority.lease_generation != registration.lease_generation
+        || authority.authority_generation == 0
+        || authority.repository_identity != repository_identity
+        || !is_lower_sha256(&authority.authority_digest)
+        || !verify_machine_claim_authority_signature(
+            authority,
+            validated.authority_issuer_epoch,
+            &validated.authority_verifying_key,
+            &validated.authority_key_fingerprint,
+        )
+        || authority.nodes.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err(ClaimSnapshotFailure::InvalidActiveContract);
+    }
+
+    let participant_ids = seed
+        .nodes
+        .iter()
+        .map(|node| {
+            let id = opaque_parts(
+                b"perfect-planner:claim-participant:v1",
+                &[
+                    &repository_identity,
+                    &seed.planner_id,
+                    &seed.plan_id,
+                    &node.node_id,
+                ],
+            );
+            (node.node_id.clone(), id)
+        })
+        .collect::<BTreeMap<_, _>>();
+    let authority_bindings = participant_ids.clone();
+    let machine_nodes = authority
+        .nodes
+        .iter()
+        .map(|node| (node.participant_binding.clone(), node))
+        .collect::<BTreeMap<_, _>>();
+    if machine_nodes.len() != authority.nodes.len()
+        || machine_nodes.len() != seed.nodes.len()
+        || authority_bindings
+            .values()
+            .any(|binding| !machine_nodes.contains_key(binding))
+    {
+        return Err(ClaimSnapshotFailure::InvalidActiveContract);
+    }
+    let mut claims = Vec::new();
+    let mut native_claim_authorities = Vec::<NativeClaimAuthority>::new();
+    let mut source_claim_ids = BTreeMap::<(String, String), String>::new();
+    for node in &seed.nodes {
+        let authority_binding = authority_bindings
+            .get(&node.node_id)
+            .ok_or(ClaimSnapshotFailure::InvalidActiveContract)?;
+        let machine_node = machine_nodes
+            .get(authority_binding)
+            .ok_or(ClaimSnapshotFailure::InvalidActiveContract)?;
+        if matches!(
+            machine_node.state,
+            ActiveClaimState::Completed | ActiveClaimState::Released
+        ) {
+            continue;
+        }
+        let participant_id = participant_ids
+            .get(&node.node_id)
+            .ok_or(ClaimSnapshotFailure::InvalidClaim)?;
+        for raw in &node.files {
+            let native = canonical_native_claim_path(Path::new(&seed.worktree_root), raw).map_err(
+                |error| {
+                    if matches!(error, super::identity::IdentityError::AmbiguousGlob) {
+                        ClaimSnapshotFailure::UnsupportedGlob
+                    } else {
+                        ClaimSnapshotFailure::InvalidClaim
+                    }
+                },
+            )?;
+            let kind = match native.kind {
+                NativeClaimPathKind::ExactFile => CanonicalClaimKind::ExactFile,
+                NativeClaimPathKind::DirectoryTree => CanonicalClaimKind::DirectoryTree,
+            };
+            let canonical_key = opaque_parts(
+                b"perfect-planner:logical-claim-key:v1",
+                &[&repository_identity, &native.repository_relative_path],
+            );
+            let mut ancestor_keys =
+                path_ancestor_keys(&repository_identity, &native.repository_relative_path);
+            ancestor_keys.sort();
+            ancestor_keys.dedup();
+            let physical_alias_key = native
+                .physical_alias
+                .as_ref()
+                .map(|identity| opaque_physical_identity(b"claim-file-alias", identity));
+            let claim_id = claim_id(
+                participant_id,
+                kind,
+                &canonical_key,
+                physical_alias_key.as_deref(),
+            );
+            let source_binding = opaque_parts(
+                b"perfect-planner:machine-claim-source-binding:v1",
+                &[authority_binding, "FILE", raw],
+            );
+            if source_claim_ids
+                .insert(
+                    (authority_binding.clone(), source_binding),
+                    claim_id.clone(),
+                )
+                .is_some()
+            {
+                return Err(ClaimSnapshotFailure::InvalidClaim);
+            }
+            claims.push(CanonicalClaim {
+                claim_id,
+                participant_id: participant_id.clone(),
+                kind,
+                canonical_key,
+                ancestor_keys,
+                physical_alias_key,
+            });
+            native_claim_authorities.push(native.authority);
+        }
+        for raw in &node.resources {
+            let resource =
+                canonical_resource_identity(raw).map_err(|_| ClaimSnapshotFailure::InvalidClaim)?;
+            let canonical_key = opaque_parts(
+                b"perfect-planner:resource-claim-key:v1",
+                &[&resource.canonical_key],
+            );
+            let claim_id = claim_id(
+                participant_id,
+                CanonicalClaimKind::Resource,
+                &canonical_key,
+                None,
+            );
+            let source_binding = opaque_parts(
+                b"perfect-planner:machine-claim-source-binding:v1",
+                &[authority_binding, "RESOURCE", raw],
+            );
+            if source_claim_ids
+                .insert(
+                    (authority_binding.clone(), source_binding),
+                    claim_id.clone(),
+                )
+                .is_some()
+            {
+                return Err(ClaimSnapshotFailure::InvalidClaim);
+            }
+            claims.push(CanonicalClaim {
+                claim_id,
+                participant_id: participant_id.clone(),
+                kind: CanonicalClaimKind::Resource,
+                canonical_key,
+                ancestor_keys: Vec::new(),
+                physical_alias_key: None,
+            });
+        }
+    }
+    claims.sort();
+    if claims.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(ClaimSnapshotFailure::InvalidClaim);
+    }
+
+    let mut contracts = Vec::new();
+    for node in &seed.nodes {
+        let authority_binding = authority_bindings
+            .get(&node.node_id)
+            .ok_or(ClaimSnapshotFailure::InvalidActiveContract)?;
+        let machine_node = machine_nodes
+            .get(authority_binding)
+            .ok_or(ClaimSnapshotFailure::InvalidActiveContract)?;
+        let participant_id = participant_ids
+            .get(&node.node_id)
+            .ok_or(ClaimSnapshotFailure::InvalidActiveContract)?;
+        if machine_node.fence == 0
+            || machine_node.observed_at_ms != registration.heartbeat_at_ms
+            || machine_node.expires_at_ms != registration.lease_expires_at_ms
+            || machine_node.expires_at_ms <= machine_node.observed_at_ms
+            || !is_lower_sha256(&machine_node.run_identity)
+            || !is_lower_sha256(&machine_node.worker_identity)
+            || !is_lower_sha256(&machine_node.assumption_digest)
+            || !is_lower_sha256(&machine_node.policy_digest)
+            || !is_lower_sha256(&machine_node.active_state_digest)
+        {
+            return Err(ClaimSnapshotFailure::InvalidActiveContract);
+        }
+        let mut dependencies = machine_node.dependencies.clone();
+        dependencies.sort();
+        if dependencies
+            .iter()
+            .any(|dependency| dependency == participant_id)
+            || dependencies.windows(2).any(|pair| pair[0] == pair[1])
+        {
+            return Err(ClaimSnapshotFailure::InvalidActiveContract);
+        }
+        let terminal = matches!(
+            machine_node.state,
+            ActiveClaimState::Completed | ActiveClaimState::Released
+        );
+        if terminal && !machine_node.disposition_rules.is_empty() {
+            return Err(ClaimSnapshotFailure::InvalidActiveContract);
+        }
+        let mut disposition_rules = Vec::with_capacity(machine_node.disposition_rules.len());
+        if !terminal {
+            for disposition in &machine_node.disposition_rules {
+                let claim_id = source_claim_ids
+                    .get(&(
+                        authority_binding.clone(),
+                        disposition.source_binding.clone(),
+                    ))
+                    .cloned()
+                    .ok_or(ClaimSnapshotFailure::InvalidActiveContract)?;
+                disposition_rules.push(ClaimDispositionRule {
+                    claim_id,
+                    disposition: disposition.disposition,
+                });
+            }
+        }
+        disposition_rules.sort();
+        let expected_claims = claims
+            .iter()
+            .filter(|claim| claim.participant_id == *participant_id)
+            .map(|claim| claim.claim_id.clone())
+            .collect::<BTreeSet<_>>();
+        let actual_claims = disposition_rules
+            .iter()
+            .map(|rule| rule.claim_id.clone())
+            .collect::<BTreeSet<_>>();
+        if disposition_rules.len() != actual_claims.len() || actual_claims != expected_claims {
+            return Err(ClaimSnapshotFailure::InvalidActiveContract);
+        }
+        contracts.push(ActiveClaimContract {
+            participant_id: participant_id.clone(),
+            run_identity: machine_node.run_identity.clone(),
+            worker_identity: machine_node.worker_identity.clone(),
+            fence: machine_node.fence,
+            lease_generation: authority.lease_generation,
+            state: machine_node.state,
+            dependencies,
+            assumption_digest: machine_node.assumption_digest.clone(),
+            policy_digest: machine_node.policy_digest.clone(),
+            active_state_digest: machine_node.active_state_digest.clone(),
+            disposition_rules,
+            observed_at_ms: machine_node.observed_at_ms,
+            expires_at_ms: machine_node.expires_at_ms,
+        });
+    }
+    contracts.sort();
+    if contracts.is_empty()
+        || contracts
+            .windows(2)
+            .any(|pair| pair[0].participant_id == pair[1].participant_id)
+        || has_dependency_cycle(&contracts)
+    {
+        return Err(ClaimSnapshotFailure::InvalidActiveContract);
+    }
+    git.revalidate()
+        .map_err(|_| ClaimSnapshotFailure::IdentityChanged)?;
+    for authority in &native_claim_authorities {
+        authority
+            .revalidate()
+            .map_err(|_| ClaimSnapshotFailure::IdentityChanged)?;
+    }
+    let mut snapshot = CanonicalClaimSnapshot {
+        schema_version: 1,
+        status: ClaimSnapshotStatus::Complete,
+        failure: None,
+        repository_identity,
+        source_manifest_digest: source_manifest_digest.to_string(),
+        claims,
+        contracts,
+        digest: String::new(),
+    };
+    snapshot.digest = canonical_claim_snapshot_digest(&snapshot);
+    validate_canonical_claim_snapshot(&snapshot)?;
+    Ok((
+        snapshot,
+        NativeClaimAuthorityBundle {
+            git,
+            claims: native_claim_authorities,
+        },
+    ))
+}
+
+fn contract_string<'a>(
+    object: &'a serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<&'a str, ClaimSnapshotFailure> {
+    let value = object
+        .get(key)
+        .and_then(Value::as_str)
+        .ok_or(ClaimSnapshotFailure::InvalidActiveContract)?;
+    if value.is_empty() || value.len() > MAX_TEXT_BYTES || value.chars().any(char::is_control) {
+        return Err(ClaimSnapshotFailure::InvalidActiveContract);
+    }
+    Ok(value)
+}
+
+fn contract_u64(
+    object: &serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<u64, ClaimSnapshotFailure> {
+    object
+        .get(key)
+        .and_then(Value::as_u64)
+        .ok_or(ClaimSnapshotFailure::InvalidActiveContract)
+}
+
+fn contract_digest(
+    object: &serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<String, ClaimSnapshotFailure> {
+    let value = contract_string(object, key)?;
+    if !is_lower_sha256(value) {
+        return Err(ClaimSnapshotFailure::InvalidActiveContract);
+    }
+    Ok(value.to_string())
+}
+
+fn opaque_parts(domain: &[u8], parts: &[&str]) -> String {
+    let mut encoder = DigestEncoder::new(domain);
+    for part in parts {
+        encoder.text(part);
+    }
+    hex_digest(&encoder.finish())
+}
+
+fn path_ancestor_keys(repository_identity: &str, path: &str) -> Vec<String> {
+    let parts = path.split('/').collect::<Vec<_>>();
+    (1..parts.len())
+        .map(|length| {
+            opaque_parts(
+                b"perfect-planner:logical-claim-key:v1",
+                &[repository_identity, &parts[..length].join("/")],
+            )
+        })
+        .collect()
+}
+
+fn claim_id(
+    participant_id: &str,
+    kind: CanonicalClaimKind,
+    canonical_key: &str,
+    physical_alias_key: Option<&str>,
+) -> String {
+    opaque_parts(
+        b"perfect-planner:canonical-claim-id:v1",
+        &[
+            participant_id,
+            match kind {
+                CanonicalClaimKind::ExactFile => "EXACT_FILE",
+                CanonicalClaimKind::DirectoryTree => "DIRECTORY_TREE",
+                CanonicalClaimKind::Resource => "RESOURCE",
+            },
+            canonical_key,
+            physical_alias_key.unwrap_or(""),
+        ],
+    )
+}
+
+fn has_dependency_cycle(contracts: &[ActiveClaimContract]) -> bool {
+    let mut remaining = contracts
+        .iter()
+        .map(|contract| {
+            (
+                contract.participant_id.clone(),
+                contract
+                    .dependencies
+                    .iter()
+                    .cloned()
+                    .collect::<BTreeSet<_>>(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    while !remaining.is_empty() {
+        let ready = remaining
+            .iter()
+            .filter(|(_, dependencies)| {
+                dependencies
+                    .iter()
+                    .all(|dependency| !remaining.contains_key(dependency))
+            })
+            .map(|(participant, _)| participant.clone())
+            .collect::<Vec<_>>();
+        if ready.is_empty() {
+            return true;
+        }
+        for participant in ready {
+            remaining.remove(&participant);
+        }
+    }
+    false
+}
+
+fn canonical_claim_snapshot_digest(snapshot: &CanonicalClaimSnapshot) -> String {
+    let mut encoder = DigestEncoder::new(b"perfect-planner:canonical-claim-snapshot:v1");
+    encoder.u64(snapshot.schema_version as u64);
+    encoder.text(match snapshot.status {
+        ClaimSnapshotStatus::Complete => "COMPLETE",
+        ClaimSnapshotStatus::Unknown => "UNKNOWN",
+    });
+    encoder.text(match snapshot.failure {
+        None => "",
+        Some(ClaimSnapshotFailure::MissingGitAuthority) => "MISSING_GIT_AUTHORITY",
+        Some(ClaimSnapshotFailure::InvalidGitAuthority) => "INVALID_GIT_AUTHORITY",
+        Some(ClaimSnapshotFailure::UnsupportedGlob) => "UNSUPPORTED_GLOB",
+        Some(ClaimSnapshotFailure::InvalidClaim) => "INVALID_CLAIM",
+        Some(ClaimSnapshotFailure::MissingActiveContract) => "MISSING_ACTIVE_CONTRACT",
+        Some(ClaimSnapshotFailure::InvalidActiveContract) => "INVALID_ACTIVE_CONTRACT",
+        Some(ClaimSnapshotFailure::IdentityChanged) => "IDENTITY_CHANGED",
+    });
+    encoder.text(&snapshot.repository_identity);
+    encoder.text(&snapshot.source_manifest_digest);
+    encoder.u64(snapshot.claims.len() as u64);
+    for claim in &snapshot.claims {
+        encoder.text(&claim.claim_id);
+        encoder.text(&claim.participant_id);
+        encoder.text(match claim.kind {
+            CanonicalClaimKind::ExactFile => "EXACT_FILE",
+            CanonicalClaimKind::DirectoryTree => "DIRECTORY_TREE",
+            CanonicalClaimKind::Resource => "RESOURCE",
+        });
+        encoder.text(&claim.canonical_key);
+        encoder.u64(claim.ancestor_keys.len() as u64);
+        for ancestor in &claim.ancestor_keys {
+            encoder.text(ancestor);
+        }
+        encoder.text(claim.physical_alias_key.as_deref().unwrap_or(""));
+    }
+    encoder.u64(snapshot.contracts.len() as u64);
+    for contract in &snapshot.contracts {
+        encoder.text(&contract.participant_id);
+        encoder.text(&contract.run_identity);
+        encoder.text(&contract.worker_identity);
+        encoder.u64(contract.fence);
+        encoder.u64(contract.lease_generation);
+        encoder.text(match contract.state {
+            ActiveClaimState::Planned => "PLANNED",
+            ActiveClaimState::Claimed => "CLAIMED",
+            ActiveClaimState::Running => "RUNNING",
+            ActiveClaimState::Waiting => "WAITING",
+            ActiveClaimState::Completed => "COMPLETED",
+            ActiveClaimState::Released => "RELEASED",
+        });
+        encoder.u64(contract.dependencies.len() as u64);
+        for dependency in &contract.dependencies {
+            encoder.text(dependency);
+        }
+        encoder.text(&contract.assumption_digest);
+        encoder.text(&contract.policy_digest);
+        encoder.text(&contract.active_state_digest);
+        encoder.u64(contract.disposition_rules.len() as u64);
+        for rule in &contract.disposition_rules {
+            encoder.text(&rule.claim_id);
+            encoder.text(match rule.disposition {
+                ConflictDisposition::Wait => "WAIT",
+                ConflictDisposition::Replan => "REPLAN",
+                ConflictDisposition::UserDecision => "USER_DECISION",
+            });
+        }
+        encoder.u64(contract.observed_at_ms);
+        encoder.u64(contract.expires_at_ms);
+    }
+    hex_digest(&encoder.finish())
+}
+
+pub(crate) fn validate_canonical_claim_snapshot(
+    snapshot: &CanonicalClaimSnapshot,
+) -> Result<(), ClaimSnapshotFailure> {
+    if snapshot.schema_version != 1
+        || !is_lower_sha256(&snapshot.source_manifest_digest)
+        || !is_lower_sha256(&snapshot.digest)
+        || canonical_claim_snapshot_digest(snapshot) != snapshot.digest
+    {
+        return Err(ClaimSnapshotFailure::InvalidClaim);
+    }
+    match snapshot.status {
+        ClaimSnapshotStatus::Unknown => {
+            if snapshot.failure.is_none()
+                || !snapshot.repository_identity.is_empty()
+                || !snapshot.claims.is_empty()
+                || !snapshot.contracts.is_empty()
+            {
+                return Err(ClaimSnapshotFailure::InvalidClaim);
+            }
+            return Ok(());
+        }
+        ClaimSnapshotStatus::Complete => {
+            if snapshot.failure.is_some()
+                || !is_lower_sha256(&snapshot.repository_identity)
+                || snapshot.contracts.is_empty()
+            {
+                return Err(ClaimSnapshotFailure::InvalidClaim);
+            }
+        }
+    }
+    if snapshot.claims.windows(2).any(|pair| pair[0] >= pair[1])
+        || snapshot.contracts.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err(ClaimSnapshotFailure::InvalidClaim);
+    }
+    for claim in &snapshot.claims {
+        if !is_lower_sha256(&claim.claim_id)
+            || !is_lower_sha256(&claim.participant_id)
+            || !is_lower_sha256(&claim.canonical_key)
+            || claim
+                .ancestor_keys
+                .windows(2)
+                .any(|pair| pair[0] >= pair[1])
+            || claim
+                .ancestor_keys
+                .iter()
+                .any(|value| !is_lower_sha256(value))
+            || claim
+                .physical_alias_key
+                .as_deref()
+                .is_some_and(|value| !is_lower_sha256(value))
+        {
+            return Err(ClaimSnapshotFailure::InvalidClaim);
+        }
+        match claim.kind {
+            CanonicalClaimKind::Resource
+                if !claim.ancestor_keys.is_empty() || claim.physical_alias_key.is_some() =>
+            {
+                return Err(ClaimSnapshotFailure::InvalidClaim)
+            }
+            CanonicalClaimKind::DirectoryTree if claim.physical_alias_key.is_some() => {
+                return Err(ClaimSnapshotFailure::InvalidClaim)
+            }
+            _ => {}
+        }
+    }
+    let claim_ids = snapshot
+        .claims
+        .iter()
+        .map(|claim| claim.claim_id.as_str())
+        .collect::<BTreeSet<_>>();
+    if claim_ids.len() != snapshot.claims.len()
+        || snapshot.claims.iter().any(|claim| {
+            claim_id(
+                &claim.participant_id,
+                claim.kind,
+                &claim.canonical_key,
+                claim.physical_alias_key.as_deref(),
+            ) != claim.claim_id
+        })
+    {
+        return Err(ClaimSnapshotFailure::InvalidClaim);
+    }
+    let claim_participants = snapshot
+        .claims
+        .iter()
+        .map(|claim| claim.participant_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let contract_participants = snapshot
+        .contracts
+        .iter()
+        .map(|contract| contract.participant_id.as_str())
+        .collect::<BTreeSet<_>>();
+    if contract_participants.len() != snapshot.contracts.len()
+        || !claim_participants.is_subset(&contract_participants)
+    {
+        return Err(ClaimSnapshotFailure::InvalidActiveContract);
+    }
+    for contract in &snapshot.contracts {
+        let owned_claims = snapshot
+            .claims
+            .iter()
+            .filter(|claim| claim.participant_id == contract.participant_id)
+            .map(|claim| claim.claim_id.as_str())
+            .collect::<BTreeSet<_>>();
+        let ruled_claims = contract
+            .disposition_rules
+            .iter()
+            .map(|rule| rule.claim_id.as_str())
+            .collect::<BTreeSet<_>>();
+        let terminal = matches!(
+            contract.state,
+            ActiveClaimState::Completed | ActiveClaimState::Released
+        );
+        if !is_lower_sha256(&contract.participant_id)
+            || !is_lower_sha256(&contract.run_identity)
+            || !is_lower_sha256(&contract.worker_identity)
+            || contract.fence == 0
+            || contract.lease_generation == 0
+            || contract.expires_at_ms <= contract.observed_at_ms
+            || !is_lower_sha256(&contract.assumption_digest)
+            || !is_lower_sha256(&contract.policy_digest)
+            || !is_lower_sha256(&contract.active_state_digest)
+            || contract
+                .dependencies
+                .windows(2)
+                .any(|pair| pair[0] >= pair[1])
+            || contract.dependencies.iter().any(|dependency| {
+                !is_lower_sha256(dependency) || dependency == &contract.participant_id
+            })
+            || contract
+                .disposition_rules
+                .windows(2)
+                .any(|pair| pair[0] >= pair[1])
+            || contract
+                .disposition_rules
+                .iter()
+                .any(|rule| !claim_ids.contains(rule.claim_id.as_str()))
+            || ruled_claims.len() != contract.disposition_rules.len()
+            || ruled_claims != owned_claims
+            || (terminal && (!owned_claims.is_empty() || !ruled_claims.is_empty()))
+            || (!terminal && owned_claims.is_empty())
+        {
+            return Err(ClaimSnapshotFailure::InvalidActiveContract);
+        }
+    }
+    if has_dependency_cycle(&snapshot.contracts) {
+        return Err(ClaimSnapshotFailure::InvalidActiveContract);
+    }
+    Ok(())
+}
+
+fn is_lower_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+
 pub(crate) fn opaque_identity_from_parts(domain: &[u8], volume_id: u64, file_id: &[u8]) -> String {
     let mut encoder = DigestEncoder::new(b"perfect-planner:census-physical-identity:v1");
     encoder.bytes(domain);
@@ -1517,6 +3794,7 @@ pub(crate) fn planner_manifest_digest(metadata: &PlannerCensusMetadata) -> Strin
     encoder.text(&metadata.branch);
     encoder.text(&metadata.plan_id);
     encoder.text(&metadata.plan_content_digest);
+    encoder.text(&metadata.claim_snapshot.digest);
     encoder.u64(metadata.files.len() as u64);
     for file in &metadata.files {
         encoder.text(file);
@@ -1570,6 +3848,7 @@ fn census_input_digest(
         encoder.text(&seed.plan_id);
         encoder.physical(&validated.plan_identity);
         encoder.u64(registration.lease_generation);
+        encoder.text(&validated.claim_snapshot.digest);
         encode_paths(&mut encoder, &seed.files)?;
         encode_resources(&mut encoder, &seed.resources)?;
         encoder.u64(seed.nodes.len() as u64);
@@ -1595,7 +3874,7 @@ fn hex_digest(bytes: &[u8; 32]) -> String {
 fn encode_paths(encoder: &mut DigestEncoder, paths: &[String]) -> Result<(), RegistryError> {
     encoder.u64(paths.len() as u64);
     for path in paths {
-        encoder.text(&canonical_declared_path(path).map_err(|error| {
+        encoder.text(&canonical_manifest_declaration(path).map_err(|error| {
             RegistryError::InvalidInput(format!("cannot canonicalize manifest path: {error}"))
         })?);
     }
@@ -1702,6 +3981,121 @@ fn validate_registration(registration: &PlannerRegistration) -> Result<(), Regis
             "planner {} lease span exceeds the supported bound",
             registration.identity.planner_id
         )));
+    }
+    Ok(())
+}
+
+fn validate_machine_claim_authority(
+    authority: &MachineClaimAuthority,
+    registration: &PlannerRegistration,
+    issuer_epoch: u64,
+    verifying_key: &[u8; 32],
+    key_fingerprint: &str,
+) -> Result<(), RegistryError> {
+    if authority.planner_id != registration.identity.planner_id
+        || authority.plan_id != registration.identity.plan_id
+        || authority.lease_generation != registration.lease_generation
+        || authority.authority_generation == 0
+        || !is_lower_sha256(&authority.plan_content_digest)
+        || !is_lower_sha256(&authority.authority_digest)
+        || !is_lower_sha256(&authority.repository_identity)
+        || !is_lower_sha256(&authority.issuer_fingerprint)
+        || authority.authority_signature.len() != 128
+        || !verify_machine_claim_authority_signature(
+            authority,
+            issuer_epoch,
+            verifying_key,
+            key_fingerprint,
+        )
+        || authority.nodes.len() != registration.identity.nodes.len()
+        || authority.nodes.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err(RegistryError::InvalidInput(
+            "machine claim authority scope, receipt, or ordering is invalid".into(),
+        ));
+    }
+    for node in &authority.nodes {
+        if !is_lower_sha256(&node.participant_binding)
+            || !is_lower_sha256(&node.run_identity)
+            || !is_lower_sha256(&node.worker_identity)
+            || node.fence == 0
+            || node.observed_at_ms != registration.heartbeat_at_ms
+            || node.expires_at_ms != registration.lease_expires_at_ms
+            || !is_lower_sha256(&node.assumption_digest)
+            || !is_lower_sha256(&node.policy_digest)
+            || !is_lower_sha256(&node.active_state_digest)
+            || node.dependencies.windows(2).any(|pair| pair[0] >= pair[1])
+            || node.dependencies.iter().any(|dependency| {
+                !is_lower_sha256(dependency) || dependency == &node.participant_binding
+            })
+            || node
+                .disposition_rules
+                .windows(2)
+                .any(|pair| pair[0] >= pair[1])
+            || node
+                .disposition_rules
+                .iter()
+                .any(|rule| !is_lower_sha256(&rule.source_binding))
+        {
+            return Err(RegistryError::InvalidInput(
+                "machine node claim authority is malformed or stale".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_machine_claim_authority_history(
+    authority: &MachineClaimAuthority,
+    issuer_epoch: u64,
+    verifying_key: &[u8; 32],
+    key_fingerprint: &str,
+) -> Result<(), RegistryError> {
+    if authority.authority_generation == 0
+        || !is_lower_sha256(&authority.plan_content_digest)
+        || !is_lower_sha256(&authority.authority_digest)
+        || !is_lower_sha256(&authority.repository_identity)
+        || !is_lower_sha256(&authority.issuer_fingerprint)
+        || authority.authority_signature.len() != 128
+        || !verify_machine_claim_authority_signature(
+            authority,
+            issuer_epoch,
+            verifying_key,
+            key_fingerprint,
+        )
+        || authority.nodes.is_empty()
+        || authority.nodes.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err(RegistryError::InvalidInput(
+            "machine claim authority history is malformed or unauthenticated".into(),
+        ));
+    }
+    for node in &authority.nodes {
+        if !is_lower_sha256(&node.participant_binding)
+            || !is_lower_sha256(&node.run_identity)
+            || !is_lower_sha256(&node.worker_identity)
+            || node.fence == 0
+            || node.expires_at_ms <= node.observed_at_ms
+            || !is_lower_sha256(&node.assumption_digest)
+            || !is_lower_sha256(&node.policy_digest)
+            || !is_lower_sha256(&node.active_state_digest)
+            || node.dependencies.windows(2).any(|pair| pair[0] >= pair[1])
+            || node.dependencies.iter().any(|dependency| {
+                !is_lower_sha256(dependency) || dependency == &node.participant_binding
+            })
+            || node
+                .disposition_rules
+                .windows(2)
+                .any(|pair| pair[0] >= pair[1])
+            || node
+                .disposition_rules
+                .iter()
+                .any(|rule| !is_lower_sha256(&rule.source_binding))
+        {
+            return Err(RegistryError::InvalidInput(
+                "machine node claim authority history is malformed".into(),
+            ));
+        }
     }
     Ok(())
 }
@@ -1860,6 +4254,13 @@ fn validate_census_shape(census: &DiscoveryCensus) -> Result<(), RegistryError> 
         ] {
             validate_sha256(digest)?;
         }
+        validate_canonical_claim_snapshot(&planner.claim_snapshot)
+            .map_err(|_| RegistryError::InvalidInput("census claim snapshot is invalid".into()))?;
+        if planner_manifest_digest(planner) != planner.manifest_digest {
+            return Err(RegistryError::InvalidInput(
+                "census planner manifest digest does not match its metadata".into(),
+            ));
+        }
         if last_planner.is_some_and(|last| last >= planner.planner_id.as_str()) {
             return Err(RegistryError::InvalidInput(
                 "census planner metadata must be sorted and unique by planner id".into(),
@@ -1989,7 +4390,7 @@ fn validate_sorted_unique_relative_paths(
     let mut last = None::<String>;
     for value in values {
         validate_text(label, value)?;
-        let normalized = canonical_declared_path(value).map_err(|error| {
+        let normalized = canonical_manifest_declaration(value).map_err(|error| {
             RegistryError::InvalidInput(format!("{label} contains an invalid path: {error}"))
         })?;
         if last
@@ -2122,13 +4523,13 @@ fn persist_document(path: &Path, document: &RegistryDocument) -> Result<(), Regi
     persist_document_before(path, document, || Ok(()))
 }
 
-fn persist_document_before<F>(
+fn persist_document_before<F, G>(
     path: &Path,
     document: &RegistryDocument,
     before_replace: F,
 ) -> Result<(), RegistryError>
 where
-    F: FnOnce() -> Result<(), RegistryError>,
+    F: FnOnce() -> Result<G, RegistryError>,
 {
     let mut bytes = serde_json::to_vec_pretty(document).map_err(|error| {
         RegistryError::Io(format!("cannot serialize registry document: {error}"))
@@ -2137,13 +4538,13 @@ where
     atomic_replace_before(path, &bytes, before_replace)
 }
 
-fn atomic_replace_before<F>(
+fn atomic_replace_before<F, G>(
     path: &Path,
     bytes: &[u8],
     before_replace: F,
 ) -> Result<(), RegistryError>
 where
-    F: FnOnce() -> Result<(), RegistryError>,
+    F: FnOnce() -> Result<G, RegistryError>,
 {
     let parent = path
         .parent()
@@ -2174,7 +4575,7 @@ where
             .map_err(|error| registry_persist_io(path, error))?;
         file.sync_all()
             .map_err(|error| registry_persist_io(path, error))?;
-        before_replace()?;
+        let _authority_guard = before_replace()?;
         replace_file(&temporary, path).map_err(|error| registry_persist_io(path, error))
     })();
     if result.is_err() {
@@ -2775,12 +5176,11 @@ mod tests {
             .store
             .heartbeat("planner-a", 1, 2_600, 8_000)
             .unwrap();
-        assert!(fixture.store.inspect(2_700).issues().contains(
-            &RegistryIssue::CensusGenerationMismatch {
-                registry_generation: 4,
-                census_generation: 3,
-            }
-        ));
+        assert!(fixture
+            .store
+            .inspect(2_700)
+            .issues()
+            .contains(&RegistryIssue::MissingCensus));
     }
 
     #[test]
@@ -3261,6 +5661,971 @@ mod tests {
             digest(b"domain-a", &["same"]),
             digest(b"domain-a", &["same"])
         );
+    }
+
+    fn hash(byte: char) -> String {
+        std::iter::repeat_n(byte, 64).collect()
+    }
+
+    fn contract(participant_id: String, state: ActiveClaimState) -> ActiveClaimContract {
+        ActiveClaimContract {
+            participant_id,
+            run_identity: hash('a'),
+            worker_identity: hash('b'),
+            fence: 7,
+            lease_generation: 3,
+            state,
+            dependencies: Vec::new(),
+            assumption_digest: hash('c'),
+            policy_digest: hash('d'),
+            active_state_digest: hash('e'),
+            disposition_rules: Vec::new(),
+            observed_at_ms: 1_000,
+            expires_at_ms: 2_000,
+        }
+    }
+
+    #[test]
+    fn terminal_dependency_tombstone_releases_claims_without_erasing_dependency_identity() {
+        let completed_id = hash('1');
+        let running_id = hash('2');
+        let canonical_key = hash('3');
+        let owned_claim_id = claim_id(
+            &running_id,
+            CanonicalClaimKind::ExactFile,
+            &canonical_key,
+            None,
+        );
+        let claim = CanonicalClaim {
+            claim_id: owned_claim_id.clone(),
+            participant_id: running_id.clone(),
+            kind: CanonicalClaimKind::ExactFile,
+            canonical_key,
+            ancestor_keys: Vec::new(),
+            physical_alias_key: None,
+        };
+        let completed = contract(completed_id.clone(), ActiveClaimState::Completed);
+        let mut running = contract(running_id, ActiveClaimState::Running);
+        running.dependencies = vec![completed_id];
+        running.disposition_rules = vec![ClaimDispositionRule {
+            claim_id: owned_claim_id,
+            disposition: ConflictDisposition::Wait,
+        }];
+        let mut snapshot = CanonicalClaimSnapshot {
+            schema_version: 1,
+            status: ClaimSnapshotStatus::Complete,
+            failure: None,
+            repository_identity: hash('4'),
+            source_manifest_digest: hash('5'),
+            claims: vec![claim],
+            contracts: vec![completed, running],
+            digest: String::new(),
+        };
+        snapshot.contracts.sort();
+        snapshot.digest = canonical_claim_snapshot_digest(&snapshot);
+        assert_eq!(validate_canonical_claim_snapshot(&snapshot), Ok(()));
+        assert!(snapshot
+            .claims
+            .iter()
+            .all(|claim| claim.participant_id != hash('1')));
+    }
+
+    fn machine_node(participant: String, state: ActiveClaimState) -> MachineNodeClaimAuthority {
+        MachineNodeClaimAuthority {
+            participant_binding: participant,
+            run_identity: hash('a'),
+            worker_identity: hash('b'),
+            fence: 9,
+            state,
+            dependencies: Vec::new(),
+            assumption_digest: hash('c'),
+            policy_digest: hash('d'),
+            active_state_digest: hash('e'),
+            disposition_rules: Vec::new(),
+            observed_at_ms: 1_000,
+            expires_at_ms: 2_000,
+        }
+    }
+
+    fn unsigned_authority(
+        generation: u64,
+        nodes: Vec<MachineNodeClaimAuthority>,
+    ) -> MachineClaimAuthority {
+        MachineClaimAuthority {
+            registry_generation: 10,
+            planner_id: "planner-a".into(),
+            plan_id: "PP-002".into(),
+            repository_identity: hash('1'),
+            plan_content_digest: hash('2'),
+            lease_generation: 3,
+            authority_generation: generation,
+            authority_digest: String::new(),
+            issuer_epoch: 1,
+            issuer_fingerprint: hash('3'),
+            authority_signature: String::new(),
+            nodes,
+        }
+    }
+
+    #[test]
+    fn authority_revision_does_not_invent_worker_fence_changes() {
+        let a = hash('6');
+        let b = hash('7');
+        let previous = unsigned_authority(
+            1,
+            vec![
+                machine_node(a.clone(), ActiveClaimState::Claimed),
+                machine_node(b.clone(), ActiveClaimState::Running),
+            ],
+        );
+        let next = unsigned_authority(
+            2,
+            vec![
+                machine_node(a, ActiveClaimState::Running),
+                machine_node(b, ActiveClaimState::Running),
+            ],
+        );
+        assert!(validate_machine_authority_transition(&previous, &next).is_ok());
+
+        let mut forged = next;
+        forged.nodes[1].fence += 1;
+        assert!(matches!(
+            validate_machine_authority_transition(&previous, &forged),
+            Err(RegistryError::Conflict(_))
+        ));
+    }
+
+    fn run_git(cwd: &Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .current_dir(cwd)
+            .args(args)
+            .output()
+            .expect("start git");
+        assert!(
+            output.status.success(),
+            "git {:?}: {}{}",
+            args,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn native_seed(worktree: &Path, planner_id: &str, plan_number: u32) -> PlannerRegistrationSeed {
+        let plan_id = format!("PP-{plan_number:03}");
+        let branch = format!("feature/{planner_id}");
+        let file = format!("src/{planner_id}.rs");
+        let resource = format!("mutex:{planner_id}");
+        let plan_path = worktree
+            .join(".claude/scratch/perfect-plan")
+            .join(format!("{planner_id}.json"));
+        fs::create_dir_all(plan_path.parent().unwrap()).unwrap();
+        let plan = serde_json::json!({
+            "meta": {"number": plan_id, "branch": branch},
+            "vertebrae": [{"id": "B19", "files": [file], "resources": [resource]}]
+        });
+        fs::write(&plan_path, serde_json::to_vec(&plan).unwrap()).unwrap();
+        PlannerRegistrationSeed {
+            planner_id: planner_id.into(),
+            repository_id: "display-only-repository".into(),
+            repository_root: worktree.to_string_lossy().into_owned(),
+            worktree_root: worktree.to_string_lossy().into_owned(),
+            branch,
+            plan_id,
+            plan_path: plan_path.to_string_lossy().into_owned(),
+            files: vec![file.clone()],
+            resources: vec![resource.clone()],
+            nodes: vec![PlannerNodeManifest {
+                node_id: "B19".into(),
+                files: vec![file],
+                resources: vec![resource],
+            }],
+        }
+    }
+
+    fn machine_authority(
+        registration: &PlannerRegistration,
+        issuer_epoch: u64,
+        authority_generation: u64,
+        state: ActiveClaimState,
+    ) -> MachineClaimAuthority {
+        let git = native_git_authority(Path::new(&registration.identity.worktree_root)).unwrap();
+        let repository_identity = opaque_physical_identity(b"git-common", &git.common_dir);
+        let node = &registration.identity.nodes[0];
+        let participant_binding = opaque_parts(
+            b"perfect-planner:claim-participant:v1",
+            &[
+                &repository_identity,
+                &registration.identity.planner_id,
+                &registration.identity.plan_id,
+                &node.node_id,
+            ],
+        );
+        let mut disposition_rules = node
+            .files
+            .iter()
+            .map(|raw| MachineDispositionRule {
+                source_binding: opaque_parts(
+                    b"perfect-planner:machine-claim-source-binding:v1",
+                    &[&participant_binding, "FILE", raw],
+                ),
+                disposition: ConflictDisposition::Wait,
+            })
+            .chain(node.resources.iter().map(|raw| MachineDispositionRule {
+                source_binding: opaque_parts(
+                    b"perfect-planner:machine-claim-source-binding:v1",
+                    &[&participant_binding, "RESOURCE", raw],
+                ),
+                disposition: ConflictDisposition::Wait,
+            }))
+            .collect::<Vec<_>>();
+        disposition_rules.sort();
+        let plan_bytes = fs::read(&registration.identity.plan_path).unwrap();
+        MachineClaimAuthority {
+            registry_generation: 0,
+            planner_id: registration.identity.planner_id.clone(),
+            plan_id: registration.identity.plan_id.clone(),
+            repository_identity,
+            plan_content_digest: format!("{:x}", Sha256::digest(plan_bytes)),
+            lease_generation: registration.lease_generation,
+            authority_generation,
+            authority_digest: String::new(),
+            issuer_epoch,
+            issuer_fingerprint: String::new(),
+            authority_signature: String::new(),
+            nodes: vec![MachineNodeClaimAuthority {
+                participant_binding,
+                run_identity: hash('a'),
+                worker_identity: hash('b'),
+                fence: 11,
+                state,
+                dependencies: Vec::new(),
+                assumption_digest: hash('c'),
+                policy_digest: hash('d'),
+                active_state_digest: hash('e'),
+                disposition_rules,
+                observed_at_ms: registration.heartbeat_at_ms,
+                expires_at_ms: registration.lease_expires_at_ms,
+            }],
+        }
+    }
+
+    fn trusted_two_planner_fixture(
+        label: &str,
+    ) -> (TempRegistry, PlannerRegistryStore, SigningKey, PathBuf) {
+        let fixture = TempRegistry::new(label);
+        let worktree = fixture.root.join("native-worktree");
+        fs::create_dir_all(&worktree).unwrap();
+        run_git(&worktree, &["init"]);
+        fixture
+            .store
+            .initialize(
+                vec![ConfiguredDiscoveryRoot {
+                    root_id: "root-native".into(),
+                    canonical_path: worktree.to_string_lossy().into_owned(),
+                }],
+                1_000,
+            )
+            .unwrap();
+        fixture
+            .store
+            .register(native_seed(&worktree, "planner-a", 1), 1_100, 20_000)
+            .unwrap();
+        fixture
+            .store
+            .register(native_seed(&worktree, "planner-b", 2), 1_200, 20_000)
+            .unwrap();
+        let (trusted, signer) = fixture.store.rotate_test_issuer(1_300).unwrap();
+        (fixture, trusted, signer, worktree)
+    }
+
+    fn legacy_v1_bytes(document: &RegistryDocument) -> Vec<u8> {
+        let mut value = serde_json::to_value(document).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.insert("schemaVersion".into(), Value::from(1));
+        object.remove("authorityIssuerEpoch");
+        object.remove("authorityVerifyingKey");
+        object.remove("authorityKeyFingerprint");
+        object.remove("claimAuthorities");
+        object.remove("authoritySetReceipt");
+        serde_json::to_vec_pretty(&value).unwrap()
+    }
+
+    #[test]
+    fn startup_migrates_stale_v1_once_and_never_rewrites_malformed_legacy() {
+        let fixture = TempRegistry::new("v1-startup-migration");
+        let worktree = fixture.root.join("legacy-worktree");
+        fs::create_dir_all(&worktree).unwrap();
+        run_git(&worktree, &["init"]);
+        fixture
+            .store
+            .initialize(
+                vec![ConfiguredDiscoveryRoot {
+                    root_id: "legacy-root".into(),
+                    canonical_path: worktree.to_string_lossy().into_owned(),
+                }],
+                1_000,
+            )
+            .unwrap();
+        fixture
+            .store
+            .register(native_seed(&worktree, "legacy-planner", 1), 1_100, 20_000)
+            .unwrap();
+        let before = raw_document(&fixture.store);
+        fs::write(fixture.store.path(), legacy_v1_bytes(&before)).unwrap();
+
+        let first = fixture.store.clone();
+        let second = fixture.store.clone();
+        let first_thread = std::thread::spawn(move || first.bootstrap_registry_schema(30_000));
+        let second_thread = std::thread::spawn(move || second.bootstrap_registry_schema(30_000));
+        first_thread.join().unwrap().unwrap();
+        second_thread.join().unwrap().unwrap();
+
+        let migrated = raw_document(&fixture.store);
+        assert_eq!(migrated.schema_version, REGISTRY_SCHEMA_VERSION);
+        assert_eq!(migrated.generation, before.generation + 1);
+        assert_eq!(migrated.configured_roots, before.configured_roots);
+        assert_eq!(migrated.registrations, before.registrations);
+        assert!(migrated.claim_authorities.is_empty());
+        assert!(migrated.authority_set_receipt.is_none());
+        assert!(migrated.census.is_none());
+        assert!(matches!(
+            fixture.store.inspect(30_000),
+            RegistryRead::Unknown(ref issues)
+                if issues.issues.iter().any(|issue| matches!(issue, RegistryIssue::StaleRegistration { .. }))
+        ));
+        let stable_v2 = fs::read(fixture.store.path()).unwrap();
+        fixture.store.bootstrap_registry_schema(30_000).unwrap();
+        assert_eq!(fs::read(fixture.store.path()).unwrap(), stable_v2);
+
+        let malformed = br#"{"schemaVersion":1,"generation":9,"updatedAtMs":10,"unexpected":true}"#;
+        fs::write(fixture.store.path(), malformed).unwrap();
+        assert!(fixture.store.bootstrap_registry_schema(30_000).is_err());
+        assert_eq!(fs::read(fixture.store.path()).unwrap(), malformed);
+    }
+
+    #[test]
+    fn registry_read_is_same_handle_bounded_and_rejects_before_open_swap() {
+        let fixture = TempRegistry::new("bounded-registry-read");
+        let configured_root = fixture.root.join("configured-root");
+        fs::create_dir_all(&configured_root).unwrap();
+        fixture
+            .store
+            .initialize(
+                vec![ConfiguredDiscoveryRoot {
+                    root_id: "bounded-root".into(),
+                    canonical_path: configured_root.to_string_lossy().into_owned(),
+                }],
+                1_000,
+            )
+            .unwrap();
+        let alternate = fixture.root.join("attacker-registry.json");
+        fs::write(
+            &alternate,
+            br#"{"schemaVersion":2,"sentinel":"must-not-be-parsed"}"#,
+        )
+        .unwrap();
+        let issues = load_registry_value_before_open(fixture.store.path(), || {
+            fs::remove_file(fixture.store.path()).unwrap();
+            fs::rename(&alternate, fixture.store.path()).unwrap();
+        })
+        .unwrap_err();
+        assert!(issues
+            .iter()
+            .all(|issue| !matches!(issue, RegistryIssue::Malformed(message) if message.contains("sentinel"))));
+        assert!(issues
+            .iter()
+            .any(|issue| matches!(issue, RegistryIssue::Unreadable(_))));
+
+        let oversized = vec![b' '; MAX_REGISTRY_BYTES as usize + 1];
+        fs::write(fixture.store.path(), oversized).unwrap();
+        let issues = load_registry_value(fixture.store.path()).unwrap_err();
+        assert!(issues
+            .iter()
+            .any(|issue| matches!(issue, RegistryIssue::Unreadable(_))));
+    }
+
+    #[test]
+    fn atomic_authority_set_is_exact_owner_pinned_and_transition_safe() {
+        let (fixture, trusted, signer, _worktree) = trusted_two_planner_fixture("authority-set");
+        let document = raw_document(&trusted);
+        let authorities = document
+            .registrations
+            .iter()
+            .map(|registration| {
+                machine_authority(
+                    registration,
+                    document.authority_issuer_epoch,
+                    1,
+                    ActiveClaimState::Planned,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(trusted
+            .publish_machine_claim_authority_set_for_test(
+                vec![authorities[0].clone()],
+                &signer,
+                document.generation,
+                1_400,
+            )
+            .is_err());
+        assert!(trusted
+            .publish_machine_claim_authority_set_for_test(
+                vec![authorities[0].clone(), authorities[0].clone()],
+                &signer,
+                document.generation,
+                1_400,
+            )
+            .is_err());
+        assert!(trusted
+            .publish_machine_claim_authority_set_for_test(
+                authorities.clone(),
+                &signer,
+                document.generation - 1,
+                1_400,
+            )
+            .is_err());
+        let published = trusted
+            .publish_machine_claim_authority_set_for_test(
+                authorities,
+                &signer,
+                document.generation,
+                1_400,
+            )
+            .unwrap();
+        let snapshot = trusted.census_input_snapshot(1_500).unwrap();
+        assert!(snapshot
+            .registrations
+            .iter()
+            .all(
+                |registration| registration.claim_snapshot.status == ClaimSnapshotStatus::Complete
+            ));
+
+        let current = raw_document(&trusted);
+        let mut next = current
+            .registrations
+            .iter()
+            .zip(published.iter())
+            .map(|(registration, prior)| {
+                let mut authority = machine_authority(
+                    registration,
+                    current.authority_issuer_epoch,
+                    prior.authority_generation + 1,
+                    ActiveClaimState::Planned,
+                );
+                if registration.identity.planner_id == "planner-a" {
+                    authority.nodes[0].state = ActiveClaimState::Claimed;
+                }
+                authority
+            })
+            .collect::<Vec<_>>();
+        let second = trusted
+            .publish_machine_claim_authority_set_for_test(
+                next.clone(),
+                &signer,
+                current.generation,
+                1_600,
+            )
+            .unwrap();
+        next[1].authority_generation = second[1].authority_generation + 1;
+        next[1].nodes[0].fence += 1;
+        let generation = raw_document(&trusted).generation;
+        assert!(trusted
+            .publish_machine_claim_authority_set_for_test(next, &signer, generation, 1_700)
+            .is_err());
+
+        let current = raw_document(&trusted);
+        let concurrent = current
+            .registrations
+            .iter()
+            .zip(second.iter())
+            .map(|(registration, prior)| {
+                let mut authority = machine_authority(
+                    registration,
+                    current.authority_issuer_epoch,
+                    prior.authority_generation + 1,
+                    prior.nodes[0].state,
+                );
+                authority.nodes[0].dependencies = prior.nodes[0].dependencies.clone();
+                authority
+            })
+            .collect::<Vec<_>>();
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let attempts = [0_u64, 1_u64]
+            .into_iter()
+            .map(|offset| {
+                let store = trusted.clone();
+                let signer = signer.clone();
+                let authorities = concurrent.clone();
+                let barrier = barrier.clone();
+                let expected = current.generation;
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    store.publish_machine_claim_authority_set_for_test(
+                        authorities,
+                        &signer,
+                        expected,
+                        1_800 + offset,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            attempts
+                .into_iter()
+                .map(|attempt| attempt.join().unwrap())
+                .filter(Result::is_ok)
+                .count(),
+            1
+        );
+
+        let signed_bytes = fs::read(trusted.path()).unwrap();
+        let restarted = PlannerRegistryStore::new(trusted.path().to_path_buf()).unwrap();
+        assert!(matches!(restarted.inspect(1_700), RegistryRead::Unknown(_)));
+        assert!(restarted.heartbeat("planner-a", 1, 1_800, 20_000).is_err());
+        assert_eq!(fs::read(trusted.path()).unwrap(), signed_bytes);
+        drop(fixture);
+    }
+
+    #[test]
+    fn owner_pin_rejects_same_generation_subset_and_no_receipt_tamper_laundering() {
+        let (_fixture, trusted, signer, _worktree) =
+            trusted_two_planner_fixture("same-generation-tamper");
+        let document = raw_document(&trusted);
+        let authorities = document
+            .registrations
+            .iter()
+            .map(|registration| {
+                machine_authority(
+                    registration,
+                    document.authority_issuer_epoch,
+                    1,
+                    ActiveClaimState::Planned,
+                )
+            })
+            .collect::<Vec<_>>();
+        trusted
+            .publish_machine_claim_authority_set_for_test(
+                authorities,
+                &signer,
+                document.generation,
+                1_400,
+            )
+            .unwrap();
+        let signed_bytes = fs::read(trusted.path()).unwrap();
+
+        let mut subset: Value = serde_json::from_slice(&signed_bytes).unwrap();
+        subset["registrations"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|registration| registration["identity"]["plannerId"] == "planner-a");
+        subset["claimAuthorities"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|authority| authority["plannerId"] == "planner-a");
+        let subset_bytes = serde_json::to_vec_pretty(&subset).unwrap();
+        fs::write(trusted.path(), &subset_bytes).unwrap();
+        assert!(matches!(trusted.inspect(1_500), RegistryRead::Unknown(_)));
+        assert!(trusted.heartbeat("planner-a", 1, 1_500, 20_000).is_err());
+        assert_eq!(fs::read(trusted.path()).unwrap(), subset_bytes);
+
+        // Restore the exact owner-pinned generation, perform one valid mutation (which clears the
+        // live aggregate receipt but keeps signed history), then prove the always-on registry pin
+        // still blocks a same-generation edit in that no-receipt window.
+        fs::write(trusted.path(), &signed_bytes).unwrap();
+        trusted.heartbeat("planner-a", 1, 1_600, 20_000).unwrap();
+        let no_receipt = fs::read(trusted.path()).unwrap();
+        let mut changed: Value = serde_json::from_slice(&no_receipt).unwrap();
+        changed["registrations"][0]["identity"]["branch"] = Value::from("feature/forged");
+        let changed_bytes = serde_json::to_vec_pretty(&changed).unwrap();
+        fs::write(trusted.path(), &changed_bytes).unwrap();
+        assert!(trusted.heartbeat("planner-b", 1, 1_700, 20_000).is_err());
+        assert_eq!(fs::read(trusted.path()).unwrap(), changed_bytes);
+    }
+
+    #[test]
+    fn helper_recomputes_exact_signed_scope_before_reading_plans() {
+        use super::super::discovery::{
+            execute_request, request_from_snapshot, validate_request, DiscoveryError,
+        };
+
+        let (_fixture, trusted, signer, _worktree) =
+            trusted_two_planner_fixture("helper-aggregate-scope");
+        let document = raw_document(&trusted);
+        let authorities = document
+            .registrations
+            .iter()
+            .map(|registration| {
+                machine_authority(
+                    registration,
+                    document.authority_issuer_epoch,
+                    1,
+                    ActiveClaimState::Planned,
+                )
+            })
+            .collect::<Vec<_>>();
+        trusted
+            .publish_machine_claim_authority_set_for_test(
+                authorities,
+                &signer,
+                document.generation,
+                1_400,
+            )
+            .unwrap();
+        let snapshot = trusted.census_input_snapshot(1_500).unwrap();
+        let deadline = crate::supervisor::unix_ms() + 30_000;
+        let request = request_from_snapshot(&snapshot, "7".repeat(64), deadline).unwrap();
+        let baseline = validate_request(&request);
+        assert!(
+            baseline.is_ok(),
+            "baseline helper request failed: {baseline:?}"
+        );
+
+        let mut missing_receipt = request.clone();
+        missing_receipt.authority_set_receipt = None;
+        assert_eq!(
+            validate_request(&missing_receipt),
+            Err(DiscoveryError::Malformed)
+        );
+
+        let mut planner_subset = request.clone();
+        planner_subset.planners.pop();
+        assert_eq!(
+            validate_request(&planner_subset),
+            Err(DiscoveryError::Malformed)
+        );
+
+        let mut root_subset = request.clone();
+        root_subset.roots.clear();
+        assert_eq!(
+            validate_request(&root_subset),
+            Err(DiscoveryError::Malformed)
+        );
+
+        let mut spliced = request.clone();
+        spliced.planners[0].claim_authority = request.planners[1].claim_authority.clone();
+        assert_eq!(validate_request(&spliced), Err(DiscoveryError::Malformed));
+
+        fs::remove_file(&request.planners[0].registration.identity.plan_path).unwrap();
+        assert_eq!(
+            execute_request(request.clone()),
+            Err(DiscoveryError::IdentityChanged)
+        );
+        let mut unreadable_but_scope_tampered = request.clone();
+        unreadable_but_scope_tampered.planners.pop();
+        assert_eq!(
+            validate_request(&unreadable_but_scope_tampered),
+            Err(DiscoveryError::Malformed)
+        );
+
+        let mut permuted = request;
+        permuted.planners.reverse();
+        assert!(validate_request(&permuted).is_ok());
+    }
+
+    #[test]
+    fn unsupported_glob_remains_registered_but_snapshot_is_unknown() {
+        let fixture = TempRegistry::new("glob-snapshot-unknown");
+        let worktree = fixture.root.join("glob-worktree");
+        fs::create_dir_all(&worktree).unwrap();
+        run_git(&worktree, &["init"]);
+        fixture
+            .store
+            .initialize(
+                vec![ConfiguredDiscoveryRoot {
+                    root_id: "glob-root".into(),
+                    canonical_path: worktree.to_string_lossy().into_owned(),
+                }],
+                1_000,
+            )
+            .unwrap();
+        let mut seed = native_seed(&worktree, "glob-planner", 1);
+        seed.files = vec!["src/*.rs".into()];
+        seed.nodes[0].files = seed.files.clone();
+        fs::write(
+            &seed.plan_path,
+            serde_json::to_vec(&serde_json::json!({
+                "meta": {"number": seed.plan_id, "branch": seed.branch},
+                "vertebrae": [{
+                    "id": "B19",
+                    "files": ["src/*.rs"],
+                    "resources": seed.resources
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        fixture.store.register(seed, 1_100, 20_000).unwrap();
+        let (trusted, signer) = fixture.store.rotate_test_issuer(1_200).unwrap();
+        let document = raw_document(&trusted);
+        let authority = machine_authority(
+            &document.registrations[0],
+            document.authority_issuer_epoch,
+            1,
+            ActiveClaimState::Planned,
+        );
+        trusted
+            .publish_machine_claim_authority_set_for_test(
+                vec![authority],
+                &signer,
+                document.generation,
+                1_300,
+            )
+            .unwrap();
+        let snapshot = trusted.census_input_snapshot(1_400).unwrap();
+        let claims = &snapshot.registrations[0].claim_snapshot;
+        assert_eq!(claims.status, ClaimSnapshotStatus::Unknown);
+        assert_eq!(claims.failure, Some(ClaimSnapshotFailure::UnsupportedGlob));
+        assert!(claims.claims.is_empty());
+        assert!(claims.contracts.is_empty());
+    }
+
+    #[test]
+    fn issuer_rotation_rejects_old_receipts_and_is_atomic_on_native_failure() {
+        let (_fixture, trusted, old_signer, _worktree) =
+            trusted_two_planner_fixture("issuer-rotation");
+        let document = raw_document(&trusted);
+        let authorities = document
+            .registrations
+            .iter()
+            .map(|registration| {
+                machine_authority(
+                    registration,
+                    document.authority_issuer_epoch,
+                    1,
+                    ActiveClaimState::Planned,
+                )
+            })
+            .collect::<Vec<_>>();
+        trusted
+            .publish_machine_claim_authority_set_for_test(
+                authorities,
+                &old_signer,
+                document.generation,
+                1_400,
+            )
+            .unwrap();
+        let old_signed_bytes = fs::read(trusted.path()).unwrap();
+        let old_epoch = raw_document(&trusted).authority_issuer_epoch;
+
+        let recovery = PlannerRegistryStore::new(trusted.path().to_path_buf()).unwrap();
+        let (rotated, new_signer) = recovery.rotate_test_issuer(1_500).unwrap();
+        let rotated_document = raw_document(&rotated);
+        assert_eq!(rotated_document.authority_issuer_epoch, old_epoch + 1);
+        assert!(rotated_document.claim_authorities.is_empty());
+        assert!(rotated_document.authority_set_receipt.is_none());
+        assert!(rotated_document.census.is_none());
+        assert!(matches!(trusted.inspect(1_600), RegistryRead::Unknown(_)));
+
+        let new_authorities = rotated_document
+            .registrations
+            .iter()
+            .map(|registration| {
+                machine_authority(
+                    registration,
+                    rotated_document.authority_issuer_epoch,
+                    1,
+                    ActiveClaimState::Planned,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(rotated
+            .publish_machine_claim_authority_set_for_test(
+                new_authorities.clone(),
+                &old_signer,
+                rotated_document.generation,
+                1_600,
+            )
+            .is_err());
+        rotated
+            .publish_machine_claim_authority_set_for_test(
+                new_authorities,
+                &new_signer,
+                rotated_document.generation,
+                1_600,
+            )
+            .unwrap();
+        let new_signed_bytes = fs::read(rotated.path()).unwrap();
+        fs::write(rotated.path(), &old_signed_bytes).unwrap();
+        assert!(matches!(rotated.inspect(1_700), RegistryRead::Unknown(_)));
+        assert!(rotated.heartbeat("planner-a", 1, 1_700, 20_000).is_err());
+        fs::write(rotated.path(), new_signed_bytes).unwrap();
+
+        let (_failed_fixture, failed_trusted, _signer, _worktree) =
+            trusted_two_planner_fixture("issuer-rotation-failure");
+        let failed_path = failed_trusted.path().to_path_buf();
+        let before_failure = fs::read(&failed_path).unwrap();
+        let failed_document = raw_document(&failed_trusted);
+        fs::remove_file(&failed_document.registrations[0].identity.plan_path).unwrap();
+        let untrusted = PlannerRegistryStore::new(failed_path.clone()).unwrap();
+        assert!(untrusted.rotate_test_issuer(1_500).is_err());
+        assert_eq!(fs::read(failed_path).unwrap(), before_failure);
+    }
+
+    #[test]
+    fn signed_publisher_rejects_every_unapproved_contract_mutation() {
+        let (_fixture, trusted, signer, _worktree) =
+            trusted_two_planner_fixture("illegal-contract-transitions");
+        let document = raw_document(&trusted);
+        let first = document
+            .registrations
+            .iter()
+            .map(|registration| {
+                machine_authority(
+                    registration,
+                    document.authority_issuer_epoch,
+                    1,
+                    ActiveClaimState::Running,
+                )
+            })
+            .collect::<Vec<_>>();
+        let published = trusted
+            .publish_machine_claim_authority_set_for_test(
+                first,
+                &signer,
+                document.generation,
+                1_400,
+            )
+            .unwrap();
+        let current = raw_document(&trusted);
+        let base = current
+            .registrations
+            .iter()
+            .zip(published.iter())
+            .map(|(registration, prior)| {
+                let mut authority = machine_authority(
+                    registration,
+                    current.authority_issuer_epoch,
+                    prior.authority_generation + 1,
+                    prior.nodes[0].state,
+                );
+                authority.nodes[0].dependencies = prior.nodes[0].dependencies.clone();
+                authority
+            })
+            .collect::<Vec<_>>();
+        let other_participant = base[1].nodes[0].participant_binding.clone();
+        let mut attacks = Vec::new();
+
+        let mut illegal_state = base.clone();
+        illegal_state[0].nodes[0].state = ActiveClaimState::Planned;
+        attacks.push(illegal_state);
+        let mut run = base.clone();
+        run[0].nodes[0].run_identity = hash('1');
+        attacks.push(run);
+        let mut worker = base.clone();
+        worker[0].nodes[0].worker_identity = hash('2');
+        attacks.push(worker);
+        let mut fence = base.clone();
+        fence[0].nodes[0].fence += 1;
+        attacks.push(fence);
+        let mut policy = base.clone();
+        policy[0].nodes[0].policy_digest = hash('3');
+        attacks.push(policy);
+        let mut assumption = base.clone();
+        assumption[0].nodes[0].assumption_digest = hash('4');
+        attacks.push(assumption);
+        let mut dependency = base.clone();
+        dependency[0].nodes[0].dependencies = vec![other_participant];
+        attacks.push(dependency);
+        let mut disposition = base;
+        disposition[0].nodes[0].disposition_rules[0].disposition =
+            ConflictDisposition::UserDecision;
+        attacks.push(disposition);
+
+        for attack in attacks {
+            assert!(trusted
+                .publish_machine_claim_authority_set_for_test(
+                    attack,
+                    &signer,
+                    current.generation,
+                    1_500,
+                )
+                .is_err());
+        }
+        assert_eq!(raw_document(&trusted), current);
+    }
+
+    #[test]
+    fn terminal_authority_releases_claims_but_keeps_dependency_tombstone() {
+        let (_fixture, trusted, signer, _worktree) =
+            trusted_two_planner_fixture("terminal-authority-set");
+        let document = raw_document(&trusted);
+        let mut authorities = document
+            .registrations
+            .iter()
+            .map(|registration| {
+                machine_authority(
+                    registration,
+                    document.authority_issuer_epoch,
+                    1,
+                    ActiveClaimState::Running,
+                )
+            })
+            .collect::<Vec<_>>();
+        let completed_participant = authorities[0].nodes[0].participant_binding.clone();
+        authorities[1].nodes[0].dependencies = vec![completed_participant.clone()];
+        let first = trusted
+            .publish_machine_claim_authority_set_for_test(
+                authorities,
+                &signer,
+                document.generation,
+                1_400,
+            )
+            .unwrap();
+
+        let current = raw_document(&trusted);
+        let mut terminal_set = current
+            .registrations
+            .iter()
+            .zip(first.iter())
+            .map(|(registration, prior)| {
+                let mut authority = machine_authority(
+                    registration,
+                    current.authority_issuer_epoch,
+                    prior.authority_generation + 1,
+                    prior.nodes[0].state,
+                );
+                authority.nodes[0].dependencies = prior.nodes[0].dependencies.clone();
+                authority
+            })
+            .collect::<Vec<_>>();
+        terminal_set[0].nodes[0].state = ActiveClaimState::Completed;
+        terminal_set[0].nodes[0].disposition_rules.clear();
+        trusted
+            .publish_machine_claim_authority_set_for_test(
+                terminal_set,
+                &signer,
+                current.generation,
+                1_500,
+            )
+            .unwrap();
+
+        let snapshot = trusted.census_input_snapshot(1_600).unwrap();
+        assert!(snapshot
+            .registrations
+            .iter()
+            .all(
+                |registration| registration.claim_snapshot.status == ClaimSnapshotStatus::Complete
+            ));
+        let contracts = snapshot
+            .registrations
+            .iter()
+            .flat_map(|registration| registration.claim_snapshot.contracts.iter())
+            .collect::<Vec<_>>();
+        let completed = contracts
+            .iter()
+            .find(|contract| contract.participant_id == completed_participant)
+            .unwrap();
+        assert_eq!(completed.state, ActiveClaimState::Completed);
+        assert!(completed.disposition_rules.is_empty());
+        assert!(snapshot
+            .registrations
+            .iter()
+            .flat_map(|registration| registration.claim_snapshot.claims.iter())
+            .all(|claim| claim.participant_id != completed_participant));
+        assert!(contracts.iter().any(|contract| {
+            contract.state == ActiveClaimState::Running
+                && contract.dependencies == vec![completed_participant.clone()]
+        }));
     }
 
     #[cfg(windows)]

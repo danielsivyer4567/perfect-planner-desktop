@@ -308,6 +308,9 @@ pub fn run() {
             app.manage(CapabilityStore::default());
             let collision_registry = PlannerRegistryStore::for_app_data(&app_data_dir)
                 .map_err(|error| format!("cannot bind collision registry: {error}"))?;
+            collision_registry
+                .bootstrap_registry_schema(unix_ms())
+                .map_err(|error| format!("cannot bootstrap collision registry: {error}"))?;
             let census = CensusCommandState::native(collision_registry)
                 .map_err(|_| "native collision census helper is unavailable")?;
             app.manage(census);
