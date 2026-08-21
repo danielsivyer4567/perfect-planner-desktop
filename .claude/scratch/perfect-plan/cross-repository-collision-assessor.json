@@ -4803,7 +4803,7 @@
       "spineId": "P3",
       "side": "L",
       "title": "Canonical claim snapshot and disposition contract",
-      "status": "pending",
+      "status": "in-progress",
       "dependsOn": [
         "B04",
         "B05"
@@ -4814,6 +4814,8 @@
       },
       "files": [
         "docs/collision-assessor-guarantee.md",
+        "src-tauri/Cargo.toml",
+        "src-tauri/Cargo.lock",
         "src-tauri/src/collision_assessor/model.rs",
         "src-tauri/src/collision_assessor/identity.rs",
         "src-tauri/src/collision_assessor/registry.rs",
@@ -4823,9 +4825,10 @@
       "resources": [
         "protocol:canonical-claim-snapshot",
         "protocol:trusted-conflict-disposition",
-        "git:common-directory-identity"
+        "git:common-directory-identity",
+        "crypto:ed25519-verification-only-census-receipts"
       ],
-      "notes": "Corrective prerequisite created after B06 RED review. Native census code derives repository equality from the real linked-worktree .git metadata and a share-restricted handle to the resolved Git common directory; caller repository IDs and paths are never equality authority. It freezes opaque typed ExactFile, DirectoryTree and Resource claims plus active lease/fence/dependency/disposition evidence before discovery is revoked. Directory claims use logical segment-prefix ownership and include future children. Globs are deliberately unsupported in v1 and force UNKNOWN rather than a guessed expansion. Every typed claim, source manifest digest, physical alias edge and disposition is bound into the census/input digest.",
+      "notes": "Corrective prerequisite created after B06 RED review. Native census code derives repository equality from the real linked-worktree .git metadata and a share-restricted handle to the resolved Git common directory; caller repository IDs and paths are never equality authority. It freezes opaque typed ExactFile, DirectoryTree and Resource claims plus machine-issued proposal/active lease, fence, dependency and per-claim disposition evidence before discovery is revoked. The native head orchestrator signs exact-scope authority receipts with an Ed25519 signing key that is never exposed to the census helper; the helper and restart path receive verification-only public authority plus an issuer epoch. Until the later trusted scheduler issuer is integrated, production issuance remains unreachable and therefore UNKNOWN. Issuer rotation invalidates old receipts without bricking registry recovery. Directory claims use logical segment-prefix ownership and include future children. Planned work remains visible; only terminal completed/released work leaves ownership. Cross-plan dependency identities remain globally scoped for B06 to resolve over the full census. Globs are deliberately unsupported in v1 and force UNKNOWN rather than a guessed expansion. Every typed claim, source manifest digest, physical alias edge and disposition is bound into the census/input digest.",
       "checklist": [
         {
           "text": "Derive one opaque repository identity from real .git gitdir and commondir metadata plus a restricted Windows handle, and prove sibling worktrees converge while unrelated repositories do not",
@@ -4846,6 +4849,12 @@
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
         },
         {
+          "text": "Verify machine-issued exact-scope authority receipts across the spawned census helper with a verification-only Ed25519 public key, reject injection/replay/rollback/illegal lifecycle transitions and rotate issuer epochs without recovery bricking",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
           "text": "Bind sorted claims, alias edges, lease/disposition evidence and their source manifests into the attested census digest and reject any handle, inventory or manifest drift before persistence and on restart",
           "built": false,
           "tested": false,
@@ -4857,7 +4866,15 @@
           "tested": false,
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
         }
-      ]
+      ],
+      "startSha": "f6b84a32b74baeadfefa2e9056cbebf5424dcf97",
+      "startedAt": "2026-08-21T18:33:37.297Z",
+      "startedBy": {
+        "model": null,
+        "user": "danielsivyer4567",
+        "session": "s-8c319d34",
+        "at": "2026-08-21T18:33:37.297Z"
+      }
     }
   ]
 }

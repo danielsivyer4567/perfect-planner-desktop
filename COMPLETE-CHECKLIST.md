@@ -359,3 +359,11 @@
 <!-- PP-EVENT 888f552ef9ef0668bbfc867fd269c1b243196d639e555d897efe67ffd3d3f85b -->
 | 2026-08-21T18:32:54.119Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-sol | s-a1b7589d |  | dcf083c7df82* | AMBER: B06 RED resolved by prerequisite B19, not inference. Analyzer now depends on an attested canonical claim/disposition snapshot; v1 glob claims are UNKNOWN. |  |
 <!-- PP-EVENT 20b58691b6a530fbc7cfb500751f3e3d283d3272d65ea94c1afd5d1f180ddd97 -->
+| 2026-08-21T18:33:30.242Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-sol | s-8c319d34 |  | f6b84a32b74b | session start |  |
+<!-- PP-EVENT a479f93faf82726d14984870132ef51962dfc73494949930a327d9074096681c -->
+| 2026-08-21T18:33:37.297Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | start | B19 | danielsivyer4567 | s-8c319d34 |  | f6b84a32b74b* |  |  |
+<!-- PP-EVENT 39a5f0d03578c5f5904742a94d9d34935cb57959ef908c46714d43d34292e178 -->
+| 2026-08-21T18:48:05.865Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6 | s-8c319d34 |  | f6b84a32b74b* | RED: B19 issuer cannot use a process-local HMAC because B04 runs a separate helper process and restart must verify persisted receipts. The approved B19 manifest lacks Cargo.toml/Cargo.lock; add them for a vetted asymmetric signature dependency, or explicitly approve a Windows CNG implementation. No Cargo edit made. |  |
+<!-- PP-EVENT ae44d97b4d19db7ff0b70cbf8c50e3d27ccb9642e76c59530a5f120205f4a289 -->
+| 2026-08-21T18:48:39.922Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-sol | s-a1b7589d |  | f6b84a32b74b* | AMBER: B19 manifest expanded before dependency edit for verification-only Ed25519 authority receipts after process-HMAC failed cross-process/restart review. Production issuance remains UNKNOWN until trusted native scheduler integration. |  |
+<!-- PP-EVENT 3b69e1a77236f2cef083275c53d41e1f8677661d0d4f56f819eed11ccf9a1b40 -->
