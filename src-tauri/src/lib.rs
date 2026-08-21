@@ -23,7 +23,8 @@ use orchestrator::api::{
     orchestrator_authorize_fenced_completion, orchestrator_claim_node, orchestrator_create_run,
     orchestrator_deliver, orchestrator_evaluate_release, orchestrator_heartbeat,
     orchestrator_pipeline_snapshot, orchestrator_preflight_inspect, orchestrator_reap_expired,
-    orchestrator_reconcile, orchestrator_record_failure, orchestrator_validate_worker_submission,
+    orchestrator_reconcile, orchestrator_record_failure, orchestrator_run_catalog,
+    orchestrator_validate_worker_submission,
 };
 use supervisor::{unix_ms, SessionObservation, SupervisorSnapshot, SupervisorStore};
 
@@ -320,6 +321,7 @@ pub fn run() {
             orchestrator_create_run,
             orchestrator_preflight_inspect,
             orchestrator_pipeline_snapshot,
+            orchestrator_run_catalog,
             orchestrator_claim_node,
             orchestrator_heartbeat,
             orchestrator_authorize_fenced_completion,

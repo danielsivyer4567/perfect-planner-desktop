@@ -11,6 +11,7 @@ fn main() {
             "orchestrator_create_run",
             "orchestrator_preflight_inspect",
             "orchestrator_pipeline_snapshot",
+            "orchestrator_run_catalog",
             "orchestrator_claim_node",
             "orchestrator_heartbeat",
             "orchestrator_authorize_fenced_completion",

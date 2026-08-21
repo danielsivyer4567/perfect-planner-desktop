@@ -22,6 +22,8 @@ import { OrchestratorMessenger } from "./components/OrchestratorMessenger";
 import { PipelineConsole } from "./components/PipelineConsole";
 import {
   browserOrchestratorScope,
+  OrchestratorSnapshot,
+  PipelineRunSummary,
   PipelineSnapshotSeed,
 } from "./services/orchestratorPipeline";
 import { PlanSnapshot } from "./types/plan";
@@ -115,6 +117,11 @@ export const App: React.FC = () => {
   const [supervisorError, setSupervisorError] = useState<string | null>(null);
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [planSnapshots, setPlanSnapshots] = useState<Record<string, PlanManifestSnapshot>>({});
+  const [selectedPipelineScope, setSelectedPipelineScope] = useState<{
+    runId: string;
+    repositoryRoot: string;
+  } | null>(null);
+  const [pipelineSnapshot, setPipelineSnapshot] = useState<OrchestratorSnapshot | null>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const scanRunningRef = useRef(false);
   const soundEnabledRef = useRef(soundEnabled);
@@ -389,10 +396,37 @@ export const App: React.FC = () => {
   const browserPipelineScope = useMemo(() => browserOrchestratorScope(), []);
   const pipelineScope = useMemo(() => {
     if (browserPipelineScope) return browserPipelineScope;
+    if (selectedPipelineScope) return selectedPipelineScope;
     const runId = active?.number?.trim().replace(/^#/, "");
     if (!runId || !active?.repoRoot) return null;
     return { runId, repositoryRoot: active.repoRoot };
-  }, [active, browserPipelineScope]);
+  }, [active, browserPipelineScope, selectedPipelineScope]);
+  useEffect(() => {
+    if (
+      selectedPipelineScope &&
+      active?.repoRoot &&
+      selectedPipelineScope.repositoryRoot.toLocaleLowerCase() !==
+        active.repoRoot.toLocaleLowerCase()
+    ) {
+      setSelectedPipelineScope(null);
+    }
+  }, [active?.repoRoot, selectedPipelineScope]);
+  useEffect(() => {
+    setSelectedPipelineScope(null);
+  }, [active?.planPath]);
+  const selectPipelineRun = useCallback((run: PipelineRunSummary) => {
+    setSelectedPipelineScope({
+      runId: run.runId,
+      repositoryRoot: run.repositoryRoot,
+    });
+  }, []);
+  const pipelineRepositoryLabel =
+    activeRepository?.label || pipelineSnapshot?.run.repositoryId || "UNSCOPED";
+  const pipelineRepositoryId =
+    activeRepository?.id || pipelineSnapshot?.run.repositoryId || "unscoped";
+  const pipelineProjectLabel =
+    active?.project || pipelineSnapshot?.run.title || pipelineRepositoryLabel;
+  const pipelineBranchLabel = active?.branch || pipelineSnapshot?.run.branch || "unscoped";
   const pipelineSnapshotSeed = useMemo<PipelineSnapshotSeed | undefined>(() => {
     if (!active || !activeRepository) return undefined;
     return {
@@ -672,11 +706,11 @@ export const App: React.FC = () => {
         <section
           id="pp-entity-head-orchestrator"
           data-entity-id={orchestratorId || "unassigned"}
-          data-organization-id={activeRepository?.id || "unscoped"}
-          data-repository-name={activeRepository?.label || "unscoped"}
+          data-organization-id={pipelineSnapshot?.run.organizationId || pipelineRepositoryId}
+          data-repository-name={pipelineRepositoryLabel}
           data-repository-call-sign={activeRepositoryCallSign}
-          data-project-name={active?.project || activeRepository?.label || "unscoped"}
-          data-branch-name={active?.branch || "unscoped"}
+          data-project-name={pipelineProjectLabel}
+          data-branch-name={pipelineBranchLabel}
           className={`orchestrator${decisionBoards.length ? " decision" : ""}${identityError || supervisorError ? " identity-error" : ""}`}
           aria-label="Head orchestrator"
         >
@@ -684,7 +718,7 @@ export const App: React.FC = () => {
             <span className="head-mark" aria-hidden="true">◎</span>
             <span className="head-copy">
               <span className="head-eyebrow">
-                HEAD ORCHESTRATOR · REPOSITORY {activeRepositoryCallSign} · {activeRepository?.label || "UNSCOPED"}
+                HEAD ORCHESTRATOR · REPOSITORY {activeRepositoryCallSign} · {pipelineRepositoryLabel}
                 {active?.project && activeRepository && active.project.localeCompare(activeRepository.label, undefined, { sensitivity: "base" }) !== 0
                   ? ` · PROJECT ${active.project}`
                   : ""}
@@ -769,6 +803,8 @@ export const App: React.FC = () => {
           runId={pipelineScope?.runId}
           repositoryRoot={pipelineScope?.repositoryRoot}
           snapshotSeed={pipelineSnapshotSeed}
+          onSelectRun={selectPipelineRun}
+          onSnapshotChange={setPipelineSnapshot}
         />
 
         {active ? (
