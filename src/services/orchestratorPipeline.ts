@@ -2,6 +2,7 @@ export const ORCHESTRATOR_COMMANDS = {
   createRun: "orchestrator_create_run",
   preflight: "orchestrator_preflight_inspect",
   snapshot: "orchestrator_pipeline_snapshot",
+  catalog: "orchestrator_run_catalog",
   claim: "orchestrator_claim_node",
   heartbeat: "orchestrator_heartbeat",
   complete: "orchestrator_authorize_fenced_completion",
@@ -211,6 +212,33 @@ export interface PipelineSnapshotResponse {
   hotResume: HotResumeState;
   scheduler: SchedulerState;
   eventTail: EventTailResponse;
+  preflight?: PreflightReport | null;
+  preflightRecordedAtMs?: number | null;
+  reconciliation?: ReconciliationResult | null;
+  reconciliationRecordedAtMs?: number | null;
+  release?: ReleaseGateResult | null;
+  releaseRecordedAtMs?: number | null;
+}
+
+export interface RunCatalogRequest {
+  repositoryRoot: string;
+}
+
+export interface RunCatalogEntry {
+  runId: string;
+  repositoryRoot: string;
+  branch: string;
+  status: string;
+  completedNodes: number;
+  totalNodes: number;
+  updatedAt: number;
+}
+
+export interface RunCatalogResponse {
+  activeRuns: RunCatalogEntry[];
+  archivedRuns: RunCatalogEntry[];
+  scannedEntries: number;
+  truncated: boolean;
 }
 
 export type ViolationCategory = "UNPLANNED" | "UNPROVEN" | "ORPHANED" | "FATAL";
@@ -445,21 +473,20 @@ export interface PipelineSnapshotSeed {
   title?: string;
 }
 
-/**
- * Lift the bounded native transport into the richer console view without inventing gate proof.
- * Only the manifest, scheduler, hot-resume state, and event tail can become positive UI state;
- * absent preflight/reconciliation/release/delivery records remain explicitly unrecorded.
- */
-export function consoleSnapshotFromPipelineResponse(
-  response: PipelineSnapshotResponse,
-  seed: PipelineSnapshotSeed = {}
-): OrchestratorSnapshot {
-  const nodes = Object.values(response.scheduler.nodes);
-  const completedNodes = nodes.filter((node) => node.status === "DONE").length;
-  const blockedNodes = nodes.filter((node) => node.status === "BLOCKED").length;
-  const runningNodes = nodes.filter((node) => node.status === "RUNNING").length;
-  const suppliedStatus = response.hotResume.status.trim().toLocaleLowerCase();
-  const knownStatuses = new Set<PipelineRunStatus>([
+function normalizedRepositoryRoot(value: string): string {
+  return value.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLocaleLowerCase();
+}
+
+function pipelineRunStatus(value: string): PipelineRunStatus | null {
+  const normalized = value.trim().toLocaleLowerCase().replace(/_/g, "-");
+  const aliases: Record<string, PipelineRunStatus> = {
+    ready: "pending",
+    active: "running",
+    archived: "completed",
+    done: "completed",
+  };
+  const candidate = aliases[normalized] || normalized;
+  return [
     "pending",
     "preflight",
     "running",
@@ -468,9 +495,98 @@ export function consoleSnapshotFromPipelineResponse(
     "blocked",
     "failed",
     "completed",
-  ]);
-  const status: PipelineRunStatus = knownStatuses.has(suppliedStatus as PipelineRunStatus)
-    ? (suppliedStatus as PipelineRunStatus)
+  ].includes(candidate)
+    ? (candidate as PipelineRunStatus)
+    : null;
+}
+
+function catalogSummary(
+  entry: RunCatalogEntry,
+  repositoryRoot: string,
+  seed: PipelineSnapshotSeed
+): PipelineRunSummary {
+  const status = pipelineRunStatus(entry.status);
+  if (!status) throw new Error(`Run catalog entry ${entry.runId} has an unknown status`);
+  return {
+    organizationId: seed.organizationId || "not-recorded",
+    repositoryId: seed.repositoryId || repositoryRoot,
+    repositoryRoot,
+    worktreePath: seed.worktreePath || repositoryRoot,
+    branch: entry.branch,
+    runId: entry.runId,
+    planId: "not-recorded",
+    title: entry.runId,
+    status,
+    completedNodes: entry.completedNodes,
+    totalNodes: entry.totalNodes,
+    updatedAt: new Date(entry.updatedAt).toISOString(),
+  };
+}
+
+function reconciliationChanges(result: ReconciliationResult | null): ChangeComparison[] {
+  if (!result) return [];
+  return [
+    ...result.fatal,
+    ...result.unplanned,
+    ...result.unproven,
+    ...result.orphaned,
+  ].map((violation) => ({
+    id: violation.violationId,
+    nodeId: violation.nodeId || null,
+    desired: violation.category === "UNPLANNED" ? "Not planned" : violation.summary,
+    actualCommit: violation.commitId || null,
+    status: violation.category.toLocaleLowerCase() as ChangeComparison["status"],
+    details: [violation.file, violation.summary].filter((value): value is string => Boolean(value)),
+  }));
+}
+
+function mergedCatalogShelves(
+  current: PipelineRunSummary,
+  catalog: RunCatalogResponse | null,
+  seed: PipelineSnapshotSeed
+): { activeRuns: PipelineRunSummary[]; completedRuns: PipelineRunSummary[] } {
+  if (!catalog) {
+    return current.status === "completed"
+      ? { activeRuns: [], completedRuns: [current] }
+      : { activeRuns: [current], completedRuns: [] };
+  }
+  const root = current.repositoryRoot;
+  const active = catalog.activeRuns.map((entry) => catalogSummary(entry, root, seed));
+  const completed = catalog.archivedRuns.map((entry) => catalogSummary(entry, root, seed));
+  if (active.some((run) => run.status === "completed")) {
+    throw new Error("Run catalog placed a completed run on the active shelf");
+  }
+  if (completed.some((run) => run.status !== "completed")) {
+    throw new Error("Run catalog placed a non-completed run on the Completed shelf");
+  }
+  const target = current.status === "completed" ? completed : active;
+  const index = target.findIndex((run) => run.runId === current.runId);
+  if (index >= 0) target[index] = current;
+  else target.push(current);
+  const uniqueSorted = (runs: PipelineRunSummary[]) =>
+    [...new Map(runs.map((run) => [run.runId, run])).values()].sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt)
+    );
+  return { activeRuns: uniqueSorted(active), completedRuns: uniqueSorted(completed) };
+}
+
+/**
+ * Lift the bounded native transport into the richer console view without inventing gate proof.
+ * Persisted gate records become positive UI state; absent gate/delivery records remain
+ * explicitly unrecorded.
+ */
+export function consoleSnapshotFromPipelineResponse(
+  response: PipelineSnapshotResponse,
+  seed: PipelineSnapshotSeed = {},
+  catalog: RunCatalogResponse | null = null
+): OrchestratorSnapshot {
+  const nodes = Object.values(response.scheduler.nodes);
+  const completedNodes = nodes.filter((node) => node.status === "DONE").length;
+  const blockedNodes = nodes.filter((node) => node.status === "BLOCKED").length;
+  const runningNodes = nodes.filter((node) => node.status === "RUNNING").length;
+  const suppliedStatus = pipelineRunStatus(response.hotResume.status);
+  const status: PipelineRunStatus = suppliedStatus
+    ? suppliedStatus
     : blockedNodes
       ? "blocked"
       : runningNodes
@@ -504,12 +620,44 @@ export function consoleSnapshotFromPipelineResponse(
       nodeId: event.nodeId,
       createdAt: event.ts,
     }));
+  const preflight = response.preflight ?? null;
+  const reconciliation = response.reconciliation ?? null;
+  const release = response.release ?? null;
+  if (preflight?.disposition === "decisionRequired") {
+    preflight.reasons.forEach((reason, index) => {
+      warnings.push({
+        id: `persisted-preflight-${index}`,
+        severity: "critical",
+        message: reason,
+        decisionRequired: true,
+        nodeId: null,
+        createdAt: updatedAt,
+      });
+    });
+  }
+  release?.issues.forEach((issue, index) => {
+    warnings.push({
+      id: `persisted-release-${issue.kind}-${index}`,
+      severity: issue.decisionRequired ? "critical" : "warning",
+      message: issue.message,
+      decisionRequired: issue.decisionRequired,
+      nodeId: null,
+      createdAt: updatedAt,
+      issueKind: issue.kind,
+    });
+  });
   const stages: PipelineStage[] = [
     {
       id: "preflight",
       label: "System preflight",
-      status: "waiting",
-      summary: "The bounded snapshot does not contain a preflight report.",
+      status: preflight
+        ? preflight.disposition === "decisionRequired"
+          ? "blocked"
+          : "passed"
+        : "waiting",
+      summary: preflight
+        ? preflight.reasons.join(" · ") || `Preflight ${preflight.disposition}.`
+        : "No persisted preflight report is present.",
     },
     {
       id: "scope",
@@ -540,14 +688,26 @@ export function consoleSnapshotFromPipelineResponse(
     {
       id: "reconciliation",
       label: "Planned vs actual",
-      status: "waiting",
-      summary: "No reconciliation result is present in the bounded snapshot.",
+      status: reconciliation ? (reconciliation.passed ? "passed" : "failed") : "waiting",
+      summary: reconciliation
+        ? reconciliation.passed
+          ? "Every persisted reconciliation list is clear or explicitly waived."
+          : "Persisted reconciliation violations block release."
+        : "No persisted reconciliation result is present.",
     },
     {
       id: "release",
       label: "Pre-merge release gate",
-      status: "waiting",
-      summary: "No release result is present in the bounded snapshot.",
+      status: release
+        ? release.issues.length
+          ? "blocked"
+          : release.readyForPr || release.readyToMerge || release.merged
+            ? "passed"
+            : "waiting"
+        : "waiting",
+      summary: release
+        ? release.issues.map((issue) => issue.message).join(" · ") || "Release gate is clear."
+        : "No persisted release result is present.",
     },
     {
       id: "delivery",
@@ -559,21 +719,22 @@ export function consoleSnapshotFromPipelineResponse(
           : "No completed delivery is recorded.",
     },
   ];
+  const shelves = mergedCatalogShelves(run, catalog, seed);
   return {
     nowMs: Date.now(),
     run,
     stages,
-    preflight: null,
+    preflight,
     scheduler: response.scheduler,
-    reconciliation: null,
-    changes: [],
-    release: null,
+    reconciliation,
+    changes: reconciliationChanges(reconciliation),
+    release,
     delivery: null,
     leftovers: [],
     warnings,
     events: response.eventTail.events,
-    activeRuns: status === "completed" ? [] : [run],
-    completedRuns: status === "completed" ? [run] : [],
+    activeRuns: shelves.activeRuns,
+    completedRuns: shelves.completedRuns,
   };
 }
 
@@ -652,6 +813,7 @@ export interface ReleaseRequest extends ScopedRunRequest {
 }
 
 export interface DeliverRequest extends ScopedRunRequest {
+  release: ReleaseGateInput;
   delivery: DeliveryRequest;
 }
 
@@ -689,6 +851,408 @@ function requireScope<T extends ScopedRunRequest>(request: T): T {
   requireRun(request);
   requireText(request.repositoryRoot, "repositoryRoot");
   return request;
+}
+
+function recordValue(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function textValue(value: unknown, label: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${label} must be text`);
+  return value;
+}
+
+function numberValue(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative finite number`);
+  }
+  return value;
+}
+
+function integerValue(value: unknown, label: string): number {
+  const numeric = numberValue(value, label);
+  if (!Number.isSafeInteger(numeric)) {
+    throw new Error(`${label} must be a non-negative safe integer`);
+  }
+  return numeric;
+}
+
+function booleanValue(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`${label} must be boolean`);
+  return value;
+}
+
+function arrayValue(value: unknown, label: string): unknown[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  return value;
+}
+
+function textArray(value: unknown, label: string): string[] {
+  return arrayValue(value, label).map((item, index) => textValue(item, `${label}[${index}]`));
+}
+
+function validateProcessIdentityShape(value: unknown, label: string): void {
+  const process = recordValue(value, label);
+  integerValue(process.pid, `${label}.pid`);
+  textValue(process.executablePath, `${label}.executablePath`);
+  integerValue(process.startedAtEpochMs, `${label}.startedAtEpochMs`);
+  if (typeof process.commandLine !== "string") {
+    throw new Error(`${label}.commandLine must be text`);
+  }
+}
+
+function validatePortBindingShape(value: unknown, label: string): void {
+  const binding = recordValue(value, label);
+  integerValue(binding.port, `${label}.port`);
+  textValue(binding.address, `${label}.address`);
+  validateProcessIdentityShape(binding.process, `${label}.process`);
+}
+
+function validatePreflightShape(value: unknown, label: string): void {
+  const report = recordValue(value, label);
+  if (!["ready", "decisionRequired", "stoppedAllowlistedConflicts"].includes(
+    textValue(report.disposition, `${label}.disposition`)
+  )) {
+    throw new Error(`${label}.disposition is unknown`);
+  }
+  const baseline = recordValue(report.baseline, `${label}.baseline`);
+  textValue(baseline.repositoryRoot, `${label}.baseline.repositoryRoot`);
+  if (typeof baseline.gitStatusPorcelainV2 !== "string") {
+    throw new Error(`${label}.baseline.gitStatusPorcelainV2 must be text`);
+  }
+  const resources = recordValue(baseline.resources, `${label}.baseline.resources`);
+  [
+    "logicalCpuCount",
+    "cpuUsagePercent",
+    "totalMemoryBytes",
+    "availableMemoryBytes",
+    "repositoryDiskAvailableBytes",
+  ].forEach((field) => numberValue(resources[field], `${label}.baseline.resources.${field}`));
+  arrayValue(baseline.portBindings, `${label}.baseline.portBindings`).forEach((item, index) =>
+    validatePortBindingShape(item, `${label}.baseline.portBindings[${index}]`)
+  );
+  ["conflicts", "unknownConflicts"].forEach((field) =>
+    arrayValue(report[field], `${label}.${field}`).forEach((item, index) =>
+      validatePortBindingShape(item, `${label}.${field}[${index}]`)
+    )
+  );
+  arrayValue(report.stoppedProcesses, `${label}.stoppedProcesses`).forEach((item, index) =>
+    validateProcessIdentityShape(item, `${label}.stoppedProcesses[${index}]`)
+  );
+  textArray(report.reasons, `${label}.reasons`);
+}
+
+function validateViolationShape(value: unknown, label: string): void {
+  const violation = recordValue(value, label);
+  textValue(violation.violationId, `${label}.violationId`);
+  if (!["UNPLANNED", "UNPROVEN", "ORPHANED", "FATAL"].includes(
+    textValue(violation.category, `${label}.category`)
+  )) {
+    throw new Error(`${label}.category is unknown`);
+  }
+  textValue(violation.summary, `${label}.summary`);
+  textArray(violation.waivedBy, `${label}.waivedBy`);
+  ["planId", "nodeId", "commitId", "file"].forEach((field) => {
+    if (violation[field] !== undefined && violation[field] !== null) {
+      textValue(violation[field], `${label}.${field}`);
+    }
+  });
+}
+
+function validateReconciliationShape(value: unknown, label: string): void {
+  const result = recordValue(value, label);
+  booleanValue(result.passed, `${label}.passed`);
+  ["unplanned", "unproven", "orphaned", "fatal"].forEach((listName) => {
+    arrayValue(result[listName], `${label}.${listName}`).forEach((violation, index) =>
+      validateViolationShape(violation, `${label}.${listName}[${index}]`)
+    );
+  });
+  arrayValue(result.waivers, `${label}.waivers`).forEach((item, index) => {
+    const waiver = recordValue(item, `${label}.waivers[${index}]`);
+    textValue(waiver.name, `${label}.waivers[${index}].name`);
+    if (!['UNPLANNED', 'UNPROVEN', 'ORPHANED', 'FATAL'].includes(
+      textValue(waiver.category, `${label}.waivers[${index}].category`)
+    )) {
+      throw new Error(`${label}.waivers[${index}].category is unknown`);
+    }
+    textValue(waiver.violationId, `${label}.waivers[${index}].violationId`);
+    booleanValue(waiver.applied, `${label}.waivers[${index}].applied`);
+  });
+}
+
+function validateReleaseShape(value: unknown, label: string): void {
+  const release = recordValue(value, label);
+  booleanValue(release.readyForPr, `${label}.readyForPr`);
+  booleanValue(release.readyToMerge, `${label}.readyToMerge`);
+  booleanValue(release.merged, `${label}.merged`);
+  arrayValue(release.issues, `${label}.issues`).forEach((item, index) => {
+    const issue = recordValue(item, `${label}.issues[${index}]`);
+    const allowedKinds = new Set<ReleaseIssueKind>([
+      "DIRTY_WORKTREE",
+      "MERGE_CONFLICT",
+      "MISSING_EVIDENCE",
+      "RECONCILIATION",
+      "CI_NOT_RUN",
+      "CODE_FAILURE",
+      "CI_INFRASTRUCTURE_FAILURE",
+      "NOT_PUSHED",
+      "REVIEW_REQUIRED",
+      "CHANGES_REQUESTED",
+    ]);
+    if (!allowedKinds.has(textValue(issue.kind, `${label}.issues[${index}].kind`) as ReleaseIssueKind)) {
+      throw new Error(`${label}.issues[${index}].kind is unknown`);
+    }
+    textValue(issue.message, `${label}.issues[${index}].message`);
+    booleanValue(issue.decisionRequired, `${label}.issues[${index}].decisionRequired`);
+  });
+}
+
+function validateSchedulerShape(value: unknown): void {
+  const scheduler = recordValue(value, "pipeline snapshot scheduler");
+  integerValue(scheduler.nextFence, "pipeline snapshot scheduler.nextFence");
+  const nodes = recordValue(scheduler.nodes, "pipeline snapshot scheduler.nodes");
+  Object.entries(nodes).forEach(([key, item]) => {
+    const node = recordValue(item, `pipeline snapshot scheduler.nodes.${key}`);
+    if (textValue(node.id, `pipeline snapshot scheduler.nodes.${key}.id`) !== key) {
+      throw new Error(`pipeline snapshot scheduler node ${key} has a mismatched ID`);
+    }
+    integerValue(node.wave, `pipeline snapshot scheduler.nodes.${key}.wave`);
+    integerValue(node.attempts, `pipeline snapshot scheduler.nodes.${key}.attempts`);
+    if (!["READY", "RUNNING", "DONE", "BLOCKED"].includes(
+      textValue(node.status, `pipeline snapshot scheduler.nodes.${key}.status`)
+    )) {
+      throw new Error(`pipeline snapshot scheduler node ${key} has an unknown status`);
+    }
+    textArray(node.dependsOn, `pipeline snapshot scheduler.nodes.${key}.dependsOn`);
+    if (node.title !== undefined) textValue(node.title, `pipeline snapshot scheduler.nodes.${key}.title`);
+    if (node.profile !== undefined && !["ui", "headless", "migration", "docs"].includes(
+      textValue(node.profile, `pipeline snapshot scheduler.nodes.${key}.profile`)
+    )) {
+      throw new Error(`pipeline snapshot scheduler node ${key} has an unknown evidence profile`);
+    }
+    if (node.allowedFiles !== undefined) {
+      textArray(node.allowedFiles, `pipeline snapshot scheduler.nodes.${key}.allowedFiles`);
+    }
+    if (node.stallAlarmFence !== null && node.stallAlarmFence !== undefined) {
+      integerValue(
+        node.stallAlarmFence,
+        `pipeline snapshot scheduler.nodes.${key}.stallAlarmFence`
+      );
+    }
+    if (node.evidence !== undefined) {
+      arrayValue(node.evidence, `pipeline snapshot scheduler.nodes.${key}.evidence`).forEach(
+        (item, index) => {
+          const artifact = recordValue(
+            item,
+            `pipeline snapshot scheduler.nodes.${key}.evidence[${index}]`
+          );
+          if (![
+            "before-screenshot",
+            "after-screenshot",
+            "command-output",
+            "exit-code",
+            "git-diff",
+            "ocr-report",
+            "migration-status",
+            "document-diff",
+          ].includes(textValue(
+            artifact.kind,
+            `pipeline snapshot scheduler.nodes.${key}.evidence[${index}].kind`
+          ))) {
+            throw new Error(`pipeline snapshot scheduler node ${key} has unknown evidence`);
+          }
+          textValue(artifact.path, `pipeline snapshot scheduler.nodes.${key}.evidence[${index}].path`);
+          textValue(artifact.sha256, `pipeline snapshot scheduler.nodes.${key}.evidence[${index}].sha256`);
+          integerValue(artifact.bytes, `pipeline snapshot scheduler.nodes.${key}.evidence[${index}].bytes`);
+        }
+      );
+    }
+    if (node.verification !== undefined) {
+      arrayValue(node.verification, `pipeline snapshot scheduler.nodes.${key}.verification`).forEach(
+        (item, index) => {
+          const result = recordValue(
+            item,
+            `pipeline snapshot scheduler.nodes.${key}.verification[${index}]`
+          );
+          textValue(result.commandId, `pipeline snapshot scheduler.nodes.${key}.verification[${index}].commandId`);
+          if (typeof result.exitCode !== "number" || !Number.isSafeInteger(result.exitCode)) {
+            throw new Error(`pipeline snapshot scheduler node ${key} has an invalid exit code`);
+          }
+          textValue(result.outputArtifact, `pipeline snapshot scheduler.nodes.${key}.verification[${index}].outputArtifact`);
+        }
+      );
+    }
+    if (node.lease !== null && node.lease !== undefined) {
+      const lease = recordValue(node.lease, `pipeline snapshot scheduler.nodes.${key}.lease`);
+      textValue(lease.nodeId, `pipeline snapshot scheduler.nodes.${key}.lease.nodeId`);
+      textValue(lease.workerId, `pipeline snapshot scheduler.nodes.${key}.lease.workerId`);
+      textValue(lease.token, `pipeline snapshot scheduler.nodes.${key}.lease.token`);
+      integerValue(lease.fence, `pipeline snapshot scheduler.nodes.${key}.lease.fence`);
+      integerValue(lease.expiresAtMs, `pipeline snapshot scheduler.nodes.${key}.lease.expiresAtMs`);
+    }
+  });
+}
+
+function validatedPipelineSnapshot(
+  value: unknown,
+  request: SnapshotRequest
+): PipelineSnapshotResponse {
+  const response = recordValue(value, "pipeline snapshot");
+  const manifest = recordValue(response.manifest, "pipeline snapshot manifest");
+  if (textValue(manifest.runId, "pipeline snapshot manifest.runId") !== request.runId) {
+    throw new Error("pipeline snapshot belongs to a different run");
+  }
+  const manifestRoot = textValue(
+    manifest.repositoryRoot,
+    "pipeline snapshot manifest.repositoryRoot"
+  );
+  if (normalizedRepositoryRoot(manifestRoot) !== normalizedRepositoryRoot(request.repositoryRoot)) {
+    throw new Error("pipeline snapshot belongs to a different repository");
+  }
+  textValue(manifest.branch, "pipeline snapshot manifest.branch");
+  textArray(manifest.allowedFiles, "pipeline snapshot manifest.allowedFiles");
+  numberValue(manifest.schemaVersion, "pipeline snapshot manifest.schemaVersion");
+
+  const hotResume = recordValue(response.hotResume, "pipeline snapshot hotResume");
+  if (textValue(hotResume.runId, "pipeline snapshot hotResume.runId") !== request.runId) {
+    throw new Error("pipeline hot-resume state belongs to a different run");
+  }
+  if (
+    normalizedRepositoryRoot(
+      textValue(hotResume.repositoryRoot, "pipeline snapshot hotResume.repositoryRoot")
+    ) !== normalizedRepositoryRoot(request.repositoryRoot)
+  ) {
+    throw new Error("pipeline hot-resume state belongs to a different repository");
+  }
+  textValue(hotResume.status, "pipeline snapshot hotResume.status");
+  if (textValue(hotResume.branch, "pipeline snapshot hotResume.branch") !== manifest.branch) {
+    throw new Error("pipeline manifest and hot-resume branches do not match");
+  }
+  integerValue(hotResume.schemaVersion, "pipeline snapshot hotResume.schemaVersion");
+  textArray(hotResume.lockedFiles, "pipeline snapshot hotResume.lockedFiles");
+  textArray(hotResume.nextActions, "pipeline snapshot hotResume.nextActions");
+  if (hotResume.lastCompletedStep !== null && hotResume.lastCompletedStep !== undefined) {
+    textValue(hotResume.lastCompletedStep, "pipeline snapshot hotResume.lastCompletedStep");
+  }
+  validateSchedulerShape(response.scheduler);
+
+  const tail = recordValue(response.eventTail, "pipeline snapshot eventTail");
+  const allowedEvents = new Set<OrchestratorEventType>([
+    "preflight",
+    "claim",
+    "heartbeat",
+    "progress",
+    "evidence",
+    "gate-pass",
+    "gate-fail",
+    "decision-required",
+    "node-done",
+    "reassign",
+    "warning",
+    "run-done",
+  ]);
+  arrayValue(tail.events, "pipeline snapshot eventTail.events").forEach((item, index) => {
+    const event = recordValue(item, `pipeline snapshot eventTail.events[${index}]`);
+    if (textValue(event.runId, `pipeline snapshot eventTail.events[${index}].runId`) !== request.runId) {
+      throw new Error("pipeline event tail contains an event from another run");
+    }
+    textValue(event.ts, `pipeline snapshot eventTail.events[${index}].ts`);
+    textValue(event.worker, `pipeline snapshot eventTail.events[${index}].worker`);
+    textValue(event.msg, `pipeline snapshot eventTail.events[${index}].msg`);
+    if (!allowedEvents.has(textValue(event.type, `pipeline snapshot eventTail.events[${index}].type`) as OrchestratorEventType)) {
+      throw new Error("pipeline event tail contains an unknown event type");
+    }
+  });
+  ["startOffset", "nextOffset", "skippedLines"].forEach((field) =>
+    integerValue(tail[field], `pipeline snapshot eventTail.${field}`)
+  );
+  booleanValue(tail.trailingPartial, "pipeline snapshot eventTail.trailingPartial");
+  booleanValue(tail.truncated, "pipeline snapshot eventTail.truncated");
+
+  if (response.preflight !== undefined && response.preflight !== null) {
+    validatePreflightShape(response.preflight, "pipeline snapshot preflight");
+    const baseline = recordValue(
+      recordValue(response.preflight, "pipeline snapshot preflight").baseline,
+      "pipeline snapshot preflight.baseline"
+    );
+    if (
+      normalizedRepositoryRoot(
+        textValue(baseline.repositoryRoot, "pipeline snapshot preflight.baseline.repositoryRoot")
+      ) !== normalizedRepositoryRoot(request.repositoryRoot)
+    ) {
+      throw new Error("pipeline preflight belongs to a different repository");
+    }
+  }
+  if (response.reconciliation !== undefined && response.reconciliation !== null) {
+    validateReconciliationShape(response.reconciliation, "pipeline snapshot reconciliation");
+  }
+  if (response.release !== undefined && response.release !== null) {
+    validateReleaseShape(response.release, "pipeline snapshot release");
+  }
+  ([
+    ["preflight", "preflightRecordedAtMs"],
+    ["reconciliation", "reconciliationRecordedAtMs"],
+    ["release", "releaseRecordedAtMs"],
+  ] as const).forEach(([resultField, recordedAtField]) => {
+    const resultPresent = response[resultField] !== undefined && response[resultField] !== null;
+    const timestampPresent =
+      response[recordedAtField] !== undefined && response[recordedAtField] !== null;
+    if (resultPresent !== timestampPresent) {
+      throw new Error(`pipeline snapshot ${resultField} result/timestamp pair is incomplete`);
+    }
+    if (timestampPresent) {
+      integerValue(response[recordedAtField], `pipeline snapshot ${recordedAtField}`);
+    }
+  });
+  return value as PipelineSnapshotResponse;
+}
+
+function validatedRunCatalog(value: unknown, request: RunCatalogRequest): RunCatalogResponse {
+  const response = recordValue(value, "run catalog");
+  const root = normalizedRepositoryRoot(request.repositoryRoot);
+  const runIds = new Set<string>();
+  const validateEntries = (field: "activeRuns" | "archivedRuns") =>
+    arrayValue(response[field], `run catalog.${field}`).forEach((item, index) => {
+      const entry = recordValue(item, `run catalog.${field}[${index}]`);
+      const runId = textValue(entry.runId, `run catalog.${field}[${index}].runId`);
+      if (runIds.has(runId)) {
+        throw new Error(`run catalog repeats ${runId} across repository shelves`);
+      }
+      runIds.add(runId);
+      if (
+        normalizedRepositoryRoot(
+          textValue(entry.repositoryRoot, `run catalog.${field}[${index}].repositoryRoot`)
+        ) !== root
+      ) {
+        throw new Error(`run catalog.${field}[${index}] crosses the repository scope`);
+      }
+      textValue(entry.branch, `run catalog.${field}[${index}].branch`);
+      const status = pipelineRunStatus(textValue(entry.status, `run catalog.${field}[${index}].status`));
+      if (!status) throw new Error(`run catalog.${field}[${index}] has an unknown status`);
+      if (field === "activeRuns" && status === "completed") {
+        throw new Error(`run catalog.${field}[${index}] is completed but not archived`);
+      }
+      if (field === "archivedRuns" && status !== "completed") {
+        throw new Error(`run catalog.${field}[${index}] is archived without completed status`);
+      }
+      integerValue(entry.completedNodes, `run catalog.${field}[${index}].completedNodes`);
+      integerValue(entry.totalNodes, `run catalog.${field}[${index}].totalNodes`);
+      integerValue(entry.updatedAt, `run catalog.${field}[${index}].updatedAt`);
+      if ((entry.completedNodes as number) > (entry.totalNodes as number)) {
+        throw new Error(`run catalog.${field}[${index}] has impossible node counts`);
+      }
+    });
+  validateEntries("activeRuns");
+  validateEntries("archivedRuns");
+  const scannedEntries = integerValue(response.scannedEntries, "run catalog.scannedEntries");
+  if (scannedEntries < runIds.size) {
+    throw new Error("run catalog scannedEntries is smaller than its returned shelves");
+  }
+  booleanValue(response.truncated, "run catalog.truncated");
+  return value as RunCatalogResponse;
 }
 
 function cloneFixtureValue<T>(value: T): T {
@@ -849,7 +1413,23 @@ export async function orchestratorPreflight(
 export async function orchestratorSnapshot(
   request: SnapshotRequest
 ): Promise<PipelineSnapshotResponse> {
-  return invokePipeline(ORCHESTRATOR_COMMANDS.snapshot, requireScope(request));
+  const scoped = requireScope(request);
+  const response = await invokePipeline<SnapshotRequest, unknown>(
+    ORCHESTRATOR_COMMANDS.snapshot,
+    scoped
+  );
+  return validatedPipelineSnapshot(response, scoped);
+}
+
+export async function orchestratorRunCatalog(
+  request: RunCatalogRequest
+): Promise<RunCatalogResponse> {
+  requireText(request.repositoryRoot, "repositoryRoot");
+  const response = await invokePipeline<RunCatalogRequest, unknown>(
+    ORCHESTRATOR_COMMANDS.catalog,
+    request
+  );
+  return validatedRunCatalog(response, request);
 }
 
 export async function orchestratorConsoleSnapshot(
@@ -859,7 +1439,11 @@ export async function orchestratorConsoleSnapshot(
   requireScope(request);
   const richFixture = richBrowserSnapshot(request);
   if (richFixture) return richFixture;
-  return consoleSnapshotFromPipelineResponse(await orchestratorSnapshot(request), seed);
+  const [snapshot, catalog] = await Promise.all([
+    orchestratorSnapshot(request),
+    orchestratorRunCatalog({ repositoryRoot: request.repositoryRoot }),
+  ]);
+  return consoleSnapshotFromPipelineResponse(snapshot, seed, catalog);
 }
 
 export async function orchestratorClaim(request: ClaimNodeRequest): Promise<NodeLease> {
@@ -948,6 +1532,7 @@ export const orchestratorPipelineClient = Object.freeze({
   createRun: orchestratorCreateRun,
   preflight: orchestratorPreflight,
   snapshot: orchestratorSnapshot,
+  runCatalog: orchestratorRunCatalog,
   consoleSnapshot: orchestratorConsoleSnapshot,
   claim: orchestratorClaim,
   heartbeat: orchestratorHeartbeat,
