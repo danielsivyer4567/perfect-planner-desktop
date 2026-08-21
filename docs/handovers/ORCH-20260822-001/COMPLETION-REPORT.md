@@ -44,6 +44,7 @@
 - Manual screenshot inspection: repository header and pipeline identity agree; stages are top-down;
   completion green is reserved for completed runs; the maximized audit comparison is readable.
 - Tauri packaging: final MSI and NSIS bundles rebuilt successfully.
+- Post-fix packaging: both native installers were rebuilt from committed event-bus fix `2f61566`.
 
 ## Evidence
 
@@ -51,11 +52,11 @@
 - Browser screenshot: `artifacts/orchestrator-pipeline/orchestrator-pipeline-chrome.png`
 - Screenshot SHA-256: `815BD38CABABCD76536AF20099557A117698E4F981103B9C37EC5821FB59C806`
 - MSI: `src-tauri/target/release/bundle/msi/Perfect Planner_1.0.0_x64_en-US.msi`
-  - Bytes: `3,604,480`
-  - SHA-256: `B11B8251D97A29420C693D80AEB0DE4D4123D09B8EAFA4577948B3A50B853600`
+  - Bytes: `3,608,576`
+  - SHA-256: `F4D6081ADD56F7858D44D5F466171C11EDDD36ADA159F2190C34ABBDE596D2BA`
 - NSIS: `src-tauri/target/release/bundle/nsis/Perfect Planner_1.0.0_x64-setup.exe`
-  - Bytes: `2,452,146`
-  - SHA-256: `9EEA506D6C42B5804DC2085DC3C12903E009C4F7A30683ACBB50EA36B78A61AC`
+  - Bytes: `2,453,849`
+  - SHA-256: `0C75D769EE2B3B94FF751667B1FB91EDF93F9561E81C2FAD408C8C8E06FD2964`
 
 ## Safety boundaries retained
 

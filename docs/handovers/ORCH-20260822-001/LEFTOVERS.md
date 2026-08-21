@@ -28,3 +28,5 @@ No hidden code, evidence, reconciliation or packaging defect is being deferred b
   Verification: the unchanged test passed 25/25 focused repetitions, then the complete Rust suite
   passed 73/73; formatting and warnings-denied Clippy also passed with only the already-recorded
   `large_enum_variant` allowance. No Tauri API command or permission surface changed.
+  Packaging refresh: `npm run tauri build` completed after the fix, and the replacement MSI/NSIS
+  byte sizes and SHA-256 values are recorded in `COMPLETION-REPORT.md`.
