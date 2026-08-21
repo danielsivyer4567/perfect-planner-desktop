@@ -367,3 +367,5 @@
 <!-- PP-EVENT ae44d97b4d19db7ff0b70cbf8c50e3d27ccb9642e76c59530a5f120205f4a289 -->
 | 2026-08-21T18:48:39.922Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-sol | s-a1b7589d |  | f6b84a32b74b* | AMBER: B19 manifest expanded before dependency edit for verification-only Ed25519 authority receipts after process-HMAC failed cross-process/restart review. Production issuance remains UNKNOWN until trusted native scheduler integration. |  |
 <!-- PP-EVENT 3b69e1a77236f2cef083275c53d41e1f8677661d0d4f56f819eed11ccf9a1b40 -->
+| 2026-08-21T19:06:20.818Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-sol | s-a1b7589d |  | c69bb42b2a63* | AMBER: B19 manifest expanded before startup edit to wire bounded locked schema-v1-to-v2 verifier-only migration; preserve roots/registrations, clear legacy census/authority, malformed state remains untouched and UNKNOWN. |  |
+<!-- PP-EVENT 23fc8f57f025b00aa6eba68ee476cfee6f69ec1105cd1dc4cd221ecfea5ed808 -->
