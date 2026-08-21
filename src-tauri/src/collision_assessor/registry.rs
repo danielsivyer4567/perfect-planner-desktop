@@ -114,6 +114,9 @@ pub struct DiscoveryRootCensus {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DiscoveryCensus {
     pub registry_generation: u64,
+    /// Exact native authority input covered by this census. A generation alone cannot detect a
+    /// same-generation filesystem identity replacement after restart.
+    pub input_digest: String,
     pub captured_at_ms: u64,
     pub expires_at_ms: u64,
     #[serde(default)]
@@ -138,6 +141,12 @@ pub struct RegistryDocument {
 pub(crate) struct CensusInputAttestation {
     pub(crate) registry_generation: u64,
     pub(crate) input_digest: [u8; 32],
+}
+
+impl CensusInputAttestation {
+    pub(crate) fn digest_hex(&self) -> String {
+        hex_digest(&self.input_digest)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -191,6 +200,7 @@ pub enum RegistryIssue {
         registry_generation: u64,
         census_generation: u64,
     },
+    CensusInputDigestMismatch,
     StaleCensus(u64),
     FutureCensus(u64),
     MissingRootCensus(String),
@@ -238,6 +248,8 @@ pub enum RegistryError {
     LockTimeout(PathBuf),
     Io(String),
     Conflict(String),
+    CapabilityExpired,
+    ClockRollback,
 }
 
 impl fmt::Display for RegistryError {
@@ -256,6 +268,12 @@ impl fmt::Display for RegistryError {
             }
             Self::Io(message) => formatter.write_str(message),
             Self::Conflict(message) => write!(formatter, "registry conflict: {message}"),
+            Self::CapabilityExpired => {
+                formatter.write_str("discovery capability expired before registry acceptance")
+            }
+            Self::ClockRollback => {
+                formatter.write_str("trusted clock moved backwards during registry acceptance")
+            }
         }
     }
 }
@@ -500,31 +518,54 @@ impl PlannerRegistryStore {
 
     /// Record either a successful or failed census. Completeness is assessed only by `inspect`.
     /// Keeping failed observations makes missing/unreachable roots auditable instead of absent.
+    #[cfg(test)]
     pub fn record_census(
         &self,
-        census: DiscoveryCensus,
+        mut census: DiscoveryCensus,
         now_ms: u64,
     ) -> Result<DiscoveryCensus, RegistryError> {
         let snapshot = self.census_input_snapshot(now_ms)?;
+        census.input_digest = snapshot.attestation.digest_hex();
         self.record_census_if_unchanged(&snapshot.attestation, census, now_ms)
     }
 
     /// Atomically publish census output only if the authority input still matches the snapshot
     /// that was collected. Rechecking both generation and digest under the write lock closes the
     /// mutation/path-swap window between collection and persistence.
+    #[cfg(test)]
     pub(crate) fn record_census_if_unchanged(
         &self,
         expected: &CensusInputAttestation,
         census: DiscoveryCensus,
         now_ms: u64,
     ) -> Result<DiscoveryCensus, RegistryError> {
-        validate_timestamp("census record time", now_ms)?;
+        self.record_census_if_unchanged_before(expected, census, u64::MAX, || now_ms)
+    }
+
+    /// Capability-aware conditional publish. Trusted time is sampled only while the registry
+    /// lock is held and again immediately before atomic replacement, so lock wait can never spend
+    /// the capability lifetime unnoticed.
+    pub(crate) fn record_census_if_unchanged_before<N>(
+        &self,
+        expected: &CensusInputAttestation,
+        mut census: DiscoveryCensus,
+        capability_expires_at_ms: u64,
+        mut trusted_now: N,
+    ) -> Result<DiscoveryCensus, RegistryError>
+    where
+        N: FnMut() -> u64,
+    {
+        census.input_digest = expected.digest_hex();
         validate_census_shape(&census)?;
-        validate_census_time(&census, now_ms)?;
         let _lock = RegistryLock::acquire(self.path.as_path(), self.lock_timeout)?;
+        let validation_now_ms = trusted_now();
+        validate_timestamp("census record time", validation_now_ms)?;
+        if validation_now_ms >= capability_expires_at_ms {
+            return Err(RegistryError::CapabilityExpired);
+        }
         let mut document =
             load_document(self.path.as_path()).map_err(RegistryError::UnknownState)?;
-        let current = build_census_input_snapshot(&document, now_ms)?;
+        let current = build_census_input_snapshot(&document, validation_now_ms)?;
         if &current.attestation != expected {
             return Err(RegistryError::Conflict(
                 "registry census authority changed during collection".into(),
@@ -546,13 +587,37 @@ impl PlannerRegistryStore {
                 "census output is not newer than the recorded census".into(),
             ));
         }
-        document.updated_at_ms = now_ms;
+        revalidate_snapshot_identities(&current)?;
+        let persistence_now_ms = trusted_now();
+        validate_timestamp("census persistence time", persistence_now_ms)?;
+        if persistence_now_ms < validation_now_ms {
+            return Err(RegistryError::ClockRollback);
+        }
+        if persistence_now_ms >= capability_expires_at_ms {
+            return Err(RegistryError::CapabilityExpired);
+        }
+        validate_census_time(&census, persistence_now_ms)?;
+        let authority_issues = validate_authority_time(&document, persistence_now_ms);
+        if !authority_issues.is_empty() {
+            return Err(RegistryError::UnknownState(authority_issues));
+        }
+        document.updated_at_ms = persistence_now_ms;
         document.census = Some(census.clone());
         let issues = validate_document_static(&document);
         if !issues.is_empty() {
             return Err(RegistryError::UnknownState(issues));
         }
-        persist_document(self.path.as_path(), &document)?;
+        persist_document_before(self.path.as_path(), &document, || {
+            let replace_now_ms = trusted_now();
+            validate_timestamp("census atomic-replace time", replace_now_ms)?;
+            if replace_now_ms < persistence_now_ms {
+                return Err(RegistryError::ClockRollback);
+            }
+            if replace_now_ms >= capability_expires_at_ms {
+                return Err(RegistryError::CapabilityExpired);
+            }
+            Ok(())
+        })?;
         Ok(census)
     }
 
@@ -751,6 +816,18 @@ fn validate_completeness(document: &RegistryDocument, now_ms: u64) -> Vec<Regist
             registry_generation: document.generation,
             census_generation: census.registry_generation,
         });
+    }
+    match build_census_input_snapshot(document, now_ms) {
+        Ok(input) if census.input_digest != input.attestation.digest_hex() => {
+            issues.push(RegistryIssue::CensusInputDigestMismatch);
+        }
+        Ok(_) => {}
+        Err(RegistryError::UnknownState(mut authority_issues)) => {
+            issues.append(&mut authority_issues);
+        }
+        Err(_) => issues.push(RegistryIssue::InvalidDocument(
+            "census authority input cannot be reconstructed".into(),
+        )),
     }
     if census.captured_at_ms > now_ms {
         issues.push(RegistryIssue::FutureCensus(census.captured_at_ms));
@@ -1026,6 +1103,16 @@ fn census_input_digest(
     Ok(encoder.finish())
 }
 
+fn hex_digest(bytes: &[u8; 32]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(64);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
+}
+
 fn encode_paths(encoder: &mut DigestEncoder, paths: &[String]) -> Result<(), RegistryError> {
     encoder.u64(paths.len() as u64);
     for path in paths {
@@ -1251,6 +1338,16 @@ fn validate_census_shape(census: &DiscoveryCensus) -> Result<(), RegistryError> 
             "census generation and time window must be valid".into(),
         ));
     }
+    if census.input_digest.len() != 64
+        || !census
+            .input_digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        return Err(RegistryError::InvalidInput(
+            "census input digest must be a lowercase SHA-256".into(),
+        ));
+    }
     let span = census
         .expires_at_ms
         .checked_sub(census.captured_at_ms)
@@ -1472,52 +1569,75 @@ fn has_parent_component(path: &Path) -> bool {
 }
 
 fn persist_document(path: &Path, document: &RegistryDocument) -> Result<(), RegistryError> {
+    persist_document_before(path, document, || Ok(()))
+}
+
+fn persist_document_before<F>(
+    path: &Path,
+    document: &RegistryDocument,
+    before_replace: F,
+) -> Result<(), RegistryError>
+where
+    F: FnOnce() -> Result<(), RegistryError>,
+{
     let mut bytes = serde_json::to_vec_pretty(document).map_err(|error| {
         RegistryError::Io(format!("cannot serialize registry document: {error}"))
     })?;
     bytes.push(b'\n');
-    atomic_replace(path, &bytes).map_err(|error| {
-        RegistryError::Io(format!(
-            "cannot atomically persist registry {}: {error}",
-            path.display()
-        ))
-    })
+    atomic_replace_before(path, &bytes, before_replace)
 }
 
-fn atomic_replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
+fn atomic_replace_before<F>(
+    path: &Path,
+    bytes: &[u8],
+    before_replace: F,
+) -> Result<(), RegistryError>
+where
+    F: FnOnce() -> Result<(), RegistryError>,
+{
     let parent = path
         .parent()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "target has no parent"))?;
+        .ok_or_else(|| RegistryError::InvalidInput("registry target has no parent".into()))?;
     if let Ok(metadata) = fs::symlink_metadata(path) {
         if metadata.file_type().is_symlink() || !metadata.is_file() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "registry target is not a regular file",
+            return Err(RegistryError::InvalidInput(
+                "registry target is not a regular file".into(),
             ));
         }
     }
     let file_name = path
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid target name"))?;
+        .ok_or_else(|| RegistryError::InvalidInput("invalid registry target name".into()))?;
     let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let temporary = parent.join(format!(
         ".{file_name}.tmp-{}-{sequence}",
         std::process::id()
     ));
-    let result = (|| -> io::Result<()> {
+    let result = (|| -> Result<(), RegistryError> {
         let mut file = OpenOptions::new()
             .create_new(true)
             .write(true)
-            .open(&temporary)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        replace_file(&temporary, path)
+            .open(&temporary)
+            .map_err(|error| registry_persist_io(path, error))?;
+        file.write_all(bytes)
+            .map_err(|error| registry_persist_io(path, error))?;
+        file.sync_all()
+            .map_err(|error| registry_persist_io(path, error))?;
+        before_replace()?;
+        replace_file(&temporary, path).map_err(|error| registry_persist_io(path, error))
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
     }
     result
+}
+
+fn registry_persist_io(path: &Path, error: io::Error) -> RegistryError {
+    RegistryError::Io(format!(
+        "cannot atomically persist registry {}: {error}",
+        path.display()
+    ))
 }
 
 #[cfg(not(windows))]
@@ -1793,6 +1913,7 @@ mod tests {
     fn census(generation: u64, root_planners: Vec<(&str, Vec<String>)>) -> DiscoveryCensus {
         DiscoveryCensus {
             registry_generation: generation,
+            input_digest: "0".repeat(64),
             captured_at_ms: 2_000,
             expires_at_ms: 10_000,
             roots: root_planners
@@ -1805,6 +1926,20 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    fn initialized_snapshot(name: &str, planner_id: &str) -> (TempRegistry, CensusInputSnapshot) {
+        let fixture = TempRegistry::new(name);
+        fixture
+            .store
+            .initialize(vec![root(&format!("root-{name}"))], 1_000)
+            .unwrap();
+        fixture
+            .store
+            .register(seed(planner_id), 1_100, 20_000)
+            .unwrap();
+        let snapshot = fixture.store.census_input_snapshot(1_200).unwrap();
+        (fixture, snapshot)
     }
 
     fn raw_document(store: &PlannerRegistryStore) -> RegistryDocument {
@@ -2034,6 +2169,7 @@ mod tests {
             .record_census(
                 DiscoveryCensus {
                     registry_generation: 3,
+                    input_digest: "0".repeat(64),
                     captured_at_ms: 2_200,
                     expires_at_ms: 8_000,
                     roots: vec![
@@ -2215,6 +2351,7 @@ mod tests {
         }
         let excessive_census = DiscoveryCensus {
             registry_generation: 2,
+            input_digest: "0".repeat(64),
             captured_at_ms: 1,
             expires_at_ms: 1 + MAX_CENSUS_TTL_MS + 1,
             roots: Vec::new(),
@@ -2353,6 +2490,72 @@ mod tests {
         );
         let first = first.join().unwrap();
         assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+    }
+
+    #[test]
+    fn capability_expiry_while_waiting_for_registry_lock_prevents_acceptance() {
+        let (fixture, snapshot) = initialized_snapshot("lock-expiry", "planner-lock-expiry");
+        let before = fs::read(fixture.store.path()).unwrap();
+        let lock = RegistryLock::acquire(fixture.store.path(), Duration::from_secs(1)).unwrap();
+        let store = fixture.store.clone();
+        let worker = thread::spawn(move || {
+            store.record_census_if_unchanged_before(
+                &snapshot.attestation,
+                census(
+                    snapshot.attestation.registry_generation,
+                    vec![("root-lock-expiry", vec!["planner-lock-expiry".to_string()])],
+                ),
+                3_000,
+                || 3_000,
+            )
+        });
+
+        thread::sleep(Duration::from_millis(40));
+        drop(lock);
+        assert!(matches!(
+            worker.join().expect("registry writer joins"),
+            Err(RegistryError::CapabilityExpired)
+        ));
+        assert_eq!(fs::read(fixture.store.path()).unwrap(), before);
+        assert!(raw_document(&fixture.store).census.is_none());
+    }
+
+    #[test]
+    fn capability_expiry_after_temp_fsync_prevents_atomic_replace() {
+        let (fixture, snapshot) = initialized_snapshot("replace-expiry", "planner-replace-expiry");
+        let before = fs::read(fixture.store.path()).unwrap();
+        let mut trusted_times = [2_100_u64, 2_200, 3_000].into_iter();
+        let result = fixture.store.record_census_if_unchanged_before(
+            &snapshot.attestation,
+            census(
+                snapshot.attestation.registry_generation,
+                vec![(
+                    "root-replace-expiry",
+                    vec!["planner-replace-expiry".to_string()],
+                )],
+            ),
+            3_000,
+            || {
+                trusted_times
+                    .next()
+                    .expect("all trusted clock gates sampled")
+            },
+        );
+
+        assert!(matches!(result, Err(RegistryError::CapabilityExpired)));
+        assert_eq!(fs::read(fixture.store.path()).unwrap(), before);
+        assert!(raw_document(&fixture.store).census.is_none());
+        let temporary_prefix = format!(
+            ".{}.tmp-",
+            fixture.store.path().file_name().unwrap().to_string_lossy()
+        );
+        assert!(fs::read_dir(&fixture.root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .all(|entry| !entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(&temporary_prefix)));
     }
 
     #[test]

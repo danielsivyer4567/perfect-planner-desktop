@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-collision-assessor-collect-census"
+description = "Enables the collision_assessor_collect_census command without any pre-configured scope."
+commands.allow = ["collision_assessor_collect_census"]
+
+[[permission]]
+identifier = "deny-collision-assessor-collect-census"
+description = "Denies the collision_assessor_collect_census command without any pre-configured scope."
+commands.deny = ["collision_assessor_collect_census"]

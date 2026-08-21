@@ -15,9 +15,11 @@ mod control_plane_api;
 pub mod orchestrator;
 mod supervisor;
 use collision_assessor::api::{
-    collision_assessor_issue_discovery_capability, collision_assessor_revoke_discovery_capability,
+    collision_assessor_collect_census, collision_assessor_issue_discovery_capability,
+    collision_assessor_revoke_discovery_capability, CensusCommandState,
 };
 use collision_assessor::capability::CapabilityStore;
+use collision_assessor::registry::PlannerRegistryStore;
 use connectors::ConnectorSupervisor;
 use control_plane::ControlPlaneStore;
 use control_plane_api::{
@@ -304,6 +306,9 @@ pub fn run() {
             supervisor.spawn_reaper()?;
             app.manage(supervisor);
             app.manage(CapabilityStore::default());
+            let collision_registry = PlannerRegistryStore::for_app_data(&app_data_dir)
+                .map_err(|error| format!("cannot bind collision registry: {error}"))?;
+            app.manage(CensusCommandState::unavailable(collision_registry));
             let control_plane_path = app_data_dir.join("control-plane.jsonl");
             let control_plane = ControlPlaneStore::open(control_plane_path)?;
             let connectors = ConnectorSupervisor::open(control_plane.clone(), app_data_dir)?;
@@ -320,6 +325,7 @@ pub fn run() {
             supervisor_snapshot,
             recover_board_session,
             collision_assessor_issue_discovery_capability,
+            collision_assessor_collect_census,
             collision_assessor_revoke_discovery_capability,
             post_control_message,
             control_plane_snapshot,
@@ -371,5 +377,52 @@ mod tests {
     fn discovery_refuses_ranges_outside_the_board_window() {
         assert!(discover_boards(5300, 5400).is_empty());
         assert!(discover_boards(5000, 5100).is_empty());
+    }
+
+    #[test]
+    fn census_command_call_graph_has_no_legacy_or_renderer_selected_authority() {
+        let api = include_str!("collision_assessor/api.rs");
+        for forbidden in [
+            "discover_boards(",
+            "read_board_plan(",
+            "read_board_evidence(",
+            "request_json(",
+            "TcpStream",
+            "std::process::Command",
+            "tauri_plugin_shell",
+            "tauri_plugin_fs",
+        ] {
+            assert!(
+                !api.contains(forbidden),
+                "collision census API must not reference forbidden authority {forbidden}"
+            );
+        }
+
+        let collect_request = api
+            .split("pub struct CollectCensusRequest")
+            .nth(1)
+            .and_then(|tail| tail.split('}').next())
+            .expect("collect request source shape");
+        for renderer_selected in [
+            "path",
+            "root",
+            "url",
+            "host",
+            "port",
+            "endpoint",
+            "generation",
+            "digest",
+        ] {
+            assert!(
+                !collect_request
+                    .to_ascii_lowercase()
+                    .contains(renderer_selected),
+                "renderer must not select census authority via {renderer_selected}"
+            );
+        }
+
+        let main_capability = include_str!("../capabilities/main-read-only.json");
+        assert!(main_capability.contains("allow-board-discovery"));
+        assert!(!collect_request.contains("Board"));
     }
 }

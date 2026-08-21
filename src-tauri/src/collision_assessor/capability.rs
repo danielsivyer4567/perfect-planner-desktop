@@ -2,7 +2,10 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
 const TOKEN_BYTES: usize = 32;
 const MAX_TTL_MS: u64 = 60_000;
@@ -27,12 +30,47 @@ pub struct IssuedDiscoveryCapability {
     pub expires_at_ms: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct DiscoveryPermit {
     pub run_id: String,
     pub registry_generation: u64,
     pub repository_census_hash: String,
     pub expires_at_ms: u64,
+    cancellation: Arc<AtomicBool>,
+}
+
+impl fmt::Debug for DiscoveryPermit {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DiscoveryPermit")
+            .field("run_id", &self.run_id)
+            .field("registry_generation", &self.registry_generation)
+            .field("repository_census_hash", &self.repository_census_hash)
+            .field("expires_at_ms", &self.expires_at_ms)
+            .field("cancellation", &"<redacted-state>")
+            .finish()
+    }
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+pub(crate) struct DiscoveryCancellation {
+    flag: Arc<AtomicBool>,
+}
+
+#[allow(dead_code)]
+impl DiscoveryCancellation {
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.flag.load(Ordering::Acquire)
+    }
+}
+
+impl DiscoveryPermit {
+    pub(crate) fn cancellation(&self) -> DiscoveryCancellation {
+        DiscoveryCancellation {
+            flag: Arc::clone(&self.cancellation),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,6 +87,7 @@ struct CapabilityRecord {
     issued_at_ms: u64,
     expires_at_ms: u64,
     lifecycle: Lifecycle,
+    cancellation: Arc<AtomicBool>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -69,7 +108,7 @@ pub enum CapabilityError {
     BindingMismatch,
     AlreadyUsed,
     DiscoveryNotStarted,
-    SnapshotCreationFailed(String),
+    SnapshotCreationFailed,
 }
 
 impl fmt::Display for CapabilityError {
@@ -99,15 +138,11 @@ impl fmt::Display for CapabilityError {
             Self::DiscoveryNotStarted => {
                 "discovery capability cannot create a snapshot before discovery starts"
             }
-            Self::SnapshotCreationFailed(_) => {
+            Self::SnapshotCreationFailed => {
                 "assessment snapshot creation failed and the capability was revoked"
             }
         };
-        formatter.write_str(message)?;
-        if let Self::SnapshotCreationFailed(detail) = self {
-            write!(formatter, ": {detail}")?;
-        }
-        Ok(())
+        formatter.write_str(message)
     }
 }
 
@@ -147,7 +182,13 @@ impl CapabilityStore {
             .records
             .lock()
             .map_err(|_| CapabilityError::StoreUnavailable)?;
-        records.retain(|_, record| record.expires_at_ms > now_ms);
+        records.retain(|_, record| {
+            let keep = record.expires_at_ms > now_ms;
+            if !keep {
+                record.cancellation.store(true, Ordering::Release);
+            }
+            keep
+        });
         if records.len() >= MAX_RECORDS {
             return Err(CapabilityError::CapacityExceeded);
         }
@@ -168,6 +209,7 @@ impl CapabilityStore {
                     issued_at_ms: now_ms,
                     expires_at_ms,
                     lifecycle: Lifecycle::Issued,
+                    cancellation: Arc::new(AtomicBool::new(false)),
                 },
             );
             return Ok(IssuedDiscoveryCapability {
@@ -207,6 +249,42 @@ impl CapabilityStore {
             registry_generation: record.scope.registry_generation,
             repository_census_hash: record.scope.repository_census_hash.clone(),
             expires_at_ms: record.expires_at_ms,
+            cancellation: Arc::clone(&record.cancellation),
+        })
+    }
+
+    /// Fence the capability before any native registry or filesystem read. Only the run ID is
+    /// accepted from IPC; the returned generation/digest are the native binding issued earlier.
+    pub fn begin_discovery_for_run(
+        &self,
+        token: &str,
+        run_id: &str,
+        now_ms: u64,
+    ) -> Result<DiscoveryPermit, CapabilityError> {
+        validate_run_id(run_id)?;
+        let token_hash = checked_token_hash(token)?;
+        let mut records = self
+            .records
+            .lock()
+            .map_err(|_| CapabilityError::StoreUnavailable)?;
+        let record = records
+            .get_mut(&token_hash)
+            .ok_or(CapabilityError::UnknownToken)?;
+        validate_live_record(record, now_ms)?;
+        if record.scope.run_id != run_id {
+            revoke_record(record);
+            return Err(CapabilityError::BindingMismatch);
+        }
+        if record.lifecycle != Lifecycle::Issued {
+            return Err(CapabilityError::AlreadyUsed);
+        }
+        record.lifecycle = Lifecycle::DiscoveryStarted;
+        Ok(DiscoveryPermit {
+            run_id: record.scope.run_id.clone(),
+            registry_generation: record.scope.registry_generation,
+            repository_census_hash: record.scope.repository_census_hash.clone(),
+            expires_at_ms: record.expires_at_ms,
+            cancellation: Arc::clone(&record.cancellation),
         })
     }
 
@@ -222,6 +300,27 @@ impl CapabilityStore {
     where
         F: FnOnce(&DiscoveryPermit) -> Result<T, String>,
     {
+        self.consume_with_snapshot_at(
+            token,
+            current_scope,
+            || now_ms,
+            |permit, _accepted_at_ms| create_snapshot(permit),
+        )
+    }
+
+    /// Sample trusted time only after the capability mutex is held, immediately before the
+    /// acceptance/persistence closure. This prevents lock wait from consuming the remaining TTL.
+    pub fn consume_with_snapshot_at<T, N, F>(
+        &self,
+        token: &str,
+        current_scope: &DiscoveryScope,
+        now: N,
+        create_snapshot: F,
+    ) -> Result<T, CapabilityError>
+    where
+        N: FnOnce() -> u64,
+        F: FnOnce(&DiscoveryPermit, u64) -> Result<T, String>,
+    {
         let token_hash = checked_token_hash(token)?;
         let mut records = self
             .records
@@ -230,9 +329,10 @@ impl CapabilityStore {
         let record = records
             .get_mut(&token_hash)
             .ok_or(CapabilityError::UnknownToken)?;
-        validate_live_binding(record, current_scope, now_ms)?;
+        let accepted_at_ms = now();
+        validate_live_binding(record, current_scope, accepted_at_ms)?;
         if record.lifecycle == Lifecycle::Issued {
-            record.lifecycle = Lifecycle::Revoked;
+            revoke_record(record);
             return Err(CapabilityError::DiscoveryNotStarted);
         }
         if record.lifecycle != Lifecycle::DiscoveryStarted {
@@ -243,15 +343,17 @@ impl CapabilityStore {
             registry_generation: record.scope.registry_generation,
             repository_census_hash: record.scope.repository_census_hash.clone(),
             expires_at_ms: record.expires_at_ms,
+            cancellation: Arc::clone(&record.cancellation),
         };
-        match create_snapshot(&permit) {
+        match create_snapshot(&permit, accepted_at_ms) {
             Ok(snapshot) => {
                 record.lifecycle = Lifecycle::Consumed;
+                record.cancellation.store(true, Ordering::Release);
                 Ok(snapshot)
             }
-            Err(error) => {
-                record.lifecycle = Lifecycle::Revoked;
-                Err(CapabilityError::SnapshotCreationFailed(error))
+            Err(_) => {
+                revoke_record(record);
+                Err(CapabilityError::SnapshotCreationFailed)
             }
         }
     }
@@ -268,21 +370,13 @@ impl CapabilityStore {
         if matches!(record.lifecycle, Lifecycle::Consumed | Lifecycle::Revoked) {
             return Err(CapabilityError::AlreadyUsed);
         }
-        record.lifecycle = Lifecycle::Revoked;
+        revoke_record(record);
         Ok(())
     }
 }
 
 fn validate_scope(scope: &DiscoveryScope) -> Result<(), CapabilityError> {
-    let run_id = scope.run_id.as_bytes();
-    if run_id.is_empty()
-        || run_id.len() > 128
-        || run_id.iter().any(|byte| {
-            !byte.is_ascii_alphanumeric() && !matches!(*byte, b'-' | b'_' | b'.' | b':')
-        })
-    {
-        return Err(CapabilityError::InvalidRunId);
-    }
+    validate_run_id(&scope.run_id)?;
     if scope.registry_generation == 0 {
         return Err(CapabilityError::InvalidRegistryGeneration);
     }
@@ -292,27 +386,50 @@ fn validate_scope(scope: &DiscoveryScope) -> Result<(), CapabilityError> {
     Ok(())
 }
 
+pub(crate) fn validate_run_id(run_id: &str) -> Result<(), CapabilityError> {
+    let run_id = run_id.as_bytes();
+    if run_id.is_empty()
+        || run_id.len() > 128
+        || run_id.iter().any(|byte| {
+            !byte.is_ascii_alphanumeric() && !matches!(*byte, b'-' | b'_' | b'.' | b':')
+        })
+    {
+        return Err(CapabilityError::InvalidRunId);
+    }
+    Ok(())
+}
+
+fn validate_live_record(record: &mut CapabilityRecord, now_ms: u64) -> Result<(), CapabilityError> {
+    if matches!(record.lifecycle, Lifecycle::Consumed | Lifecycle::Revoked) {
+        return Err(CapabilityError::AlreadyUsed);
+    }
+    if now_ms < record.issued_at_ms {
+        revoke_record(record);
+        return Err(CapabilityError::ClockRollback);
+    }
+    if now_ms >= record.expires_at_ms {
+        revoke_record(record);
+        return Err(CapabilityError::Expired);
+    }
+    Ok(())
+}
+
 fn validate_live_binding(
     record: &mut CapabilityRecord,
     current_scope: &DiscoveryScope,
     now_ms: u64,
 ) -> Result<(), CapabilityError> {
-    if matches!(record.lifecycle, Lifecycle::Consumed | Lifecycle::Revoked) {
-        return Err(CapabilityError::AlreadyUsed);
-    }
-    if now_ms < record.issued_at_ms {
-        record.lifecycle = Lifecycle::Revoked;
-        return Err(CapabilityError::ClockRollback);
-    }
-    if now_ms >= record.expires_at_ms {
-        record.lifecycle = Lifecycle::Revoked;
-        return Err(CapabilityError::Expired);
-    }
+    validate_live_record(record, now_ms)?;
     if &record.scope != current_scope {
-        record.lifecycle = Lifecycle::Revoked;
+        revoke_record(record);
         return Err(CapabilityError::BindingMismatch);
     }
     Ok(())
+}
+
+fn revoke_record(record: &mut CapabilityRecord) {
+    record.lifecycle = Lifecycle::Revoked;
+    record.cancellation.store(true, Ordering::Release);
 }
 
 fn checked_token_hash(token: &str) -> Result<String, CapabilityError> {
@@ -541,7 +658,7 @@ mod tests {
                     Err::<(), _>("disk full".to_string())
                 })
                 .unwrap_err(),
-            CapabilityError::SnapshotCreationFailed("disk full".to_string())
+            CapabilityError::SnapshotCreationFailed
         );
         assert_eq!(
             store
