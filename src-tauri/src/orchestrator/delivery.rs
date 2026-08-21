@@ -14,6 +14,16 @@ pub struct DeliveryChange {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LeftoverItem {
+    pub id: String,
+    pub what: String,
+    pub location: String,
+    pub severity: String,
+    pub suggested_next_action: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DeliveryRequest {
     pub run_id: String,
     pub plan_id: String,
@@ -24,7 +34,7 @@ pub struct DeliveryRequest {
     pub merge_sha: Option<String>,
     pub finished_at: String,
     pub changes: Vec<DeliveryChange>,
-    pub leftovers: Vec<String>,
+    pub leftovers: Vec<LeftoverItem>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -44,20 +54,34 @@ pub fn deliver_run(
 ) -> Result<DeliveryOutcome, String> {
     validate_identity(&request.run_id, "runId")?;
     validate_identity(&request.plan_id, "planId")?;
+    for leftover in &request.leftovers {
+        validate_identity(&leftover.id, "leftover.id")?;
+        if leftover.what.trim().is_empty()
+            || leftover.location.trim().is_empty()
+            || leftover.severity.trim().is_empty()
+            || leftover.suggested_next_action.trim().is_empty()
+        {
+            return Err(format!("leftover {} is incomplete", leftover.id));
+        }
+    }
     let repo_root = repo_root
         .canonicalize()
         .map_err(|error| format!("cannot resolve repository root: {error}"))?;
-    let run_dir = run_dir
-        .canonicalize()
-        .map_err(|error| format!("cannot resolve run directory: {error}"))?;
-    if !run_dir.starts_with(
-        repo_root
-            .join(".claude")
-            .join("scratch")
-            .join("orchestrator"),
-    ) {
+    let orchestrator_root = repo_root
+        .join(".claude")
+        .join("scratch")
+        .join("orchestrator");
+    let expected_run_dir = orchestrator_root.join(&request.run_id);
+    let supplied_run_dir = if run_dir.exists() {
+        run_dir
+            .canonicalize()
+            .map_err(|error| format!("cannot resolve run directory: {error}"))?
+    } else {
+        run_dir.to_path_buf()
+    };
+    if !same_path(&supplied_run_dir, &expected_run_dir) {
         return Err(
-            "run directory is outside the repository orchestrator scratch root".to_string(),
+            "run directory does not exactly match the repository-scoped run ID".to_string(),
         );
     }
     let checklist_parent = checklist_path
@@ -69,32 +93,10 @@ pub fn deliver_run(
         return Err("completion checklist must be repository-local".to_string());
     }
 
-    let completion = completion_report(request);
-    let changes = changes_report(request);
-    let leftovers = leftovers_report(request);
-    write_atomic(&run_dir.join("COMPLETION-REPORT.md"), completion.as_bytes())?;
-    write_atomic(&run_dir.join("changes.md"), changes.as_bytes())?;
-    write_atomic(&run_dir.join("LEFTOVERS.md"), leftovers.as_bytes())?;
-
     let handover_dir = repo_root
         .join("docs")
         .join("handovers")
         .join(&request.run_id);
-    fs::create_dir_all(&handover_dir)
-        .map_err(|error| format!("cannot create handover directory: {error}"))?;
-    fs::copy(
-        run_dir.join("COMPLETION-REPORT.md"),
-        handover_dir.join("COMPLETION-REPORT.md"),
-    )
-    .map_err(|error| format!("cannot copy completion report: {error}"))?;
-    fs::copy(
-        run_dir.join("LEFTOVERS.md"),
-        handover_dir.join("LEFTOVERS.md"),
-    )
-    .map_err(|error| format!("cannot copy leftovers report: {error}"))?;
-    fs::copy(run_dir.join("changes.md"), handover_dir.join("changes.md"))
-        .map_err(|error| format!("cannot copy changes report: {error}"))?;
-
     let recover = format!(
         "git show {}:docs/handovers/{}/LEFTOVERS.md",
         request.commit_sha, request.run_id
@@ -108,21 +110,55 @@ pub fn deliver_run(
         "- [x] {} — {} — refs: {} — recover: {}",
         request.finished_at, request.title, reference, recover
     );
+    let archive_root = orchestrator_root.join("archive");
+    let archive_dir = archive_root.join(&request.run_id);
+    if !expected_run_dir.exists() && archive_dir.exists() {
+        verify_delivered_state(&handover_dir, checklist_path, &checklist_line)?;
+        return Ok(DeliveryOutcome {
+            handover_dir,
+            archive_dir,
+            checklist_line,
+            leftovers_count: request.leftovers.len(),
+        });
+    }
+    if !expected_run_dir.is_dir() {
+        return Err("repository-scoped run directory does not exist".to_string());
+    }
+
+    let completion = completion_report(request);
+    let changes = changes_report(request);
+    let leftovers = leftovers_report(request);
+    write_exact_or_verify(
+        &expected_run_dir.join("COMPLETION-REPORT.md"),
+        completion.as_bytes(),
+    )?;
+    write_exact_or_verify(&expected_run_dir.join("changes.md"), changes.as_bytes())?;
+    write_exact_or_verify(&expected_run_dir.join("LEFTOVERS.md"), leftovers.as_bytes())?;
+
+    fs::create_dir_all(&handover_dir)
+        .map_err(|error| format!("cannot create handover directory: {error}"))?;
+    copy_exact_or_verify(
+        &expected_run_dir.join("COMPLETION-REPORT.md"),
+        &handover_dir.join("COMPLETION-REPORT.md"),
+    )?;
+    copy_exact_or_verify(
+        &expected_run_dir.join("LEFTOVERS.md"),
+        &handover_dir.join("LEFTOVERS.md"),
+    )?;
+    copy_exact_or_verify(
+        &expected_run_dir.join("changes.md"),
+        &handover_dir.join("changes.md"),
+    )?;
+
     append_without_rewrite(checklist_path, &checklist_line)?;
 
-    append_run_done(&run_dir.join("events.jsonl"), request)?;
-    let archive_root = repo_root
-        .join(".claude")
-        .join("scratch")
-        .join("orchestrator")
-        .join("archive");
+    append_run_done(&expected_run_dir.join("events.jsonl"), request)?;
     fs::create_dir_all(&archive_root)
         .map_err(|error| format!("cannot create archive directory: {error}"))?;
-    let archive_dir = archive_root.join(&request.run_id);
     if archive_dir.exists() {
         return Err("run archive already exists; refusing to overwrite it".to_string());
     }
-    fs::rename(&run_dir, &archive_dir)
+    fs::rename(&expected_run_dir, &archive_dir)
         .map_err(|error| format!("cannot archive completed run: {error}"))?;
 
     Ok(DeliveryOutcome {
@@ -169,7 +205,14 @@ fn leftovers_report(request: &DeliveryRequest) -> String {
         output.push_str("No known outstanding items.\n");
     } else {
         for item in &request.leftovers {
-            output.push_str(&format!("- {}\n", item.trim()));
+            output.push_str(&format!(
+                "- `{}` · **{}** — {} — where: `{}` — next: {}\n",
+                item.id,
+                item.severity.trim(),
+                item.what.trim(),
+                item.location.trim(),
+                item.suggested_next_action.trim()
+            ));
         }
     }
     output
@@ -185,6 +228,22 @@ fn append_run_done(path: &Path, request: &DeliveryRequest) -> Result<(), String>
         "msg": "delivery complete",
         "data": { "commit": request.commit_sha, "leftovers": request.leftovers.len() }
     });
+    if path.exists() {
+        let text = fs::read_to_string(path)
+            .map_err(|error| format!("cannot inspect run event bus: {error}"))?;
+        if let Some(last) = text.lines().last() {
+            let last_event: serde_json::Value = serde_json::from_str(last)
+                .map_err(|error| format!("final run event is malformed: {error}"))?;
+            if last_event.get("type").and_then(|value| value.as_str()) == Some("run-done") {
+                if last_event.get("runId").and_then(|value| value.as_str())
+                    == Some(request.run_id.as_str())
+                {
+                    return Ok(());
+                }
+                return Err("event bus already ends with another run's completion".to_string());
+            }
+        }
+    }
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -203,7 +262,7 @@ fn append_without_rewrite(path: &Path, line: &str) -> Result<(), String> {
         .lines()
         .any(|existing| existing == line)
     {
-        return Err("completion checklist already contains this exact line".to_string());
+        return Ok(());
     }
     let mut file = OpenOptions::new()
         .create(true)
@@ -224,17 +283,50 @@ fn append_without_rewrite(path: &Path, line: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+fn write_exact_or_verify(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if path.exists() {
+        let existing = fs::read(path).map_err(|error| format!("cannot verify report: {error}"))?;
+        if existing == bytes {
+            return Ok(());
+        }
+        return Err(format!(
+            "existing report differs from the requested delivery: {}",
+            path.display()
+        ));
+    }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|error| format!("cannot create report directory: {error}"))?;
     }
     let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
     fs::write(&temporary, bytes).map_err(|error| format!("cannot write report: {error}"))?;
-    if path.exists() {
-        return Err(format!("report already exists: {}", path.display()));
-    }
     fs::rename(&temporary, path).map_err(|error| format!("cannot publish report: {error}"))
+}
+
+fn copy_exact_or_verify(source: &Path, destination: &Path) -> Result<(), String> {
+    let source_bytes = fs::read(source)
+        .map_err(|error| format!("cannot read delivery source {}: {error}", source.display()))?;
+    write_exact_or_verify(destination, &source_bytes)
+}
+
+fn verify_delivered_state(
+    handover_dir: &Path,
+    checklist_path: &Path,
+    checklist_line: &str,
+) -> Result<(), String> {
+    for file in ["COMPLETION-REPORT.md", "changes.md", "LEFTOVERS.md"] {
+        if !handover_dir.join(file).is_file() {
+            return Err(format!(
+                "archived run is missing durable handover file {file}"
+            ));
+        }
+    }
+    let checklist = fs::read_to_string(checklist_path)
+        .map_err(|error| format!("cannot verify completion checklist: {error}"))?;
+    if !checklist.lines().any(|line| line == checklist_line) {
+        return Err("archived run has no matching completion checklist pointer".to_string());
+    }
+    Ok(())
 }
 
 fn validate_identity(value: &str, field: &str) -> Result<(), String> {
@@ -253,6 +345,23 @@ fn validate_identity(value: &str, field: &str) -> Result<(), String> {
         return Err(format!("invalid {field}"));
     }
     Ok(())
+}
+
+#[cfg(not(windows))]
+fn same_path(left: &Path, right: &Path) -> bool {
+    left == right
+}
+
+#[cfg(windows)]
+fn same_path(left: &Path, right: &Path) -> bool {
+    fn normalized(path: &Path) -> String {
+        path.to_string_lossy()
+            .trim_start_matches(r"\\?\")
+            .replace('/', "\\")
+            .trim_end_matches('\\')
+            .to_ascii_lowercase()
+    }
+    normalized(left) == normalized(right)
 }
 
 fn escape_table(value: &str) -> String {
@@ -315,6 +424,17 @@ mod tests {
                 "data": { "commit": request.commit_sha, "leftovers": 0 }
             }))
             .unwrap()
+        );
+        let repeated = deliver_run(&root, &run_dir, &checklist, &request)
+            .expect("delivery retry should resume from the archive");
+        assert_eq!(repeated.archive_dir, outcome.archive_dir);
+        assert_eq!(
+            fs::read_to_string(&checklist)
+                .expect("checklist")
+                .lines()
+                .filter(|line| *line == outcome.checklist_line)
+                .count(),
+            1
         );
         let _ = fs::remove_dir_all(root);
     }

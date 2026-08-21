@@ -2,10 +2,14 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 const MAX_ATTEMPTS: u32 = 3;
+static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -351,16 +355,80 @@ fn persist(path: &Path, state: &SchedulerState) -> Result<(), String> {
         fs::create_dir_all(parent)
             .map_err(|error| format!("cannot create scheduler directory: {error}"))?;
     }
-    let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
+    let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "scheduler state path has an invalid file name".to_string())?;
+    let temporary = path.with_file_name(format!(
+        ".{file_name}.tmp-{}-{sequence}",
+        std::process::id()
+    ));
     let bytes = serde_json::to_vec_pretty(state)
         .map_err(|error| format!("cannot encode scheduler state: {error}"))?;
-    fs::write(&temporary, bytes)
-        .map_err(|error| format!("cannot write scheduler state: {error}"))?;
-    if path.exists() {
-        fs::remove_file(path)
-            .map_err(|error| format!("cannot replace scheduler state: {error}"))?;
+    let result = (|| -> Result<(), String> {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temporary)
+            .map_err(|error| format!("cannot create scheduler temporary state: {error}"))?;
+        file.write_all(&bytes)
+            .map_err(|error| format!("cannot write scheduler state: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("cannot flush scheduler state: {error}"))?;
+        replace_file(&temporary, path)
+            .map_err(|error| format!("cannot publish scheduler state: {error}"))
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
     }
-    fs::rename(&temporary, path).map_err(|error| format!("cannot publish scheduler state: {error}"))
+    result
+}
+
+#[cfg(not(windows))]
+fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
+    fs::rename(source, destination)
+}
+
+#[cfg(windows)]
+fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x0000_0001;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x0000_0008;
+
+    #[link(name = "Kernel32")]
+    unsafe extern "system" {
+        fn MoveFileExW(
+            existing_file_name: *const u16,
+            new_file_name: *const u16,
+            flags: u32,
+        ) -> i32;
+    }
+
+    let source = source
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let destination = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    // SAFETY: both buffers are valid NUL-terminated UTF-16 paths for this call.
+    let moved = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if moved == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 fn preserve_evidence(
