@@ -251,3 +251,15 @@
 <!-- PP-EVENT 5a1adf4b52ab791e1e49544fa4960b9f2ae13d24f8408b3c749e6d6629f27158 -->
 | 2026-08-21T16:53:09.437Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-sol | s-a1b7589d |  | 78a84fabb644* | GREEN: B02, B03 and B05 parallel wave integrated; crate-wide suite 101/101 after exact-file serialized commits. |  |
 <!-- PP-EVENT 11484b7571a1c31f2b6474f2fbede51a097071b9113549e3f92bf0e17cc9bf8e -->
+| 2026-08-21T16:53:59.985Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-sol | s-b1ab468f |  | 505b657c9d36 | session start: parallel worker implementing B04 read-only census collectors |  |
+<!-- PP-EVENT 320be4e0fc0df461b878b2f21bb77ff951dc7f61e5762c6bc46c388c463bd707 -->
+| 2026-08-21T16:54:08.232Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | start | B04 | gpt-5.6-sol | s-b1ab468f |  | 505b657c9d36* |  |  |
+<!-- PP-EVENT 3ad25d8d1abd53b2c5b9df1216b1b1792a9f10230ea7960e308aa4052aa4f851 -->
+| 2026-08-21T16:57:30.196Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | block | B04:0 | gpt-5.6-sol | s-b1ab468f |  | 505b657c9d36* | Collect every registered active Planner identity and plan manifest using identity-fenced read-only endpoints |  |
+<!-- PP-EVENT 2afa46e8e95e71f62ba230d6bfe0fe6db947f619b2485a9b803e35457d82dc33 -->
+| 2026-08-21T16:57:32.243Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-sol | s-b1ab468f |  | 505b657c9d36* | RED: B04 stopped before source edits. PlanPath-only /whoami fencing is forgeable and B02 cannot expose a safe first-census snapshot. Re-plan registry freshness/digest plus board instance nonce, port, generation and manifest hash; unattested state must remain UNKNOWN. |  |
+<!-- PP-EVENT 98c391b1ed33198da3d41e9489b93be30ec2ed36297417a0c78c9c77a7fe676e -->
+| 2026-08-21T16:59:24.247Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | unblock | B04:0 | danielsivyer4567 | s-a1b7589d |  | 505b657c9d36* | Replanned behind B17 and B18: registry-addressed native metadata reads replace forgeable board HTTP; B04 remains pending until both corrective gates are proven. |  |
+<!-- PP-EVENT fa5bc2321efc57b2e168b8cb05b9c63f9587990854e6d2ae8bd1174f7fa0ead1 -->
+| 2026-08-21T16:59:26.701Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-sol | s-a1b7589d |  | 505b657c9d36* | AMBER: B04 RED resolved by re-plan, not bypass. Added B17 registry/filesystem-identity hardening and B18 single-use native census API; B04 now depends on both and board HTTP is explicitly non-authoritative. |  |
+<!-- PP-EVENT bbf0c9c5233f09867a6dcd7f6cf1d78bb55bff79023987f767b840fc8432769e -->

@@ -1700,8 +1700,8 @@
       "title": "Read-only census collectors",
       "status": "pending",
       "dependsOn": [
-        "B02",
-        "B03"
+        "B17",
+        "B18"
       ],
       "est": {
         "tokens": 80000,
@@ -1710,16 +1710,17 @@
       "files": [
         "src-tauri/src/collision_assessor/discovery.rs",
         "src-tauri/src/lib.rs",
-        "src/services/boards.ts"
+        "src/services/boards.ts",
+        "src-tauri/tests/collision_census_contract.rs"
       ],
       "resources": [
-        "host:perfect-planner-board-window",
-        "host:configured-repository-census"
+        "host:configured-repository-census",
+        "protocol:metadata-only-plan-census"
       ],
-      "notes": "Reuse identity-fenced /whoami and /plan reads, but move authority into the assessor. Only metadata necessary for collision analysis is collected. Source contents, credentials and arbitrary paths remain unavailable.",
+      "notes": "Replanned after RED review: board HTTP is display-only and is never an assessor authority. The native collector receives no caller-supplied path, root, URL, port or endpoint. It reads only exact registry-addressed plan metadata beneath configured roots through the single-use capability, projects a strict bounded DTO immediately, revalidates generation and digest after collection, and returns UNKNOWN on every omission, mismatch, alias or parse defect.",
       "checklist": [
         {
-          "text": "Collect every registered active Planner identity and plan manifest using identity-fenced read-only endpoints",
+          "text": "Collect every registered active Planner and configured-root plan manifest through registry-addressed native metadata reads without trusting board HTTP",
           "built": false,
           "tested": false,
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
@@ -1731,7 +1732,7 @@
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
         },
         {
-          "text": "Return UNKNOWN when any registered Planner, configured root, board identity or manifest read is missing, stale or inconsistent",
+          "text": "Return UNKNOWN when any registered Planner, configured root, manifest, generation, digest or filesystem identity is missing, stale, aliased or inconsistent",
           "built": false,
           "tested": false,
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
@@ -1742,7 +1743,8 @@
           "tested": false,
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
         }
-      ]
+      ],
+      "startSha": "505b657c9d36f6ef9176ce47881e61e4e73ebb26"
     },
     {
       "id": "B05",
@@ -2792,6 +2794,115 @@
           "built": false,
           "tested": false,
           "needs": "user"
+        }
+      ]
+    },
+    {
+      "id": "B17",
+      "spineId": "P2",
+      "side": "L",
+      "title": "First-census registry and identity hardening",
+      "status": "pending",
+      "dependsOn": [
+        "B02",
+        "B05"
+      ],
+      "est": {
+        "tokens": 80000,
+        "minutes": 120
+      },
+      "files": [
+        "docs/collision-assessor-guarantee.md",
+        "src-tauri/src/collision_assessor/registry.rs",
+        "src-tauri/src/collision_assessor/identity.rs"
+      ],
+      "resources": [
+        "app-data:collision-assessor-registry",
+        "protocol:registry-census-input",
+        "protocol:windows-filesystem-identity"
+      ],
+      "notes": "Corrective vertebra created after the B04 RED review. It makes the first census possible without a prior census, binds it to a stable canonical digest, bounds every lifetime and configured-root count, and treats hardlinks, reparse aliases, SUBST/mapped-drive ambiguity and unresolvable filesystem identity as UNKNOWN. The guarantee explicitly names plan files plus the registry as authority; board HTTP remains untrusted display transport.",
+      "checklist": [
+        {
+          "text": "Expose a validated first-census snapshot and stable canonical input digest that excludes mutable timestamps and prior census output",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Enforce maximum lease, heartbeat, census age, configured-root, registration, node, file and resource bounds including future-time rejection",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Bind existing roots and plan files to Windows volume and file identity and fail UNKNOWN on hardlink, junction, symlink, SUBST, mapped-drive or reparse ambiguity",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Prove concurrent registry mutation, first-census bootstrap, alias swaps and stale or malformed registrations never yield a complete census input",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        }
+      ]
+    },
+    {
+      "id": "B18",
+      "spineId": "P2",
+      "side": "R",
+      "title": "Single-use native metadata census API",
+      "status": "pending",
+      "dependsOn": [
+        "B03",
+        "B17"
+      ],
+      "est": {
+        "tokens": 80000,
+        "minutes": 120
+      },
+      "files": [
+        "src-tauri/src/collision_assessor/api.rs",
+        "src-tauri/src/collision_assessor/capability.rs",
+        "src-tauri/src/collision_assessor/mod.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/build.rs",
+        "src-tauri/permissions/collision-assessor.toml",
+        "src-tauri/capabilities/main-read-only.json",
+        "src-tauri/permissions/autogenerated/collision_assessor_collect_census.toml"
+      ],
+      "resources": [
+        "tauri:collision-assessor-command-surface",
+        "capability:global-discovery",
+        "protocol:metadata-only-census-command"
+      ],
+      "notes": "Corrective vertebra created after the B04 RED review. The named native command accepts only run ID plus capability token. It has no web/dev fallback and no caller-controlled path, root, URL, host, port, endpoint, shell or process argument. Capability validity and registry generation/digest are checked both before and after collection; every failure consumes or revokes the attempt and returns UNKNOWN.",
+      "checklist": [
+        {
+          "text": "Expose one named native census command whose request contains only run ID and single-use capability token",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Revalidate capability expiry, registry generation and canonical census-input digest after collection before any snapshot can be accepted",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Consume or revoke discovery on timeout, parse failure, metadata overrun, concurrent replay, generation drift or persistence failure",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Prove permissions expose no arbitrary filesystem, board endpoint, browser, shell or process access and deny all non-native fallbacks",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
         }
       ]
     }
