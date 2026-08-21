@@ -129,3 +129,7 @@
 <!-- PP-EVENT 4a8cbf54dc3a7647f92487f386d6ca0c0aefbab36a73937fb6ccdfd792f4ab7b -->
 | 2026-08-21T13:39:58.215Z | Perfect Planner Desktop | PP-001 | Orchestrator messaging | feature/tauri-orchestrator-messaging-20260821-223935 | prove | A05:3 | danielsivyer4567 | s-05f8c444 | exit 0 | 1412c800a89f* | Existing build, Rust tests and browser regression suite remain green | PP-001-A05-3-1787319565391.log, PP-001-A05-3-1787319565391.diff, PP-001-A05-baseline-1787318419532.before.png, PP-001-A05-baseline-1787318419532.before.ocr.txt |
 <!-- PP-EVENT ea565a4b6e22846a8353cbe2535c6ce7b04ca86afdb79fda29493576eb5c89d3 -->
+
+## Orchestrator delivery pointers
+
+- [x] 2026-08-21T15:06:20.355Z — Fail-closed Tauri orchestration pipeline — refs: `6174644101e5` — recover: `git show 6174644101e5:docs/handovers/ORCH-20260822-001/LEFTOVERS.md`
