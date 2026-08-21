@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-orchestrator-evaluate-release"
+description = "Enables the orchestrator_evaluate_release command without any pre-configured scope."
+commands.allow = ["orchestrator_evaluate_release"]
+
+[[permission]]
+identifier = "deny-orchestrator-evaluate-release"
+description = "Denies the orchestrator_evaluate_release command without any pre-configured scope."
+commands.deny = ["orchestrator_evaluate_release"]

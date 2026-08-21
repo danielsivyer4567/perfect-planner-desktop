@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-orchestrator-heartbeat"
+description = "Enables the orchestrator_heartbeat command without any pre-configured scope."
+commands.allow = ["orchestrator_heartbeat"]
+
+[[permission]]
+identifier = "deny-orchestrator-heartbeat"
+description = "Denies the orchestrator_heartbeat command without any pre-configured scope."
+commands.deny = ["orchestrator_heartbeat"]

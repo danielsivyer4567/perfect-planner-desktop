@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-orchestrator-reconcile"
+description = "Enables the orchestrator_reconcile command without any pre-configured scope."
+commands.allow = ["orchestrator_reconcile"]
+
+[[permission]]
+identifier = "deny-orchestrator-reconcile"
+description = "Denies the orchestrator_reconcile command without any pre-configured scope."
+commands.deny = ["orchestrator_reconcile"]

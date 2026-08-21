@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-orchestrator-pipeline-snapshot"
+description = "Enables the orchestrator_pipeline_snapshot command without any pre-configured scope."
+commands.allow = ["orchestrator_pipeline_snapshot"]
+
+[[permission]]
+identifier = "deny-orchestrator-pipeline-snapshot"
+description = "Denies the orchestrator_pipeline_snapshot command without any pre-configured scope."
+commands.deny = ["orchestrator_pipeline_snapshot"]

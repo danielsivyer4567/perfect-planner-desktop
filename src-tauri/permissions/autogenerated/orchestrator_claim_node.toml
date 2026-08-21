@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-orchestrator-claim-node"
+description = "Enables the orchestrator_claim_node command without any pre-configured scope."
+commands.allow = ["orchestrator_claim_node"]
+
+[[permission]]
+identifier = "deny-orchestrator-claim-node"
+description = "Denies the orchestrator_claim_node command without any pre-configured scope."
+commands.deny = ["orchestrator_claim_node"]

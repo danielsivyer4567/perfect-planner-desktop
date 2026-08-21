@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-orchestrator-preflight-inspect"
+description = "Enables the orchestrator_preflight_inspect command without any pre-configured scope."
+commands.allow = ["orchestrator_preflight_inspect"]
+
+[[permission]]
+identifier = "deny-orchestrator-preflight-inspect"
+description = "Denies the orchestrator_preflight_inspect command without any pre-configured scope."
+commands.deny = ["orchestrator_preflight_inspect"]
