@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-board-discovery"
+description = "Allows validated board reads and organization-scoped internal session lease supervision."
+commands.allow = ["discover_boards", "read_board_workers", "read_board_plan", "read_board_evidence", "reconcile_session_leases", "supervisor_snapshot", "recover_board_session"]

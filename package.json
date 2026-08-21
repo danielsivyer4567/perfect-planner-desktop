@@ -7,12 +7,12 @@
     "dev": "vite --port 5180",
     "dev:host": "vite --host --port 5180",
     "build": "tsc && vite build",
+    "test:e2e": "python tests/alarm_e2e.py && python tests/repository_rail_e2e.py && python tests/evidence_e2e.py",
     "preview": "vite preview --port 5180",
     "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
-    "@tauri-apps/plugin-shell": "^2.0.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.475.0",
     "react": "^18.3.1",

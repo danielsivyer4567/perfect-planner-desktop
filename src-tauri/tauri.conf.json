@@ -5,7 +5,7 @@
   "identifier": "com.looplet.perfectplanner",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:5180",
+    "devUrl": "http://127.0.0.1:5180",
     "beforeBuildCommand": "npm run build",
     "beforeDevCommand": "npm run dev"
   },
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Perfect Planner Desktop",
+        "title": "perfect planning · boards",
         "width": 1440,
         "height": 900,
         "resizable": true,
@@ -24,7 +24,25 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost https://asset.localhost data: blob:; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com"
+      "capabilities": [
+        "main-read-only"
+      ],
+      "csp": {
+        "default-src": "'self' customprotocol: asset:",
+        "connect-src": "ipc: http://ipc.localhost",
+        "img-src": "'self' asset: http://asset.localhost data:",
+        "frame-src": "http://127.0.0.1:*",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self'",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "form-action": "'none'"
+      },
+      "headers": {
+        "X-Content-Type-Options": "nosniff",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), usb=(), payment=()"
+      }
     }
   },
   "bundle": {
@@ -40,8 +58,5 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
-  },
-  "plugins": {
-    "shell": {}
   }
 }

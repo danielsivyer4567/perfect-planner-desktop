@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-reconcile-session-leases"
+description = "Enables the reconcile_session_leases command without any pre-configured scope."
+commands.allow = ["reconcile_session_leases"]
+
+[[permission]]
+identifier = "deny-reconcile-session-leases"
+description = "Denies the reconcile_session_leases command without any pre-configured scope."
+commands.deny = ["reconcile_session_leases"]
