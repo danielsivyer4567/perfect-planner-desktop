@@ -1820,4 +1820,181 @@ mod tests {
         assert_eq!(scanned, RUN_CATALOG_CAP);
         assert!(truncated);
     }
+
+    #[test]
+    fn public_commands_complete_archive_and_catalog_a_toy_run() {
+        use super::super::delivery::DeliveryChange;
+        use super::super::evidence::{EvidenceKind, EvidenceProfile, VerificationResult};
+        use super::super::reconcile::{CommitHunk, CommitRecord, PlanNode};
+        use super::super::release::{CiState, PullRequestState};
+
+        let repository = TempRepo::new();
+        let repository_root = repository.0.canonicalize().unwrap();
+        let scope_request = ScopedRunRequest {
+            repository_root: repository_root.clone(),
+            run_id: "run-public-proof".to_string(),
+        };
+        let create = orchestrator_create_run(CreateRunApiRequest {
+            repository_root: repository_root.clone(),
+            run_id: scope_request.run_id.clone(),
+            branch: "feature/public-proof".to_string(),
+            allowed_files: vec![PathBuf::from("src/lib.rs")],
+            next_actions: vec!["claim A01".to_string()],
+            nodes: vec![ScheduledNode {
+                id: "A01".to_string(),
+                wave: 1,
+                depends_on: Vec::new(),
+                attempts: 0,
+                status: NodeStatus::Ready,
+                lease: None,
+                stall_alarm_fence: None,
+            }],
+        })
+        .unwrap();
+        assert!(create.run_dir.starts_with(&repository_root));
+
+        let lease = orchestrator_claim_node(ClaimNodeApiRequest {
+            scope: scope_request.clone(),
+            node_id: "A01".to_string(),
+            worker_id: "worker-1".to_string(),
+            now_ms: 1_000,
+            lease_ms: 60_000,
+        })
+        .unwrap();
+
+        let evidence_root = create.run_dir.join("evidence/A01/worker-1");
+        fs::create_dir_all(&evidence_root).unwrap();
+        let evidence_specs = [
+            (
+                EvidenceKind::CommandOutput,
+                "command-output.txt",
+                b"cargo test: ok".as_slice(),
+            ),
+            (EvidenceKind::ExitCode, "exit-code.txt", b"0".as_slice()),
+            (
+                EvidenceKind::GitDiff,
+                "git-diff.patch",
+                b"diff --git a/src/lib.rs b/src/lib.rs",
+            ),
+        ];
+        let artifacts = evidence_specs
+            .into_iter()
+            .map(|(kind, name, bytes)| {
+                let path = evidence_root.join(name);
+                fs::write(&path, bytes).unwrap();
+                capture_artifact(&evidence_root, &path, kind).unwrap()
+            })
+            .collect::<Vec<_>>();
+        let manifest = WorkerManifest {
+            run_id: scope_request.run_id.clone(),
+            plan_id: "PP-001".to_string(),
+            node_id: "A01".to_string(),
+            allowed_files: vec!["src/lib.rs".to_string()],
+            profile: EvidenceProfile::Headless,
+            verification_commands: vec!["cargo-test".to_string()],
+        };
+        let submission = WorkerSubmission {
+            lease_token: lease.token.clone(),
+            changed_files: vec!["src/lib.rs".to_string()],
+            artifacts,
+            verification: vec![VerificationResult {
+                command_id: "cargo-test".to_string(),
+                exit_code: 0,
+                output_artifact: "command-output.txt".to_string(),
+            }],
+        };
+        let gate = orchestrator_authorize_fenced_completion(FencedCompletionApiRequest {
+            scope: scope_request.clone(),
+            node_id: "A01".to_string(),
+            token: lease.token,
+            now_ms: 2_000,
+            manifest,
+            submission,
+        })
+        .unwrap();
+        assert!(gate.passed);
+
+        let reconciliation = orchestrator_reconcile(ReconcileApiRequest {
+            scope: scope_request.clone(),
+            input: ReconciliationInput {
+                plan_id: "PP-001".to_string(),
+                nodes: vec![PlanNode {
+                    node_id: "A01".to_string(),
+                    manifest_files: vec!["src/lib.rs".to_string()],
+                    declared_outputs: vec!["src/lib.rs".to_string()],
+                }],
+                commits: vec![CommitRecord {
+                    commit_id: "abc123".to_string(),
+                    message: "[PP-001/A01] complete toy run".to_string(),
+                    hunks: vec![CommitHunk {
+                        file: "src/lib.rs".to_string(),
+                    }],
+                }],
+                final_tree_files: vec!["src/lib.rs".to_string()],
+                actual_tree_clean: true,
+                uncommitted_files: Vec::new(),
+                waivers: Vec::new(),
+            },
+        })
+        .unwrap();
+        assert!(reconciliation.passed, "{reconciliation:#?}");
+
+        let merged_release = ReleaseGateInput {
+            dirty_worktree: false,
+            merge_conflicts: Vec::new(),
+            missing_evidence: Vec::new(),
+            unplanned: Vec::new(),
+            unproven: Vec::new(),
+            orphaned: Vec::new(),
+            ci: CiState::Passed,
+            pushed: true,
+            pull_request: PullRequestState::Merged,
+        };
+        let release = orchestrator_evaluate_release(ReleaseApiRequest {
+            scope: scope_request.clone(),
+            input: merged_release.clone(),
+        })
+        .unwrap();
+        assert!(release.merged);
+        assert!(release.issues.is_empty());
+
+        let delivery = orchestrator_deliver(DeliveryApiRequest {
+            scope: scope_request.clone(),
+            release: merged_release,
+            delivery: DeliveryRequest {
+                run_id: scope_request.run_id.clone(),
+                plan_id: "PP-001".to_string(),
+                title: "Public command proof".to_string(),
+                branch: "feature/public-proof".to_string(),
+                commit_sha: "abc123".to_string(),
+                pull_request_url: Some("https://example.test/pull/1".to_string()),
+                merge_sha: Some("def456".to_string()),
+                finished_at: "2026-08-22T00:00:00Z".to_string(),
+                changes: vec![DeliveryChange {
+                    desired: "complete toy run".to_string(),
+                    actual_commit: Some("abc123".to_string()),
+                    status: "SUCCEEDED".to_string(),
+                }],
+                leftovers: Vec::new(),
+            },
+        })
+        .unwrap();
+        assert!(delivery.archive_dir.join("COMPLETION-REPORT.md").is_file());
+        assert!(delivery.handover_dir.join("changes.md").is_file());
+        assert!(repository_root.join("COMPLETE-CHECKLIST.md").is_file());
+        assert!(!create.run_dir.exists());
+
+        let catalog = orchestrator_run_catalog(RunCatalogApiRequest {
+            repository_root: repository_root.clone(),
+        })
+        .unwrap();
+        assert!(catalog.active_runs.is_empty());
+        assert_eq!(catalog.archived_runs.len(), 1);
+        let archived = &catalog.archived_runs[0];
+        assert_eq!(archived.run_id, "run-public-proof");
+        assert_eq!(archived.status, "completed");
+        assert_eq!(archived.completed_nodes, 1);
+        assert_eq!(archived.total_nodes, 1);
+        assert_eq!(archived.repository_root, repository_root);
+    }
 }
