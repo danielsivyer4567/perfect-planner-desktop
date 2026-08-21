@@ -18,3 +18,13 @@
   Suggested next action: benchmark and safely box the large variant in its own manifest-bounded task.
 
 No hidden code, evidence, reconciliation or packaging defect is being deferred by this list.
+
+- `ORCH-LEFT-005` · **resolved** — Independent repetition exposed intermittent Windows error 5
+  (`ERROR_ACCESS_DENIED`) while concurrent writers created the `events.jsonl.append.lock` sidecar.
+  Operation-level diagnostics confirmed the denial occurred before opening or writing `events.jsonl`.
+  Commit `2f61566` now treats only `AlreadyExists`, Windows `ERROR_ACCESS_DENIED` and
+  `ERROR_SHARING_VIOLATION` as bounded lock contention, applies capped backoff during acquisition
+  and release, and preserves the original 160-event completeness and uniqueness assertions.
+  Verification: the unchanged test passed 25/25 focused repetitions, then the complete Rust suite
+  passed 73/73; formatting and warnings-denied Clippy also passed with only the already-recorded
+  `large_enum_variant` allowance. No Tauri API command or permission surface changed.

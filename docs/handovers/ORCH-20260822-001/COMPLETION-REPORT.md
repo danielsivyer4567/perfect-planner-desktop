@@ -30,6 +30,8 @@
 ## Verification
 
 - Rust tests: 73/73 passed.
+- Event-bus contention regression: the unchanged 160-event completeness/uniqueness test passed
+  25/25 focused repetitions after `2f61566`, followed by a complete 73/73 Rust suite.
 - Continuous toy-run proof: public commands created a scoped run, claimed and completed a node with
   rehashed headless evidence, reconciled exact output, evaluated a merged/green release, delivered
   reports, archived the run and returned it only on the completed catalogue shelf.
@@ -67,10 +69,10 @@
 
 ## Recovery
 
-- Human-readable implementation record: this directory.
+- Protective accepted snapshot: `git show safety/orch-20260822-001`
+- Human-readable recovery record: `docs/handovers/ORCH-20260822-001/`
+- Resolved event-bus defect: `git show 2f61566`
 - Execution ledger: `.claude/scratch/ledger.md`
-- Machine run state: `.claude/scratch/orchestrator/<run-id>/`
-- Archived run state: `.claude/scratch/orchestrator/archive/<run-id>/`
 - Disaster-recovery projection: `COMPLETE-CHECKLIST.md`
 - Rebuild installers: `npm run tauri build`
 
