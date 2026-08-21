@@ -133,3 +133,21 @@
 ## Orchestrator delivery pointers
 
 - [x] 2026-08-21T15:06:20.355Z — Fail-closed Tauri orchestration pipeline — refs: `6174644101e5` — recover: `git show 6174644101e5:docs/handovers/ORCH-20260822-001/LEFTOVERS.md`
+| 2026-08-21T16:22:16.100Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5 | s-82db308c |  | c007ad05ceff* | session start |  |
+<!-- PP-EVENT a2b54528278e7a6b46fb549e3f38db361bd6487d1862008c1b68c88a7bf4589e -->
+| 2026-08-21T16:23:17.104Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | await-start |  | ? | s-82db308c |  |  | await approval |  |
+<!-- PP-EVENT 02b46eac98e77a1d5b99bb1e741095125a49775faba2519fd4e422a61957d79f -->
+| 2026-08-21T16:26:50.317Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5 | s-6fa80dfd |  | c007ad05ceff* | session start: refine approval wake-up and visible head-orchestrator communications |  |
+<!-- PP-EVENT cdbdc755f8dc79c0de847241f4f6cf40028cda94260c902e0ce55180a7588f0d -->
+| 2026-08-21T16:29:48.350Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5 | s-6fa80dfd |  | c007ad05ceff* | plan refined: transactional approval-to-chat wake bridge and visible head-orchestrator worker messaging added as B15 and B16; worker claims now depend on delivered approval receipt |  |
+<!-- PP-EVENT 4f87d4ea0cbfc56d936d3281461fb4b7ffb4e5846cc750cd7a7419c73b9bb26f -->
+| 2026-08-21T16:32:42.078Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | approved |  | browser-user | s-9d83ef6f |  |  | Recovered the user approval confirmed in the in-app browser at 2026-08-22 02:31 AEST; submission failed only because the optional prompt() API is unsupported. Scope unchanged. |  |
+<!-- PP-EVENT 6c3d8ac6a0e739e8fcaec4c1980a7bb79b811b14cf725d4a0891f394ba329a84 -->
+| 2026-08-21T16:32:47.826Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | await-end |  | ? | s-82db308c |  |  | await approval -> satisfied after 57 poll(s) |  |
+<!-- PP-EVENT 5ac6331ffce157d0f9c5476ba57bf88cd742930bdc3f6c203b703995e0173f41 -->
+| 2026-08-21T16:33:23.034Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5 | s-6fa80dfd |  | c007ad05ceff* | AMBER: in-app browser APPROVE confirmation succeeded but optional window.prompt is unsupported, so POST /approve never ran. Recovered the exact user-approved submission through the same identity-fenced endpoint. Current watcher reported SATISFIED only after manual polling; automatic task wake-up remains unimplemented and is owned by B15. |  |
+<!-- PP-EVENT 9478692b07ac65ba9f6f0764799eb1cb771d3bf310e934716068d5a8b83c12f4 -->
+| 2026-08-21T16:38:21.503Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5 | s-a1b7589d |  | c007ad05ceff* | session start: begin approved implementation at B01 |  |
+<!-- PP-EVENT 91b3e4b35384757f225ba6f17a72f9790024de4afa52bf8bf81bdf0832abd9ea -->
+| 2026-08-21T16:38:32.210Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | start | B01 | danielsivyer4567 | s-a1b7589d |  | c007ad05ceff* |  |  |
+<!-- PP-EVENT a019009fad8c8c996446e92a2750e65bd248c37ef9b70e9344ccb1868e31a567 -->

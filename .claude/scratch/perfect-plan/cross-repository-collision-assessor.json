@@ -1,0 +1,979 @@
+{
+  "title": "Fail-closed cross-repository Collision Assessor",
+  "goal": "Guarantee that no Perfect Planner-managed worker can receive an edit claim until an independent read-only assessor has proven a complete, fresh, non-overlapping plan and resource snapshot and every approval has produced a durably delivered signal to its registered originating chat, with only ticket-scoped coordination remaining after discovery access is revoked.",
+  "createdAt": "2026-08-22T02:18:45+10:00",
+  "baselineSha": "c007ad05ceff9b4eb3560a84c2c91bdc3acd2414",
+  "approved": "yes @ 2026-08-22",
+  "meta": {
+    "number": "PP-002",
+    "idPrefix": "B",
+    "project": "Perfect Planner Desktop",
+    "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+    "topic": "Cross-repository Collision Assessor",
+    "focus": "one-time read-only global discovery, deterministic file and resource collision analysis, immutable clearance snapshots, transactional approval-to-chat wake-up, visible head-orchestrator and worker messaging, ticket-only walkie-talkie coordination, forced replanning, and fail-closed worker admission",
+    "appUrl": "http://127.0.0.1:5180",
+    "author": {
+      "model": "gpt-5",
+      "user": "danie",
+      "at": "2026-08-22T02:18:45+10:00"
+    }
+  },
+  "protocol": {
+    "version": 1,
+    "rules": null
+  },
+  "spine": [
+    {
+      "id": "P1",
+      "title": "Guarantee and trust boundary",
+      "summary": "Define exactly what is guaranteed, isolate the assessor from orchestrators and workers, and fail closed outside the proven boundary."
+    },
+    {
+      "id": "P2",
+      "title": "Global registry and one-time discovery",
+      "summary": "Build a machine-wide, read-only census with fresh identities, manifests, leases and a single-use capability that is destroyed after assessment."
+    },
+    {
+      "id": "P3",
+      "title": "Deterministic collision proof",
+      "summary": "Normalize logical paths and resources, derive an immutable conflict graph, and issue a tamper-evident verdict only from complete inputs."
+    },
+    {
+      "id": "P4",
+      "title": "Ticket coordination and claim enforcement",
+      "summary": "Turn conflicts into scoped walkie-talkie tickets, make approval wake its registered originating chat, and make every worker claim cryptographically dependent on both live assessor clearance and confirmed approval delivery."
+    },
+    {
+      "id": "P5",
+      "title": "Operator visibility",
+      "summary": "Put a persistent head orchestrator and chat status above P1, keep every worker conversation visible, put the assessor first in the run flow, and make wait, replan, approval-delivery and decision states impossible to miss."
+    },
+    {
+      "id": "P6",
+      "title": "Adversarial certification and rollout",
+      "summary": "Prove races, stale state, crashes, replay, path tricks and 100-planner load before packaging or calling the guarantee active."
+    }
+  ],
+  "vertebrae": [
+    {
+      "id": "B01",
+      "spineId": "P1",
+      "side": "L",
+      "title": "Formal guarantee and threat model",
+      "status": "in-progress",
+      "dependsOn": [],
+      "est": {
+        "tokens": 40000,
+        "minutes": 60
+      },
+      "files": [
+        "docs/collision-assessor-guarantee.md",
+        "src-tauri/src/collision_assessor/model.rs"
+      ],
+      "resources": [
+        "protocol:collision-assessor:v1",
+        "trust-boundary:assessor-orchestrator-worker"
+      ],
+      "notes": "The guarantee covers Perfect Planner-managed workers because their edit claims are mediated. Unmanaged editors and arbitrary external processes cannot be prevented by this app; they must be detected by dirty-state and reconciliation gates. The document must never claim otherwise.",
+      "checklist": [
+        {
+          "text": "Specify the invariant: no managed worker claim exists without a fresh assessor clearance bound to the exact run, node, repository, branch, files and resources",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Define the three separate authorities: assessor observes, head orchestrator decides, worker executes",
+          "built": false,
+          "tested": false,
+          "verify": "node -e \"const fs=require('fs');const s=fs.readFileSync('docs/collision-assessor-guarantee.md','utf8');if(!s.includes('assessor')||!s.includes('orchestrator')||!s.includes('worker'))process.exit(1)\""
+        },
+        {
+          "text": "Document fail-closed outcomes CLEAR, WAIT, REPLAN, USER_DECISION and UNKNOWN with no permissive default",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Document the honest boundary for unmanaged tools, legacy Planners, offline repositories and incomplete configured-root coverage",
+          "built": false,
+          "tested": false,
+          "needs": "user"
+        },
+        {
+          "text": "Specify that board approval alone never unlocks work: a registered originating-chat route and durable delivery receipt are mandatory claim inputs",
+          "built": false,
+          "tested": false,
+          "verify": "node -e \"const fs=require('fs');const s=fs.readFileSync('docs/collision-assessor-guarantee.md','utf8').toLowerCase();if(!s.includes('approval')||!s.includes('delivery receipt')||!s.includes('originating chat'))process.exit(1)\""
+        }
+      ],
+      "startSha": "c007ad05ceff9b4eb3560a84c2c91bdc3acd2414",
+      "startedAt": "2026-08-21T16:38:32.210Z",
+      "startedBy": {
+        "model": null,
+        "user": "danielsivyer4567",
+        "session": "s-a1b7589d",
+        "at": "2026-08-21T16:38:32.210Z"
+      }
+    },
+    {
+      "id": "B02",
+      "spineId": "P2",
+      "side": "R",
+      "title": "Machine-wide Planner registry",
+      "status": "pending",
+      "dependsOn": [
+        "B01"
+      ],
+      "est": {
+        "tokens": 80000,
+        "minutes": 120
+      },
+      "files": [
+        "src-tauri/src/collision_assessor/model.rs",
+        "src-tauri/src/collision_assessor/registry.rs"
+      ],
+      "resources": [
+        "app-data:collision-assessor-registry",
+        "mutex:collision-assessor-registry"
+      ],
+      "notes": "One process-safe registry per Windows user and machine. Every managed Planner must register before plan approval or worker admission. Records carry stable IDs, canonical repo/worktree/branch identity, plan/node manifests, leases, generation and freshness.",
+      "checklist": [
+        {
+          "text": "Persist versioned Planner registrations containing repository, worktree, branch, plan, node, files, resources, lease generation and heartbeat",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Serialize concurrent register, heartbeat, update and unregister operations with an atomic process-safe lock",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Treat stale, malformed, duplicate, partially written or unsupported registry records as UNKNOWN rather than absent",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Record the configured discovery-root census and refuse completeness when any root or registered Planner cannot be accounted for",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        }
+      ]
+    },
+    {
+      "id": "B03",
+      "spineId": "P2",
+      "side": "L",
+      "title": "Single-use discovery capability",
+      "status": "pending",
+      "dependsOn": [
+        "B01"
+      ],
+      "est": {
+        "tokens": 80000,
+        "minutes": 120
+      },
+      "files": [
+        "src-tauri/src/collision_assessor/api.rs",
+        "src-tauri/src/collision_assessor/capability.rs",
+        "src-tauri/src/collision_assessor/mod.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/permissions/collision-assessor.toml",
+        "src-tauri/capabilities/main-read-only.json"
+      ],
+      "resources": [
+        "tauri:collision-assessor-command-surface",
+        "capability:global-discovery"
+      ],
+      "notes": "Discovery is a one-shot capability issued to the assessor, never to the orchestrator or workers. It is bound to a run nonce, registry generation and short deadline. Assessment consumes and revokes it. Ticket operations use a separate narrow authority.",
+      "checklist": [
+        {
+          "text": "Issue a high-entropy, single-use discovery capability bound to run ID, registry generation, repository census and expiry",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Atomically consume and revoke discovery access when the immutable assessment snapshot is created",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Reject replay, expired capability, registry-generation drift and any discovery request after revocation",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Expose only named assessor commands; provide no arbitrary path, shell, process-kill or general cross-repository read command",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        }
+      ]
+    },
+    {
+      "id": "B04",
+      "spineId": "P2",
+      "side": "R",
+      "title": "Read-only census collectors",
+      "status": "pending",
+      "dependsOn": [
+        "B02",
+        "B03"
+      ],
+      "est": {
+        "tokens": 80000,
+        "minutes": 120
+      },
+      "files": [
+        "src-tauri/src/collision_assessor/discovery.rs",
+        "src-tauri/src/lib.rs",
+        "src/services/boards.ts"
+      ],
+      "resources": [
+        "host:perfect-planner-board-window",
+        "host:configured-repository-census"
+      ],
+      "notes": "Reuse identity-fenced /whoami and /plan reads, but move authority into the assessor. Only metadata necessary for collision analysis is collected. Source contents, credentials and arbitrary paths remain unavailable.",
+      "checklist": [
+        {
+          "text": "Collect every registered active Planner identity and plan manifest using identity-fenced read-only endpoints",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Collect only repository identity, branch, worktree, plan/node IDs, file/resource manifests, leases and freshness evidence",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Return UNKNOWN when any registered Planner, configured root, board identity or manifest read is missing, stale or inconsistent",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Prove collectors cannot read source contents or escape the registered plan and repository metadata boundary",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        }
+      ]
+    },
+    {
+      "id": "B05",
+      "spineId": "P3",
+      "side": "L",
+      "title": "Canonical path and resource identity",
+      "status": "pending",
+      "dependsOn": [
+        "B01"
+      ],
+      "est": {
+        "tokens": 40000,
+        "minutes": 75
+      },
+      "files": [
+        "src-tauri/src/collision_assessor/identity.rs"
+      ],
+      "resources": [
+        "protocol:logical-file-identity",
+        "protocol:resource-identity"
+      ],
+      "notes": "The same logical repository file must collide across sibling worktrees and branches even when physical paths differ. Different repositories collide through declared resources such as database tables, ports, services and deployment targets.",
+      "checklist": [
+        {
+          "text": "Normalize Windows case, separators, dot segments, UNC paths, symlinks and junctions without permitting path escape",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Derive a stable logical repository identity and repo-relative file key shared by all worktrees of that repository",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Normalize resource keys for databases, schemas, APIs, ports, services, remotes and deployment targets",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Fail closed on ambiguous globs, unresolved links, missing Git identity and resource keys without an accepted namespace",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        }
+      ]
+    },
+    {
+      "id": "B06",
+      "spineId": "P3",
+      "side": "R",
+      "title": "Deterministic collision graph",
+      "status": "pending",
+      "dependsOn": [
+        "B04",
+        "B05"
+      ],
+      "est": {
+        "tokens": 80000,
+        "minutes": 120
+      },
+      "files": [
+        "src-tauri/src/collision_assessor/analyzer.rs"
+      ],
+      "resources": [
+        "protocol:collision-graph",
+        "protocol:assessor-verdict"
+      ],
+      "notes": "The analyzer is a pure deterministic function over a frozen census. It must never mutate plans or infer that missing data means free capacity.",
+      "checklist": [
+        {
+          "text": "Intersect exact logical file keys, directory and glob expansions, and declared resource keys across every plan and active lease",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Classify collisions as ordering WAIT, invalid-assumption REPLAN, ambiguous USER_DECISION or incomplete UNKNOWN",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Generate stable conflict IDs and identical sorted output for identical census inputs regardless of discovery order",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Refuse CLEAR when any participant, manifest, identity, freshness or configured-root coverage fact is uncertain",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        }
+      ]
+    },
+    {
+      "id": "B07",
+      "spineId": "P3",
+      "side": "L",
+      "title": "Immutable assessment and clearance",
+      "status": "pending",
+      "dependsOn": [
+        "B02",
+        "B03",
+        "B06"
+      ],
+      "est": {
+        "tokens": 80000,
+        "minutes": 120
+      },
+      "files": [
+        "src-tauri/src/collision_assessor/clearance.rs",
+        "src-tauri/src/collision_assessor/journal.rs",
+        "src-tauri/src/collision_assessor/snapshot.rs"
+      ],
+      "resources": [
+        "app-data:collision-assessor-journal",
+        "app-data:collision-assessor-snapshots",
+        "capability:worker-clearance"
+      ],
+      "notes": "Assessment artifacts are immutable and hash-chained. CLEAR issues a short-lived MAC-protected clearance bound to the snapshot hash and exact manifest. WAIT/REPLAN/UNKNOWN never issue clearance.",
+      "checklist": [
+        {
+          "text": "Persist the full census digest, registry generation, participant identities, conflicts, verdict, timestamp and expiry in an immutable snapshot",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Hash-chain assessment, revocation, conflict-ticket and clearance events with torn-write recovery",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Issue clearance only for CLEAR and bind it to snapshot hash, registry generation, run, node, manifest, fence and expiry",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Reject modified snapshots, altered manifests, expired clearances, replayed clearances and any clearance from a prior registry generation",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        }
+      ]
+    },
+    {
+      "id": "B08",
+      "spineId": "P4",
+      "side": "R",
+      "title": "Conflict-ticket walkie-talkie broker",
+      "status": "pending",
+      "dependsOn": [
+        "B06",
+        "B07"
+      ],
+      "est": {
+        "tokens": 80000,
+        "minutes": 120
+      },
+      "files": [
+        "src-tauri/src/collision_assessor/tickets.rs",
+        "src-tauri/src/control_plane.rs",
+        "src-tauri/src/connectors.rs"
+      ],
+      "resources": [
+        "app-data:control-plane-ledger",
+        "protocol:conflict-ticket",
+        "connector:registered-orchestrator-destination"
+      ],
+      "notes": "After discovery revocation, orchestrators may only read and write tickets created by their own assessment. The broker exposes no plan enumeration or repository read path.",
+      "checklist": [
+        {
+          "text": "Create durable tickets naming both plan/node identities, exact colliding files/resources, snapshot hash and required disposition",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Restrict each orchestrator to its own ticket IDs and reject arbitrary plan, repository or ticket enumeration",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Deliver node-done, lease-released, manifest-changed, decision-required and replan-required events idempotently",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Resume ticket delivery after restart without reopening global discovery or losing acknowledgement state",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        }
+      ]
+    },
+    {
+      "id": "B09",
+      "spineId": "P4",
+      "side": "L",
+      "title": "Assessor-gated worker admission",
+      "status": "pending",
+      "dependsOn": [
+        "B03",
+        "B06",
+        "B07",
+        "B15"
+      ],
+      "est": {
+        "tokens": 80000,
+        "minutes": 120
+      },
+      "files": [
+        "src-tauri/src/collision_assessor/admission.rs",
+        "src-tauri/src/orchestrator/api.rs",
+        "src-tauri/src/orchestrator/run_scope.rs",
+        "src-tauri/src/orchestrator/scheduler.rs",
+        "src-tauri/src/orchestrator/worker.rs"
+      ],
+      "resources": [
+        "mutex:worker-claim-admission",
+        "protocol:assessor-clearance",
+        "protocol:worker-fence"
+      ],
+      "notes": "This is the enforcement point that turns assessment into a guarantee. No scheduler or public command may create a claim unless the independent assessor atomically validates and consumes a clearance for that exact node manifest.",
+      "checklist": [
+        {
+          "text": "Require a live assessor clearance and confirmed approval-to-chat delivery receipt before every worker claim, including reassignment and retry",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Atomically reserve the clearance manifest before returning a worker lease so two simultaneous claims cannot both win",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Reject claims after registry generation changes, manifest expansion, clearance expiry, revocation or fence mismatch",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Release reservations only after fenced completion, fenced failure, verified expiry or explicit ticket transition",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        }
+      ]
+    },
+    {
+      "id": "B15",
+      "spineId": "P4",
+      "side": "L",
+      "title": "Transactional approval-to-chat wake bridge",
+      "status": "pending",
+      "dependsOn": [
+        "B07",
+        "B08"
+      ],
+      "est": {
+        "tokens": 80000,
+        "minutes": 120
+      },
+      "files": [
+        "src-tauri/src/approval_bridge.rs",
+        "src-tauri/src/control_plane.rs",
+        "src-tauri/src/connectors.rs",
+        "src-tauri/src/lib.rs",
+        "src/services/boards.ts",
+        "scripts/pp-control.mjs",
+        "tests/approval_chat_bridge_e2e.py"
+      ],
+      "resources": [
+        "app-data:control-plane-ledger",
+        "protocol:approval-transactional-outbox",
+        "connector:registered-originating-chat",
+        "mutex:approval-worker-admission"
+      ],
+      "notes": "The board may record a human click, but that alone never authorizes work. Every managed board must be bound to an explicit originating Codex task registration. The approval transition and its outbox message are idempotent, and worker admission stays blocked until a connector receipt proves delivery. Missing, disabled, dead-lettered or ambiguous routes are RED and visible; no thread ID is guessed from process or window state.",
+      "checklist": [
+        {
+          "text": "Bind each managed board instance to exactly one explicit originating-chat registration using plan path, plan ID, board process identity and a launch nonce without storing arbitrary prompt text",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Route every approval entry point through one approval service that atomically records the approval transition and a durable chat-notification outbox record",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Keep worker admission blocked while approval notification is UNROUTED, QUEUED, CLAIMED, retrying or DEAD LETTER and release it only after a matching delivery receipt",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Make repeated clicks, watcher restarts, connector retries and app restarts produce one logical approval notification with preserved acknowledgement and receipt history",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Use a fixed allowlisted approval notification template so plan text, worker notes and repository content cannot become executable chat instructions",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Prove an APPROVE click reaches the exact registered Codex task, records a delivery receipt and wakes no other task; prove an unregistered route stays visibly blocked",
+          "built": false,
+          "tested": false,
+          "verify": "npm run test:e2e",
+          "ui": true
+        }
+      ]
+    },
+    {
+      "id": "B10",
+      "spineId": "P4",
+      "side": "R",
+      "title": "Wait, replan and decision state machine",
+      "status": "pending",
+      "dependsOn": [
+        "B08",
+        "B09"
+      ],
+      "est": {
+        "tokens": 40000,
+        "minutes": 75
+      },
+      "files": [
+        "src-tauri/src/collision_assessor/coordination.rs",
+        "src-tauri/src/collision_assessor/api.rs",
+        "src-tauri/src/control_plane.rs"
+      ],
+      "resources": [
+        "protocol:orchestrator-coordination",
+        "protocol:mandatory-replan"
+      ],
+      "notes": "The assessor reports facts and state transitions. It never edits plans or makes product decisions. The head orchestrator owns replanning, and material changes return to user approval.",
+      "checklist": [
+        {
+          "text": "Convert ordering-only collisions into durable dependency WAIT edges without granting a worker claim",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Wake a waiting orchestrator on lease release and revalidate only the ticket-scoped facts without restoring global discovery",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Force replanning when the blocker changed a manifest, contract, schema, API or other assumption used by the waiting plan",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Require a new assessment snapshot and user approval after any material replan before claims resume",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        }
+      ]
+    },
+    {
+      "id": "B11",
+      "spineId": "P5",
+      "side": "L",
+      "title": "Assessor-first operator UI",
+      "status": "pending",
+      "dependsOn": [
+        "B04",
+        "B06",
+        "B07",
+        "B08",
+        "B10"
+      ],
+      "est": {
+        "tokens": 80000,
+        "minutes": 120
+      },
+      "files": [
+        "src/components/CollisionAssessorGate.tsx",
+        "src/components/PipelineConsole.tsx",
+        "src/services/collisionAssessor.ts",
+        "src/services/orchestratorPipeline.ts",
+        "src/App.tsx",
+        "src/index.css"
+      ],
+      "resources": [
+        "ui:top-down-pipeline",
+        "ui:decision-notifications",
+        "audio:rising-alarm"
+      ],
+      "notes": "The first visible stage must be the assessor. It shows census completeness, snapshot hash, scan time, revocation proof and conflict tickets. It must never suggest CLEAR from a partial scan.",
+      "checklist": [
+        {
+          "text": "Display Collision Assessor as Step 0 before preflight with registry coverage, freshness and immutable snapshot identity",
+          "built": false,
+          "tested": false,
+          "verify": "npm run build",
+          "ui": true
+        },
+        {
+          "text": "Display CLEAR, WAIT, REPLAN, USER DECISION and UNKNOWN with green reserved exclusively for proven CLEAR",
+          "built": false,
+          "tested": false,
+          "verify": "npm run build",
+          "ui": true
+        },
+        {
+          "text": "Show each red-flag ticket with both plans, nodes, repositories, branches and exact colliding files/resources",
+          "built": false,
+          "tested": false,
+          "verify": "npm run build",
+          "ui": true
+        },
+        {
+          "text": "Show global discovery as revoked after assessment while ticket-only walkie-talkie communication remains active",
+          "built": false,
+          "tested": false,
+          "verify": "npm run build",
+          "ui": true
+        },
+        {
+          "text": "Trigger the single slowly rising alarm and direct chat notification for new decision-required or replan-required tickets",
+          "built": false,
+          "tested": false,
+          "verify": "npm run test:e2e",
+          "ui": true
+        }
+      ]
+    },
+    {
+      "id": "B16",
+      "spineId": "P5",
+      "side": "R",
+      "title": "Head-orchestrator command deck and visible worker chat",
+      "status": "pending",
+      "dependsOn": [
+        "B10",
+        "B11",
+        "B15"
+      ],
+      "est": {
+        "tokens": 80000,
+        "minutes": 120
+      },
+      "files": [
+        "src/App.tsx",
+        "src/components/OrchestratorMessenger.tsx",
+        "src/services/controlPlane.ts",
+        "src/index.css",
+        "tests/control_connector_e2e.py",
+        "tests/orchestrator_messenger_e2e.py"
+      ],
+      "resources": [
+        "ui:head-orchestrator-above-p1",
+        "ui:worker-message-transcripts",
+        "protocol:worker-orchestrator-chat",
+        "connector:registered-originating-chat"
+      ],
+      "notes": "Reuse and harden the existing head-orchestrator strip and OrchestratorMessenger rather than creating a second messaging surface. The head is always above P1 for the active repository and plan. Messages are immutable, scoped, attributed and delivery-aware; a visual bubble never implies that a chat was actually notified.",
+      "checklist": [
+        {
+          "text": "Keep one distinctive head-orchestrator icon and identity card above P1 showing repository, plan, branch, lease, assessor verdict, approval delivery and current status",
+          "built": false,
+          "tested": false,
+          "verify": "npm run build",
+          "ui": true
+        },
+        {
+          "text": "Show a persistent orchestrator chat-status box with inbox, outbox, unrouted, retrying, dead-letter and last-delivered counts without hiding failures",
+          "built": false,
+          "tested": false,
+          "verify": "npm run build",
+          "ui": true
+        },
+        {
+          "text": "Give every visible worker a message badge that opens only that worker and node transcript with sender, receiver, correlation ID, timestamp, delivery state and acknowledgement",
+          "built": false,
+          "tested": false,
+          "verify": "npm run test:e2e",
+          "ui": true
+        },
+        {
+          "text": "Prove worker-to-orchestrator notes and orchestrator-to-worker replies survive restart, remain append-only and cannot cross organization, repository, plan, node or worker boundaries",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Let the orchestrator escalate an attributed worker message to the registered originating chat while displaying QUEUED through DELIVERED or DEAD LETTER truthfully",
+          "built": false,
+          "tested": false,
+          "verify": "npm run test:e2e",
+          "ui": true
+        },
+        {
+          "text": "Capture the complete top-down visual: head orchestrator, live status chat, worker message bubbles, assessor Step 0 and P1 in one high-resolution proof",
+          "built": false,
+          "tested": false,
+          "verify": "npm run test:e2e",
+          "ui": true
+        }
+      ]
+    },
+    {
+      "id": "B12",
+      "spineId": "P6",
+      "side": "R",
+      "title": "Adversarial native certification",
+      "status": "pending",
+      "dependsOn": [
+        "B02",
+        "B03",
+        "B04",
+        "B05",
+        "B06",
+        "B07",
+        "B08",
+        "B09",
+        "B10",
+        "B15"
+      ],
+      "est": {
+        "tokens": 80000,
+        "minutes": 150
+      },
+      "files": [
+        "src-tauri/tests/collision_assessor_contract.rs",
+        "src-tauri/tests/collision_assessor_races.rs"
+      ],
+      "resources": [
+        "test:collision-assessor-contract",
+        "test:collision-assessor-races"
+      ],
+      "notes": "Tests must attack the guarantee rather than just exercise happy paths. Assertions may not be weakened to accommodate timing or Windows behavior.",
+      "checklist": [
+        {
+          "text": "Prove 100 simulated Planners with overlapping manifests never receive simultaneous conflicting claims",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Prove simultaneous claim races, process restarts, partial writes and assessor crashes fail closed without lost reservations",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Prove replayed tokens, stale generations, manifest expansion, symlink/junction tricks, case changes and path escapes are rejected",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Prove incomplete registry coverage, unreachable boards and malformed records produce UNKNOWN and zero worker claims",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Run at least 50 repeated high-contention certification loops on Windows with complete uniqueness and admission assertions",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        }
+      ]
+    },
+    {
+      "id": "B13",
+      "spineId": "P6",
+      "side": "L",
+      "title": "Browser and Tauri workflow proof",
+      "status": "pending",
+      "dependsOn": [
+        "B11",
+        "B12",
+        "B16"
+      ],
+      "est": {
+        "tokens": 40000,
+        "minutes": 90
+      },
+      "files": [
+        "tests/collision_assessor_e2e.py",
+        "package.json"
+      ],
+      "resources": [
+        "test:chrome-headless",
+        "test:tauri-webview2",
+        "artifact:collision-assessor-before-after"
+      ],
+      "notes": "Use isolated Chrome for repeatable automation and the packaged Tauri WebView2 for one native interaction pass. Evidence must include before/after screenshots, Git diff, console/network status and the exact conflict ticket shown.",
+      "checklist": [
+        {
+          "text": "Prove a clear census advances to preflight and visibly shows discovery revocation",
+          "built": false,
+          "tested": false,
+          "verify": "npm run test:e2e",
+          "ui": true
+        },
+        {
+          "text": "Prove overlapping plans block claims, raise the red ticket and show both exact path owners",
+          "built": false,
+          "tested": false,
+          "verify": "npm run test:e2e",
+          "ui": true
+        },
+        {
+          "text": "Prove lease release wakes the waiting orchestrator without reopening global discovery",
+          "built": false,
+          "tested": false,
+          "verify": "npm run test:e2e",
+          "ui": true
+        },
+        {
+          "text": "Capture zero browser console errors, page errors, failed requests and unexpected HTTP failures",
+          "built": false,
+          "tested": false,
+          "verify": "npm run test:e2e"
+        },
+        {
+          "text": "Capture one packaged Tauri WebView2 pass proving the native command permissions and assessor-first workflow",
+          "built": false,
+          "tested": false,
+          "needs": "user"
+        }
+      ]
+    },
+    {
+      "id": "B14",
+      "spineId": "P6",
+      "side": "R",
+      "title": "Fail-closed rollout and recovery",
+      "status": "pending",
+      "dependsOn": [
+        "B12",
+        "B13"
+      ],
+      "est": {
+        "tokens": 40000,
+        "minutes": 90
+      },
+      "files": [
+        "docs/collision-assessor-rollout.md",
+        "docs/handovers/COLLISION-ASSESSOR/COMPLETION-REPORT.md",
+        "docs/handovers/COLLISION-ASSESSOR/LEFTOVERS.md",
+        "docs/handovers/COLLISION-ASSESSOR/changes.md"
+      ],
+      "resources": [
+        "release:perfect-planner-desktop",
+        "recovery:collision-assessor",
+        "policy:fail-closed-admission"
+      ],
+      "notes": "Shadow observation may be used during development, but the guarantee is not active and no release may be called green until enforcement mode is mandatory, legacy/unregistered Planners block admission, and all certification evidence is attached.",
+      "checklist": [
+        {
+          "text": "Document migration from current board discovery and repository-scoped catalogues into the machine-wide registry",
+          "built": false,
+          "tested": false,
+          "verify": "node -e \"const fs=require('fs');if(!fs.existsSync('docs/collision-assessor-rollout.md'))process.exit(1)\""
+        },
+        {
+          "text": "Make assessor absence, legacy unregistered Planner state and unsupported registry schema hard release blockers",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Run formatting, full Rust suite, warnings-denied Clippy, TypeScript build, all browser E2E and packaged Tauri build",
+          "built": false,
+          "tested": false,
+          "verify": "npm run build"
+        },
+        {
+          "text": "Record installer hashes, immutable assessment artifacts, recovery commands and all honest limitations in the handover trio",
+          "built": false,
+          "tested": false,
+          "verify": "node -e \"const fs=require('fs');for(const p of ['docs/handovers/COLLISION-ASSESSOR/COMPLETION-REPORT.md','docs/handovers/COLLISION-ASSESSOR/LEFTOVERS.md','docs/handovers/COLLISION-ASSESSOR/changes.md'])if(!fs.existsSync(p))process.exit(1)\""
+        },
+        {
+          "text": "User confirms the displayed guarantee boundary, conflict workflow and recovery procedure before release is called complete",
+          "built": false,
+          "tested": false,
+          "needs": "user"
+        }
+      ]
+    }
+  ]
+}
