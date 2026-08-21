@@ -56,6 +56,8 @@ pub enum IdentityError {
     MissingResourceNamespace,
     UnsupportedResourceNamespace(String),
     InvalidResource(String),
+    AmbiguousPhysicalIdentity(String),
+    UnexpectedPhysicalType,
 }
 
 impl fmt::Display for IdentityError {
@@ -87,6 +89,12 @@ impl fmt::Display for IdentityError {
                 write!(formatter, "unsupported resource namespace: {namespace}")
             }
             Self::InvalidResource(reason) => write!(formatter, "invalid resource identity: {reason}"),
+            Self::AmbiguousPhysicalIdentity(reason) => {
+                write!(formatter, "ambiguous physical filesystem identity: {reason}")
+            }
+            Self::UnexpectedPhysicalType => {
+                write!(formatter, "physical path has an unexpected filesystem type")
+            }
         }
     }
 }
@@ -132,6 +140,59 @@ impl LogicalFileIdentity {
 pub struct ResourceIdentity {
     pub namespace: String,
     pub canonical_key: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PhysicalPathKind {
+    Directory,
+    RegularFile,
+}
+
+/// An operating-system-issued identity for an existing local path. Display paths are retained
+/// only for native collection; equality authority is the volume/file tuple.
+#[derive(Debug, Clone)]
+pub(crate) struct PhysicalPathIdentity {
+    pub(crate) canonical_path: PathBuf,
+    pub(crate) volume_id: u64,
+    pub(crate) file_id: [u8; 16],
+}
+
+impl PartialEq for PhysicalPathIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        (self.volume_id, self.file_id) == (other.volume_id, other.file_id)
+    }
+}
+
+impl Eq for PhysicalPathIdentity {}
+
+impl PartialOrd for PhysicalPathIdentity {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PhysicalPathIdentity {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (self.volume_id, self.file_id).cmp(&(other.volume_id, other.file_id))
+    }
+}
+
+/// Bind an existing local directory or regular file to its physical filesystem object.
+///
+/// Reparse points, remote or substituted drive mappings, and unstable/zero identifiers are
+/// denied. Stable hardlinks deliberately share an identity and therefore collide. Callers must
+/// re-run this function before consuming a snapshot; path text is never an identity fallback.
+pub(crate) fn physical_path_identity(
+    path: &Path,
+    expected: PhysicalPathKind,
+) -> Result<PhysicalPathIdentity, IdentityError> {
+    if !path.is_absolute() {
+        return Err(IdentityError::AmbiguousPhysicalIdentity(
+            "path is not absolute".to_owned(),
+        ));
+    }
+    reject_reparse_ancestors(path)?;
+    platform_physical_path_identity(path, expected)
 }
 
 /// Turn a read-only Git `--git-common-dir` result into the machine-local repository identity.
@@ -308,6 +369,11 @@ pub fn canonical_resource_identity(raw: &str) -> Result<ResourceIdentity, Identi
     })
 }
 
+pub(crate) fn canonical_declared_path(raw: &str) -> Result<String, IdentityError> {
+    let normalized = normalize_declared_relative_path(raw)?;
+    normalized_repository_relative_path(&normalized)
+}
+
 fn normalize_declared_relative_path(raw: &str) -> Result<PathBuf, IdentityError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -437,6 +503,281 @@ fn normalize_resource_component(raw: &str) -> Result<String, IdentityError> {
         ));
     }
     Ok(pieces.join("/"))
+}
+
+fn reject_reparse_ancestors(path: &Path) -> Result<(), IdentityError> {
+    let mut cursor = Some(path);
+    while let Some(candidate) = cursor {
+        let metadata = fs::symlink_metadata(candidate).map_err(|_| {
+            IdentityError::AmbiguousPhysicalIdentity(
+                "an existing authority path cannot be inspected".to_owned(),
+            )
+        })?;
+        if metadata.file_type().is_symlink() {
+            return Err(IdentityError::AmbiguousPhysicalIdentity(
+                "a symbolic-link authority path is not accepted".to_owned(),
+            ));
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+            if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                return Err(IdentityError::AmbiguousPhysicalIdentity(
+                    "a reparse-point authority path is not accepted".to_owned(),
+                ));
+            }
+        }
+        cursor = candidate.parent();
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn platform_physical_path_identity(
+    path: &Path,
+    expected: PhysicalPathKind,
+) -> Result<PhysicalPathIdentity, IdentityError> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Prefix;
+
+    const FILE_READ_ATTRIBUTES: u32 = 0x0000_0080;
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+    const FILE_SHARE_DELETE: u32 = 0x0000_0004;
+    const OPEN_EXISTING: u32 = 3;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+    const FILE_ID_INFO_CLASS: i32 = 18;
+    const DRIVE_FIXED: u32 = 3;
+    const INVALID_HANDLE_VALUE: *mut std::ffi::c_void = -1_isize as *mut std::ffi::c_void;
+
+    #[repr(C)]
+    struct FileTime {
+        low: u32,
+        high: u32,
+    }
+
+    #[repr(C)]
+    struct ByHandleFileInformation {
+        attributes: u32,
+        creation_time: FileTime,
+        last_access_time: FileTime,
+        last_write_time: FileTime,
+        volume_serial_number: u32,
+        file_size_high: u32,
+        file_size_low: u32,
+        number_of_links: u32,
+        file_index_high: u32,
+        file_index_low: u32,
+    }
+
+    #[repr(C)]
+    struct FileIdInfo {
+        volume_serial_number: u64,
+        file_id: [u8; 16],
+    }
+
+    #[link(name = "Kernel32")]
+    unsafe extern "system" {
+        fn CreateFileW(
+            file_name: *const u16,
+            desired_access: u32,
+            share_mode: u32,
+            security_attributes: *mut std::ffi::c_void,
+            creation_disposition: u32,
+            flags_and_attributes: u32,
+            template_file: *mut std::ffi::c_void,
+        ) -> *mut std::ffi::c_void;
+        fn GetFileInformationByHandle(
+            handle: *mut std::ffi::c_void,
+            information: *mut ByHandleFileInformation,
+        ) -> i32;
+        fn GetFileInformationByHandleEx(
+            handle: *mut std::ffi::c_void,
+            information_class: i32,
+            information: *mut std::ffi::c_void,
+            size: u32,
+        ) -> i32;
+        fn GetDriveTypeW(root_path_name: *const u16) -> u32;
+        fn QueryDosDeviceW(device_name: *const u16, target_path: *mut u16, max_chars: u32) -> u32;
+    }
+
+    let drive = match path.components().next() {
+        Some(std::path::Component::Prefix(prefix)) => match prefix.kind() {
+            Prefix::Disk(letter) | Prefix::VerbatimDisk(letter) => letter,
+            _ => {
+                return Err(IdentityError::AmbiguousPhysicalIdentity(
+                    "UNC, device and volume aliases are not accepted as authority paths".to_owned(),
+                ))
+            }
+        },
+        _ => {
+            return Err(IdentityError::AmbiguousPhysicalIdentity(
+                "path has no local drive identity".to_owned(),
+            ))
+        }
+    };
+    let drive_root = format!("{}:\\", drive as char);
+    let encoded_root = std::ffi::OsStr::new(&drive_root)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    // SAFETY: `encoded_root` is a live, NUL-terminated UTF-16 buffer.
+    if unsafe { GetDriveTypeW(encoded_root.as_ptr()) } != DRIVE_FIXED {
+        return Err(IdentityError::AmbiguousPhysicalIdentity(
+            "authority path is not on a fixed local drive".to_owned(),
+        ));
+    }
+    let device = format!("{}:", drive as char);
+    let encoded_device = std::ffi::OsStr::new(&device)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let mut target = vec![0_u16; 4096];
+    // SAFETY: input and output buffers are valid for the duration of this call.
+    let target_len = unsafe {
+        QueryDosDeviceW(
+            encoded_device.as_ptr(),
+            target.as_mut_ptr(),
+            target.len() as u32,
+        )
+    };
+    if target_len == 0 {
+        return Err(IdentityError::AmbiguousPhysicalIdentity(
+            "drive mapping cannot be resolved".to_owned(),
+        ));
+    }
+    let mapped = String::from_utf16_lossy(&target[..target_len as usize])
+        .trim_matches('\0')
+        .to_owned();
+    if mapped.starts_with(r"\??\") || !mapped.starts_with(r"\Device\HarddiskVolume") {
+        return Err(IdentityError::AmbiguousPhysicalIdentity(
+            "SUBST or mapped-drive authority paths are not accepted".to_owned(),
+        ));
+    }
+
+    let canonical_path = path.canonicalize().map_err(|_| {
+        IdentityError::AmbiguousPhysicalIdentity(
+            "authority path cannot be canonically resolved".to_owned(),
+        )
+    })?;
+    let encoded = canonical_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    // SAFETY: the path buffer is valid and the returned handle is closed by the local guard.
+    let handle = unsafe {
+        CreateFileW(
+            encoded.as_ptr(),
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            std::ptr::null_mut(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(IdentityError::AmbiguousPhysicalIdentity(
+            "authority path cannot be opened for identity".to_owned(),
+        ));
+    }
+    struct Handle(*mut std::ffi::c_void);
+    impl Drop for Handle {
+        fn drop(&mut self) {
+            #[link(name = "Kernel32")]
+            unsafe extern "system" {
+                fn CloseHandle(handle: *mut std::ffi::c_void) -> i32;
+            }
+            // SAFETY: this guard uniquely owns the handle.
+            let _ = unsafe { CloseHandle(self.0) };
+        }
+    }
+    let handle = Handle(handle);
+    let mut basic = std::mem::MaybeUninit::<ByHandleFileInformation>::zeroed();
+    // SAFETY: `basic` points to correctly sized writable storage.
+    if unsafe { GetFileInformationByHandle(handle.0, basic.as_mut_ptr()) } == 0 {
+        return Err(IdentityError::AmbiguousPhysicalIdentity(
+            "authority path metadata identity is unavailable".to_owned(),
+        ));
+    }
+    // SAFETY: the call above initialized `basic` on success.
+    let basic = unsafe { basic.assume_init() };
+    if basic.attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(IdentityError::AmbiguousPhysicalIdentity(
+            "authority path resolved to a reparse point".to_owned(),
+        ));
+    }
+    let is_directory = basic.attributes & FILE_ATTRIBUTE_DIRECTORY != 0;
+    if is_directory != matches!(expected, PhysicalPathKind::Directory) {
+        return Err(IdentityError::UnexpectedPhysicalType);
+    }
+    let mut file_id = std::mem::MaybeUninit::<FileIdInfo>::zeroed();
+    // SAFETY: `file_id` is correctly sized writable storage for FILE_ID_INFO.
+    if unsafe {
+        GetFileInformationByHandleEx(
+            handle.0,
+            FILE_ID_INFO_CLASS,
+            file_id.as_mut_ptr().cast(),
+            std::mem::size_of::<FileIdInfo>() as u32,
+        )
+    } == 0
+    {
+        return Err(IdentityError::AmbiguousPhysicalIdentity(
+            "128-bit file identity is unavailable".to_owned(),
+        ));
+    }
+    // SAFETY: the call above initialized `file_id` on success.
+    let file_id = unsafe { file_id.assume_init() };
+    if file_id.volume_serial_number == 0 || file_id.file_id == [0; 16] {
+        return Err(IdentityError::AmbiguousPhysicalIdentity(
+            "filesystem returned a zero authority identity".to_owned(),
+        ));
+    }
+    Ok(PhysicalPathIdentity {
+        canonical_path,
+        volume_id: file_id.volume_serial_number,
+        file_id: file_id.file_id,
+    })
+}
+
+#[cfg(not(windows))]
+fn platform_physical_path_identity(
+    path: &Path,
+    expected: PhysicalPathKind,
+) -> Result<PhysicalPathIdentity, IdentityError> {
+    use std::os::unix::fs::MetadataExt;
+
+    let canonical_path = path.canonicalize().map_err(|_| {
+        IdentityError::AmbiguousPhysicalIdentity(
+            "authority path cannot be canonically resolved".to_owned(),
+        )
+    })?;
+    let metadata = fs::metadata(&canonical_path).map_err(|_| {
+        IdentityError::AmbiguousPhysicalIdentity(
+            "authority path metadata is unavailable".to_owned(),
+        )
+    })?;
+    if metadata.is_dir() != matches!(expected, PhysicalPathKind::Directory)
+        || (!metadata.is_dir() && !metadata.is_file())
+    {
+        return Err(IdentityError::UnexpectedPhysicalType);
+    }
+    if metadata.dev() == 0 || metadata.ino() == 0 {
+        return Err(IdentityError::AmbiguousPhysicalIdentity(
+            "filesystem returned a zero authority identity".to_owned(),
+        ));
+    }
+    let mut file_id = [0_u8; 16];
+    file_id[..8].copy_from_slice(&metadata.ino().to_le_bytes());
+    Ok(PhysicalPathIdentity {
+        canonical_path,
+        volume_id: metadata.dev(),
+        file_id,
+    })
 }
 
 #[cfg(windows)]
@@ -773,6 +1114,50 @@ mod tests {
                 "{resource} must be denied"
             );
         }
+    }
+
+    #[test]
+    fn physical_identity_distinguishes_objects_and_collapses_hardlinks() {
+        let fixture = Fixture::new();
+        let first = fixture.root.join("first.json");
+        let second = fixture.root.join("second.json");
+        fs::write(&first, b"same bytes").unwrap();
+        fs::write(&second, b"same bytes").unwrap();
+        let first_identity = physical_path_identity(&first, PhysicalPathKind::RegularFile).unwrap();
+        let second_identity =
+            physical_path_identity(&second, PhysicalPathKind::RegularFile).unwrap();
+        assert_ne!(first_identity, second_identity);
+
+        let alias = fixture.root.join("first-hardlink.json");
+        fs::hard_link(&first, &alias).unwrap();
+        let original = physical_path_identity(&first, PhysicalPathKind::RegularFile).unwrap();
+        let hardlink = physical_path_identity(&alias, PhysicalPathKind::RegularFile).unwrap();
+        assert_eq!(original, hardlink);
+    }
+
+    #[test]
+    fn physical_identity_changes_when_a_path_is_recreated() {
+        let fixture = Fixture::new();
+        let path = fixture.root.join("replaceable.json");
+        fs::write(&path, b"first").unwrap();
+        let before = physical_path_identity(&path, PhysicalPathKind::RegularFile).unwrap();
+        fs::remove_file(&path).unwrap();
+        fs::write(&path, b"second").unwrap();
+        let after = physical_path_identity(&path, PhysicalPathKind::RegularFile).unwrap();
+        assert_ne!(before, after);
+    }
+
+    #[test]
+    fn physical_identity_rejects_directory_aliases() {
+        let fixture = Fixture::new();
+        let target = fixture.root.join("physical-target");
+        let alias = fixture.root.join("physical-alias");
+        fs::create_dir_all(&target).unwrap();
+        create_directory_alias(&alias, &target);
+        assert!(matches!(
+            physical_path_identity(&alias, PhysicalPathKind::Directory),
+            Err(IdentityError::AmbiguousPhysicalIdentity(_))
+        ));
     }
 
     #[cfg(windows)]

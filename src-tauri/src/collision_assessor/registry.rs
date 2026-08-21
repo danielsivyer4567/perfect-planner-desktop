@@ -5,8 +5,13 @@
 //! is serialized by an operating-system-backed lock and published with atomic replacement.
 //! Invalid state is reported as `UNKNOWN`; it is never interpreted as an empty registry.
 
+use super::identity::{
+    canonical_declared_path, canonical_resource_identity, physical_path_identity,
+    PhysicalPathIdentity, PhysicalPathKind,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::ffi::OsString;
@@ -25,7 +30,15 @@ const DEFAULT_LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_REGISTRY_BYTES: u64 = 8 * 1024 * 1024;
 const MIN_LEASE_MS: u64 = 1_000;
 const MAX_LEASE_MS: u64 = 24 * 60 * 60 * 1_000;
+const MAX_CENSUS_TTL_MS: u64 = 10 * 60 * 1_000;
 const MAX_TEXT_BYTES: usize = 4_096;
+const MAX_CONFIGURED_ROOTS: usize = 128;
+const MAX_REGISTRATIONS: usize = 512;
+const MAX_NODES_PER_REGISTRATION: usize = 2_048;
+const MAX_FILES_PER_MANIFEST: usize = 8_192;
+const MAX_RESOURCES_PER_MANIFEST: usize = 2_048;
+const MAX_CENSUS_PLANNERS_PER_ROOT: usize = MAX_REGISTRATIONS;
+const MAX_TOTAL_MANIFEST_ENTRIES: usize = 65_536;
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,6 +87,18 @@ pub struct ConfiguredDiscoveryRoot {
     pub canonical_path: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum DiscoveryFailureCode {
+    AccessDenied,
+    Missing,
+    Unreadable,
+    Malformed,
+    Unsupported,
+    IdentityAmbiguous,
+    LimitExceeded,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DiscoveryRootCensus {
@@ -82,7 +107,7 @@ pub struct DiscoveryRootCensus {
     #[serde(default)]
     pub planner_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub failure: Option<String>,
+    pub failure: Option<DiscoveryFailureCode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,6 +135,34 @@ pub struct RegistryDocument {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CensusInputAttestation {
+    pub(crate) registry_generation: u64,
+    pub(crate) input_digest: [u8; 32],
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ValidatedDiscoveryRoot {
+    pub(crate) root_id: String,
+    pub(crate) path: PathBuf,
+    pub(crate) identity: PhysicalPathIdentity,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ValidatedPlannerRegistration {
+    pub(crate) registration: PlannerRegistration,
+    pub(crate) repository_root_identity: PhysicalPathIdentity,
+    pub(crate) worktree_root_identity: PhysicalPathIdentity,
+    pub(crate) plan_identity: PhysicalPathIdentity,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct CensusInputSnapshot {
+    pub(crate) attestation: CensusInputAttestation,
+    pub(crate) configured_roots: Vec<ValidatedDiscoveryRoot>,
+    pub(crate) registrations: Vec<ValidatedPlannerRegistration>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RegistryIssue {
     MissingRegistry,
     Unreadable(String),
@@ -128,6 +181,11 @@ pub enum RegistryIssue {
         planner_id: String,
         heartbeat_at_ms: u64,
     },
+    FutureDocumentUpdate(u64),
+    FutureRegistrationTime {
+        planner_id: String,
+        timestamp_ms: u64,
+    },
     MissingCensus,
     CensusGenerationMismatch {
         registry_generation: u64,
@@ -140,7 +198,7 @@ pub enum RegistryIssue {
     DuplicateRootCensus(String),
     UnreachableRoot {
         root_id: String,
-        failure: Option<String>,
+        failure: Option<DiscoveryFailureCode>,
     },
     DuplicateObservedPlanner(String),
     UnaccountedPlanner(String),
@@ -298,6 +356,20 @@ impl PlannerRegistryStore {
         inspect_registry_file(self.path.as_path(), now_ms)
     }
 
+    /// Capture the exact authority input for a first or subsequent census. Prior census output
+    /// is intentionally ignored, but malformed state, stale registrations and ambiguous native
+    /// filesystem identities remain fatal. The registry mutex keeps this load and validation
+    /// atomic with respect to every registry mutation.
+    pub(crate) fn census_input_snapshot(
+        &self,
+        now_ms: u64,
+    ) -> Result<CensusInputSnapshot, RegistryError> {
+        validate_timestamp("census snapshot time", now_ms)?;
+        let _lock = RegistryLock::acquire(self.path.as_path(), self.lock_timeout)?;
+        let document = load_document(self.path.as_path()).map_err(RegistryError::UnknownState)?;
+        build_census_input_snapshot(&document, now_ms)
+    }
+
     pub fn register(
         &self,
         seed: PlannerRegistrationSeed,
@@ -433,17 +505,55 @@ impl PlannerRegistryStore {
         census: DiscoveryCensus,
         now_ms: u64,
     ) -> Result<DiscoveryCensus, RegistryError> {
+        let snapshot = self.census_input_snapshot(now_ms)?;
+        self.record_census_if_unchanged(&snapshot.attestation, census, now_ms)
+    }
+
+    /// Atomically publish census output only if the authority input still matches the snapshot
+    /// that was collected. Rechecking both generation and digest under the write lock closes the
+    /// mutation/path-swap window between collection and persistence.
+    pub(crate) fn record_census_if_unchanged(
+        &self,
+        expected: &CensusInputAttestation,
+        census: DiscoveryCensus,
+        now_ms: u64,
+    ) -> Result<DiscoveryCensus, RegistryError> {
+        validate_timestamp("census record time", now_ms)?;
         validate_census_shape(&census)?;
-        self.mutate(now_ms, false, move |document| {
-            if census.registry_generation != document.generation {
-                return Err(RegistryError::Conflict(format!(
-                    "census generation {} does not match registry generation {}",
-                    census.registry_generation, document.generation
-                )));
-            }
-            document.census = Some(census.clone());
-            Ok(census)
-        })
+        validate_census_time(&census, now_ms)?;
+        let _lock = RegistryLock::acquire(self.path.as_path(), self.lock_timeout)?;
+        let mut document =
+            load_document(self.path.as_path()).map_err(RegistryError::UnknownState)?;
+        let current = build_census_input_snapshot(&document, now_ms)?;
+        if &current.attestation != expected {
+            return Err(RegistryError::Conflict(
+                "registry census authority changed during collection".into(),
+            ));
+        }
+        if census.registry_generation != current.attestation.registry_generation {
+            return Err(RegistryError::Conflict(format!(
+                "census generation {} does not match registry generation {}",
+                census.registry_generation, current.attestation.registry_generation
+            )));
+        }
+        validate_census_roots(&census, &current.configured_roots)?;
+        if document
+            .census
+            .as_ref()
+            .is_some_and(|prior| prior.captured_at_ms >= census.captured_at_ms)
+        {
+            return Err(RegistryError::Conflict(
+                "census output is not newer than the recorded census".into(),
+            ));
+        }
+        document.updated_at_ms = now_ms;
+        document.census = Some(census.clone());
+        let issues = validate_document_static(&document);
+        if !issues.is_empty() {
+            return Err(RegistryError::UnknownState(issues));
+        }
+        persist_document(self.path.as_path(), &document)?;
+        Ok(census)
     }
 
     fn mutate<T>(
@@ -463,7 +573,7 @@ impl PlannerRegistryStore {
             ))
         })?;
         let _lock = RegistryLock::acquire(self.path.as_path(), self.lock_timeout)?;
-        let mut document = load_document_for_mutation(self.path.as_path())?;
+        let mut document = load_document_for_mutation(self.path.as_path(), now_ms)?;
         let result = operation(&mut document)?;
         if advance_generation {
             document.generation = document
@@ -493,6 +603,7 @@ fn inspect_registry_file(path: &Path, now_ms: u64) -> RegistryRead {
         }
     };
     let mut issues = validate_document_static(&document);
+    issues.extend(validate_authority_time(&document, now_ms));
     issues.extend(validate_completeness(&document, now_ms));
     if issues.is_empty() {
         RegistryRead::Complete(document)
@@ -505,9 +616,10 @@ fn inspect_registry_file(path: &Path, now_ms: u64) -> RegistryRead {
     }
 }
 
-fn load_document_for_mutation(path: &Path) -> Result<RegistryDocument, RegistryError> {
+fn load_document_for_mutation(path: &Path, now_ms: u64) -> Result<RegistryDocument, RegistryError> {
     let document = load_document(path).map_err(RegistryError::UnknownState)?;
-    let issues = validate_document_static(&document);
+    let mut issues = validate_document_static(&document);
+    issues.extend(validate_authority_time(&document, now_ms));
     if issues.is_empty() {
         Ok(document)
     } else {
@@ -564,8 +676,25 @@ fn validate_document_static(document: &RegistryDocument) -> Vec<RegistryIssue> {
         ));
     }
 
+    if document.registrations.len() > MAX_REGISTRATIONS {
+        issues.push(RegistryIssue::InvalidDocument(format!(
+            "registration count exceeds {MAX_REGISTRATIONS}"
+        )));
+    }
+    if document.configured_roots.len() > MAX_CONFIGURED_ROOTS {
+        issues.push(RegistryIssue::InvalidDocument(format!(
+            "configured root count exceeds {MAX_CONFIGURED_ROOTS}"
+        )));
+    }
+
     let mut planner_ids = BTreeSet::new();
+    let mut last_planner = None::<&str>;
     for registration in &document.registrations {
+        if last_planner.is_some_and(|last| last >= registration.identity.planner_id.as_str()) {
+            issues.push(RegistryIssue::InvalidDocument(
+                "registrations must be sorted and unique by planner id".into(),
+            ));
+        }
         if !planner_ids.insert(registration.identity.planner_id.clone()) {
             issues.push(RegistryIssue::DuplicatePlanner(
                 registration.identity.planner_id.clone(),
@@ -574,11 +703,18 @@ fn validate_document_static(document: &RegistryDocument) -> Vec<RegistryIssue> {
         if let Err(error) = validate_registration(registration) {
             issues.push(RegistryIssue::InvalidDocument(error.to_string()));
         }
+        last_planner = Some(registration.identity.planner_id.as_str());
     }
 
     let mut root_ids = BTreeSet::new();
     let mut root_paths = BTreeSet::new();
+    let mut last_root = None::<&str>;
     for root in &document.configured_roots {
+        if last_root.is_some_and(|last| last >= root.root_id.as_str()) {
+            issues.push(RegistryIssue::InvalidDocument(
+                "configured roots must be sorted and unique by root id".into(),
+            ));
+        }
         if let Err(error) = validate_root(root) {
             issues.push(RegistryIssue::InvalidDocument(error.to_string()));
         }
@@ -591,6 +727,7 @@ fn validate_document_static(document: &RegistryDocument) -> Vec<RegistryIssue> {
                 root.canonical_path.clone(),
             ));
         }
+        last_root = Some(root.root_id.as_str());
     }
     if document.configured_roots.is_empty() {
         issues.push(RegistryIssue::NoConfiguredRoots);
@@ -605,21 +742,6 @@ fn validate_document_static(document: &RegistryDocument) -> Vec<RegistryIssue> {
 
 fn validate_completeness(document: &RegistryDocument, now_ms: u64) -> Vec<RegistryIssue> {
     let mut issues = Vec::new();
-    for registration in &document.registrations {
-        if registration.heartbeat_at_ms > now_ms {
-            issues.push(RegistryIssue::FutureHeartbeat {
-                planner_id: registration.identity.planner_id.clone(),
-                heartbeat_at_ms: registration.heartbeat_at_ms,
-            });
-        }
-        if registration.lease_expires_at_ms <= now_ms {
-            issues.push(RegistryIssue::StaleRegistration {
-                planner_id: registration.identity.planner_id.clone(),
-                expired_at_ms: registration.lease_expires_at_ms,
-            });
-        }
-    }
-
     let Some(census) = &document.census else {
         issues.push(RegistryIssue::MissingCensus);
         return issues;
@@ -683,6 +805,315 @@ fn validate_completeness(document: &RegistryDocument, now_ms: u64) -> Vec<Regist
     issues
 }
 
+fn validate_authority_time(document: &RegistryDocument, now_ms: u64) -> Vec<RegistryIssue> {
+    let mut issues = Vec::new();
+    if now_ms == 0 {
+        issues.push(RegistryIssue::InvalidDocument(
+            "assessment time must be non-zero".into(),
+        ));
+        return issues;
+    }
+    if document.updated_at_ms > now_ms {
+        issues.push(RegistryIssue::FutureDocumentUpdate(document.updated_at_ms));
+    }
+    for registration in &document.registrations {
+        let latest_authority_time = registration
+            .registered_at_ms
+            .max(registration.updated_at_ms)
+            .max(registration.heartbeat_at_ms);
+        if latest_authority_time > now_ms {
+            issues.push(RegistryIssue::FutureRegistrationTime {
+                planner_id: registration.identity.planner_id.clone(),
+                timestamp_ms: latest_authority_time,
+            });
+        }
+        if registration.heartbeat_at_ms > now_ms {
+            issues.push(RegistryIssue::FutureHeartbeat {
+                planner_id: registration.identity.planner_id.clone(),
+                heartbeat_at_ms: registration.heartbeat_at_ms,
+            });
+        }
+        if registration.lease_expires_at_ms <= now_ms {
+            issues.push(RegistryIssue::StaleRegistration {
+                planner_id: registration.identity.planner_id.clone(),
+                expired_at_ms: registration.lease_expires_at_ms,
+            });
+        }
+    }
+    issues
+}
+
+fn build_census_input_snapshot(
+    document: &RegistryDocument,
+    now_ms: u64,
+) -> Result<CensusInputSnapshot, RegistryError> {
+    let mut issues = validate_document_static(document);
+    issues.extend(validate_authority_time(document, now_ms));
+    if document.registrations.is_empty() {
+        issues.push(RegistryIssue::InvalidDocument(
+            "census input contains no registered Planner".into(),
+        ));
+    }
+    if !issues.is_empty() {
+        return Err(RegistryError::UnknownState(issues));
+    }
+
+    let configured_roots = document
+        .configured_roots
+        .iter()
+        .map(|root| {
+            let path = PathBuf::from(&root.canonical_path);
+            let identity =
+                physical_path_identity(&path, PhysicalPathKind::Directory).map_err(|_| {
+                    RegistryError::UnknownState(vec![RegistryIssue::InvalidDocument(format!(
+                        "configured root {} has ambiguous physical identity",
+                        root.root_id
+                    ))])
+                })?;
+            Ok(ValidatedDiscoveryRoot {
+                root_id: root.root_id.clone(),
+                path,
+                identity,
+            })
+        })
+        .collect::<Result<Vec<_>, RegistryError>>()?;
+    let root_identities = configured_roots
+        .iter()
+        .map(|root| (root.identity.volume_id, root.identity.file_id))
+        .collect::<BTreeSet<_>>();
+    if root_identities.len() != configured_roots.len() {
+        return Err(RegistryError::UnknownState(vec![
+            RegistryIssue::InvalidDocument(
+                "configured roots contain physical filesystem aliases".into(),
+            ),
+        ]));
+    }
+
+    let registrations = document
+        .registrations
+        .iter()
+        .map(|registration| {
+            let repository_root_identity = physical_path_identity(
+                Path::new(&registration.identity.repository_root),
+                PhysicalPathKind::Directory,
+            )
+            .map_err(|_| {
+                authority_identity_error(&registration.identity.planner_id, "repository")
+            })?;
+            let worktree_root_identity = physical_path_identity(
+                Path::new(&registration.identity.worktree_root),
+                PhysicalPathKind::Directory,
+            )
+            .map_err(|_| authority_identity_error(&registration.identity.planner_id, "worktree"))?;
+            let plan_identity = physical_path_identity(
+                Path::new(&registration.identity.plan_path),
+                PhysicalPathKind::RegularFile,
+            )
+            .map_err(|_| authority_identity_error(&registration.identity.planner_id, "plan"))?;
+            if !plan_identity
+                .canonical_path
+                .starts_with(&worktree_root_identity.canonical_path)
+            {
+                return Err(RegistryError::UnknownState(vec![
+                    RegistryIssue::InvalidDocument(format!(
+                        "planner {} plan is outside its worktree",
+                        registration.identity.planner_id
+                    )),
+                ]));
+            }
+            Ok(ValidatedPlannerRegistration {
+                registration: registration.clone(),
+                repository_root_identity,
+                worktree_root_identity,
+                plan_identity,
+            })
+        })
+        .collect::<Result<Vec<_>, RegistryError>>()?;
+
+    let input_digest = census_input_digest(document, &configured_roots, &registrations)?;
+    let snapshot = CensusInputSnapshot {
+        attestation: CensusInputAttestation {
+            registry_generation: document.generation,
+            input_digest,
+        },
+        configured_roots,
+        registrations,
+    };
+    revalidate_snapshot_identities(&snapshot)?;
+    Ok(snapshot)
+}
+
+fn authority_identity_error(planner_id: &str, subject: &str) -> RegistryError {
+    RegistryError::UnknownState(vec![RegistryIssue::InvalidDocument(format!(
+        "planner {planner_id} {subject} authority has ambiguous physical identity"
+    ))])
+}
+
+fn revalidate_snapshot_identities(snapshot: &CensusInputSnapshot) -> Result<(), RegistryError> {
+    for root in &snapshot.configured_roots {
+        let current = physical_path_identity(&root.path, PhysicalPathKind::Directory)
+            .map_err(|_| authority_identity_error(&root.root_id, "configured-root"))?;
+        if current != root.identity {
+            return Err(RegistryError::Conflict(
+                "configured root identity changed during census snapshot".into(),
+            ));
+        }
+    }
+    for registration in &snapshot.registrations {
+        let identity = &registration.registration.identity;
+        let repository = physical_path_identity(
+            Path::new(&identity.repository_root),
+            PhysicalPathKind::Directory,
+        )
+        .map_err(|_| authority_identity_error(&identity.planner_id, "repository"))?;
+        let worktree = physical_path_identity(
+            Path::new(&identity.worktree_root),
+            PhysicalPathKind::Directory,
+        )
+        .map_err(|_| authority_identity_error(&identity.planner_id, "worktree"))?;
+        let plan = physical_path_identity(
+            Path::new(&identity.plan_path),
+            PhysicalPathKind::RegularFile,
+        )
+        .map_err(|_| authority_identity_error(&identity.planner_id, "plan"))?;
+        if repository != registration.repository_root_identity
+            || worktree != registration.worktree_root_identity
+            || plan != registration.plan_identity
+        {
+            return Err(RegistryError::Conflict(format!(
+                "planner {} authority identity changed during census snapshot",
+                identity.planner_id
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn census_input_digest(
+    document: &RegistryDocument,
+    roots: &[ValidatedDiscoveryRoot],
+    registrations: &[ValidatedPlannerRegistration],
+) -> Result<[u8; 32], RegistryError> {
+    let mut encoder = DigestEncoder::new(b"perfect-planner:first-census-input:v1");
+    encoder.u64(document.schema_version as u64);
+    encoder.u64(document.generation);
+    encoder.u64(roots.len() as u64);
+    for root in roots {
+        encoder.text(&root.root_id);
+        encoder.physical(&root.identity);
+    }
+    encoder.u64(registrations.len() as u64);
+    for validated in registrations {
+        let registration = &validated.registration;
+        let seed = &registration.identity;
+        encoder.text(&seed.planner_id);
+        encoder.text(&seed.repository_id);
+        encoder.physical(&validated.repository_root_identity);
+        encoder.physical(&validated.worktree_root_identity);
+        encoder.text(&seed.branch);
+        encoder.text(&seed.plan_id);
+        encoder.physical(&validated.plan_identity);
+        encoder.u64(registration.lease_generation);
+        encode_paths(&mut encoder, &seed.files)?;
+        encode_resources(&mut encoder, &seed.resources)?;
+        encoder.u64(seed.nodes.len() as u64);
+        for node in &seed.nodes {
+            encoder.text(&node.node_id);
+            encode_paths(&mut encoder, &node.files)?;
+            encode_resources(&mut encoder, &node.resources)?;
+        }
+    }
+    Ok(encoder.finish())
+}
+
+fn encode_paths(encoder: &mut DigestEncoder, paths: &[String]) -> Result<(), RegistryError> {
+    encoder.u64(paths.len() as u64);
+    for path in paths {
+        encoder.text(&canonical_declared_path(path).map_err(|error| {
+            RegistryError::InvalidInput(format!("cannot canonicalize manifest path: {error}"))
+        })?);
+    }
+    Ok(())
+}
+
+fn encode_resources(
+    encoder: &mut DigestEncoder,
+    resources: &[String],
+) -> Result<(), RegistryError> {
+    encoder.u64(resources.len() as u64);
+    for resource in resources {
+        encoder.text(
+            &canonical_resource_identity(resource)
+                .map_err(|error| {
+                    RegistryError::InvalidInput(format!(
+                        "cannot canonicalize manifest resource: {error}"
+                    ))
+                })?
+                .canonical_key,
+        );
+    }
+    Ok(())
+}
+
+struct DigestEncoder(Sha256);
+
+impl DigestEncoder {
+    fn new(domain: &[u8]) -> Self {
+        let mut encoder = Self(Sha256::new());
+        encoder.bytes(domain);
+        encoder
+    }
+
+    fn u64(&mut self, value: u64) {
+        self.0.update(value.to_le_bytes());
+    }
+
+    fn bytes(&mut self, value: &[u8]) {
+        self.u64(value.len() as u64);
+        self.0.update(value);
+    }
+
+    fn text(&mut self, value: &str) {
+        self.bytes(value.as_bytes());
+    }
+
+    fn physical(&mut self, value: &PhysicalPathIdentity) {
+        self.u64(value.volume_id);
+        self.bytes(&value.file_id);
+    }
+
+    fn finish(self) -> [u8; 32] {
+        self.0.finalize().into()
+    }
+}
+
+fn validate_census_time(census: &DiscoveryCensus, now_ms: u64) -> Result<(), RegistryError> {
+    if census.captured_at_ms > now_ms || census.expires_at_ms <= now_ms {
+        return Err(RegistryError::InvalidInput(
+            "census must be captured no later than now and remain unexpired".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_census_roots(
+    census: &DiscoveryCensus,
+    configured_roots: &[ValidatedDiscoveryRoot],
+) -> Result<(), RegistryError> {
+    if census.roots.len() != configured_roots.len()
+        || census
+            .roots
+            .iter()
+            .zip(configured_roots)
+            .any(|(observed, configured)| observed.root_id != configured.root_id)
+    {
+        return Err(RegistryError::InvalidInput(
+            "census must contain exactly every configured root in canonical order".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_registration(registration: &PlannerRegistration) -> Result<(), RegistryError> {
     validate_seed(&registration.identity)?;
     if registration.lease_generation == 0
@@ -693,6 +1124,16 @@ fn validate_registration(registration: &PlannerRegistration) -> Result<(), Regis
     {
         return Err(RegistryError::InvalidInput(format!(
             "planner {} has an invalid lease timeline",
+            registration.identity.planner_id
+        )));
+    }
+    let lease_span = registration
+        .lease_expires_at_ms
+        .checked_sub(registration.heartbeat_at_ms)
+        .ok_or_else(|| RegistryError::InvalidInput("planner lease timeline underflowed".into()))?;
+    if !(MIN_LEASE_MS..=MAX_LEASE_MS).contains(&lease_span) {
+        return Err(RegistryError::InvalidInput(format!(
+            "planner {} lease span exceeds the supported bound",
             registration.identity.planner_id
         )));
     }
@@ -707,13 +1148,29 @@ fn validate_seed(seed: &PlannerRegistrationSeed) -> Result<(), RegistryError> {
     validate_text("branch", &seed.branch)?;
     validate_id("plan id", &seed.plan_id)?;
     validate_absolute_path("plan path", &seed.plan_path)?;
+    require_bound("plan file count", seed.files.len(), MAX_FILES_PER_MANIFEST)?;
+    require_bound(
+        "plan resource count",
+        seed.resources.len(),
+        MAX_RESOURCES_PER_MANIFEST,
+    )?;
     validate_sorted_unique_relative_paths("plan files", &seed.files)?;
-    validate_sorted_unique_text("plan resources", &seed.resources)?;
+    validate_sorted_unique_resources("plan resources", &seed.resources)?;
     if seed.nodes.is_empty() {
         return Err(RegistryError::InvalidInput(
             "registration must contain at least one node manifest".into(),
         ));
     }
+    require_bound(
+        "node manifest count",
+        seed.nodes.len(),
+        MAX_NODES_PER_REGISTRATION,
+    )?;
+    let mut total_manifest_entries = seed
+        .files
+        .len()
+        .checked_add(seed.resources.len())
+        .ok_or_else(|| RegistryError::InvalidInput("manifest entry count overflowed".into()))?;
     let mut last_node = None::<&str>;
     for node in &seed.nodes {
         validate_id("node id", &node.node_id)?;
@@ -728,10 +1185,25 @@ fn validate_seed(seed: &PlannerRegistrationSeed) -> Result<(), RegistryError> {
                 node.node_id
             )));
         }
+        require_bound("node file count", node.files.len(), MAX_FILES_PER_MANIFEST)?;
+        require_bound(
+            "node resource count",
+            node.resources.len(),
+            MAX_RESOURCES_PER_MANIFEST,
+        )?;
+        total_manifest_entries = total_manifest_entries
+            .checked_add(node.files.len())
+            .and_then(|count| count.checked_add(node.resources.len()))
+            .ok_or_else(|| RegistryError::InvalidInput("manifest entry count overflowed".into()))?;
         validate_sorted_unique_relative_paths("node files", &node.files)?;
-        validate_sorted_unique_text("node resources", &node.resources)?;
+        validate_sorted_unique_resources("node resources", &node.resources)?;
         last_node = Some(node.node_id.as_str());
     }
+    require_bound(
+        "aggregate manifest entry count",
+        total_manifest_entries,
+        MAX_TOTAL_MANIFEST_ENTRIES,
+    )?;
     Ok(())
 }
 
@@ -743,6 +1215,7 @@ fn validate_and_sort_roots(
             "at least one discovery root must be configured".into(),
         ));
     }
+    require_bound("configured root count", roots.len(), MAX_CONFIGURED_ROOTS)?;
     roots.sort_by(|left, right| left.root_id.cmp(&right.root_id));
     let mut ids = BTreeSet::new();
     let mut paths = BTreeSet::new();
@@ -778,6 +1251,20 @@ fn validate_census_shape(census: &DiscoveryCensus) -> Result<(), RegistryError> 
             "census generation and time window must be valid".into(),
         ));
     }
+    let span = census
+        .expires_at_ms
+        .checked_sub(census.captured_at_ms)
+        .ok_or_else(|| RegistryError::InvalidInput("census time window underflowed".into()))?;
+    if span > MAX_CENSUS_TTL_MS {
+        return Err(RegistryError::InvalidInput(format!(
+            "census time window exceeds {MAX_CENSUS_TTL_MS} milliseconds"
+        )));
+    }
+    require_bound(
+        "census root count",
+        census.roots.len(),
+        MAX_CONFIGURED_ROOTS,
+    )?;
     let mut last_root = None::<&str>;
     for root in &census.roots {
         validate_id("census root id", &root.root_id)?;
@@ -787,9 +1274,14 @@ fn validate_census_shape(census: &DiscoveryCensus) -> Result<(), RegistryError> 
             ));
         }
         validate_sorted_unique_ids("census planner ids", &root.planner_ids)?;
-        match (root.reachable, root.failure.as_deref()) {
+        require_bound(
+            "census planner count",
+            root.planner_ids.len(),
+            MAX_CENSUS_PLANNERS_PER_ROOT,
+        )?;
+        match (root.reachable, root.failure) {
             (true, None) => {}
-            (false, Some(failure)) => validate_text("root census failure", failure)?,
+            (false, Some(_)) => {}
             (true, Some(_)) => {
                 return Err(RegistryError::InvalidInput(
                     "reachable census root must not carry a failure".into(),
@@ -846,26 +1338,22 @@ fn validate_sorted_unique_relative_paths(
     label: &str,
     values: &[String],
 ) -> Result<(), RegistryError> {
-    let mut last = None::<&str>;
+    require_bound(label, values.len(), MAX_FILES_PER_MANIFEST)?;
+    let mut last = None::<String>;
     for value in values {
         validate_text(label, value)?;
-        let normalized = value.replace('\\', "/");
-        if normalized.starts_with('/')
-            || normalized
-                .split('/')
-                .any(|part| part.is_empty() || part == "." || part == "..")
-            || normalized.as_bytes().get(1) == Some(&b':')
+        let normalized = canonical_declared_path(value).map_err(|error| {
+            RegistryError::InvalidInput(format!("{label} contains an invalid path: {error}"))
+        })?;
+        if last
+            .as_ref()
+            .is_some_and(|previous| previous >= &normalized)
         {
             return Err(RegistryError::InvalidInput(format!(
-                "{label} contains a non-normalized repository-relative path: {value}"
+                "{label} must be canonically sorted and unique"
             )));
         }
-        if last.is_some_and(|previous| previous >= value.as_str()) {
-            return Err(RegistryError::InvalidInput(format!(
-                "{label} must be sorted and unique"
-            )));
-        }
-        last = Some(value.as_str());
+        last = Some(normalized);
     }
     Ok(())
 }
@@ -882,6 +1370,33 @@ fn validate_sorted_unique_text(label: &str, values: &[String]) -> Result<(), Reg
         last = Some(value.as_str());
     }
     Ok(())
+}
+
+fn validate_sorted_unique_resources(label: &str, values: &[String]) -> Result<(), RegistryError> {
+    let mut last = None::<String>;
+    for value in values {
+        validate_text(label, value)?;
+        let canonical = canonical_resource_identity(value)
+            .map_err(|error| RegistryError::InvalidInput(format!("{label}: {error}")))?
+            .canonical_key;
+        if last.as_ref().is_some_and(|previous| previous >= &canonical) {
+            return Err(RegistryError::InvalidInput(format!(
+                "{label} must be canonically sorted and unique"
+            )));
+        }
+        last = Some(canonical);
+    }
+    Ok(())
+}
+
+fn require_bound(label: &str, actual: usize, maximum: usize) -> Result<(), RegistryError> {
+    if actual > maximum {
+        Err(RegistryError::InvalidInput(format!(
+            "{label} exceeds maximum {maximum}"
+        )))
+    } else {
+        Ok(())
+    }
 }
 
 fn validate_sorted_unique_ids(label: &str, values: &[String]) -> Result<(), RegistryError> {
@@ -1237,28 +1752,34 @@ mod tests {
     }
 
     fn root(id: &str) -> ConfiguredDiscoveryRoot {
+        let path = std::env::temp_dir().join(format!(
+            "pp-collision-discovery-{id}-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&path).unwrap();
         ConfiguredDiscoveryRoot {
             root_id: id.to_string(),
-            canonical_path: std::env::temp_dir().join(id).to_string_lossy().into_owned(),
+            canonical_path: path.to_string_lossy().into_owned(),
         }
     }
 
     fn seed(id: &str) -> PlannerRegistrationSeed {
         let worktree = std::env::temp_dir().join(format!("worktree-{id}"));
+        let repository = std::env::temp_dir().join(format!("repository-{id}"));
+        let plan_path = worktree.join(".claude/scratch/perfect-plan/plan.json");
+        fs::create_dir_all(&repository).unwrap();
+        fs::create_dir_all(plan_path.parent().unwrap()).unwrap();
+        if !plan_path.exists() {
+            fs::write(&plan_path, b"{}\n").unwrap();
+        }
         PlannerRegistrationSeed {
             planner_id: id.to_string(),
             repository_id: format!("repo-{id}"),
-            repository_root: std::env::temp_dir()
-                .join(format!("repository-{id}"))
-                .to_string_lossy()
-                .into_owned(),
+            repository_root: repository.to_string_lossy().into_owned(),
             worktree_root: worktree.to_string_lossy().into_owned(),
             branch: format!("feature/{id}"),
             plan_id: "PP-002".into(),
-            plan_path: worktree
-                .join(".claude/scratch/perfect-plan/plan.json")
-                .to_string_lossy()
-                .into_owned(),
+            plan_path: plan_path.to_string_lossy().into_owned(),
             files: vec!["src/main.rs".into()],
             resources: vec![format!("mutex:{id}")],
             nodes: vec![PlannerNodeManifest {
@@ -1338,7 +1859,7 @@ mod tests {
                 let store = fixture.store.clone();
                 thread::spawn(move || {
                     store
-                        .register(seed(&format!("planner-{index:02}")), 2_000 + index, 20_000)
+                        .register(seed(&format!("planner-{index:02}")), 2_000, 20_000)
                         .unwrap()
                 })
             })
@@ -1352,7 +1873,7 @@ mod tests {
                 let store = fixture.store.clone();
                 thread::spawn(move || {
                     store
-                        .heartbeat(&format!("planner-{index:02}"), 1, 3_000 + index, 20_000)
+                        .heartbeat(&format!("planner-{index:02}"), 1, 3_000, 20_000)
                         .unwrap()
                 })
             })
@@ -1367,10 +1888,8 @@ mod tests {
                 thread::spawn(move || {
                     let id = format!("planner-{index:02}");
                     let mut replacement = seed(&id);
-                    replacement.resources = vec![format!("mutex:{id}"), "port:5235".into()];
-                    store
-                        .update(&id, 2, replacement, 4_000 + index, 20_000)
-                        .unwrap()
+                    replacement.resources = vec![format!("mutex:{id}"), "port:tcp:5235".into()];
+                    store.update(&id, 2, replacement, 4_000, 20_000).unwrap()
                 })
             })
             .collect::<Vec<_>>();
@@ -1379,7 +1898,7 @@ mod tests {
                 let store = fixture.store.clone();
                 thread::spawn(move || {
                     let id = format!("planner-{index:02}");
-                    store.unregister(&id, 2, 4_000 + index).unwrap()
+                    store.unregister(&id, 2, 4_000).unwrap()
                 })
             })
             .collect::<Vec<_>>();
@@ -1498,13 +2017,17 @@ mod tests {
             .register(seed("planner-b"), 1_200, 8_000)
             .unwrap();
 
-        fixture
+        assert!(matches!(
+            fixture
+                .store
+                .record_census(census(3, vec![("root-a", vec!["planner-a".into()])]), 2_000),
+            Err(RegistryError::InvalidInput(_))
+        ));
+        assert!(fixture
             .store
-            .record_census(census(3, vec![("root-a", vec!["planner-a".into()])]), 2_000)
-            .unwrap();
-        let issues = fixture.store.inspect(2_100).issues().to_vec();
-        assert!(issues.contains(&RegistryIssue::MissingRootCensus("root-b".into())));
-        assert!(issues.contains(&RegistryIssue::UnaccountedPlanner("planner-b".into())));
+            .inspect(2_100)
+            .issues()
+            .contains(&RegistryIssue::MissingCensus));
 
         fixture
             .store
@@ -1524,7 +2047,7 @@ mod tests {
                             root_id: "root-b".into(),
                             reachable: false,
                             planner_ids: vec!["planner-b".into()],
-                            failure: Some("access denied".into()),
+                            failure: Some(DiscoveryFailureCode::AccessDenied),
                         },
                     ],
                 },
@@ -1537,22 +2060,19 @@ mod tests {
             .issues()
             .contains(&RegistryIssue::UnreachableRoot {
                 root_id: "root-b".into(),
-                failure: Some("access denied".into()),
+                failure: Some(DiscoveryFailureCode::AccessDenied),
             }));
 
-        fixture
-            .store
-            .record_census(
-                census(
-                    3,
-                    vec![
-                        ("root-a", vec!["planner-a".into()]),
-                        ("root-b", vec!["planner-b".into()]),
-                    ],
-                ),
-                2_400,
-            )
-            .unwrap();
+        let mut recovered = census(
+            3,
+            vec![
+                ("root-a", vec!["planner-a".into()]),
+                ("root-b", vec!["planner-b".into()]),
+            ],
+        );
+        recovered.captured_at_ms = 2_400;
+        recovered.expires_at_ms = 10_000;
+        fixture.store.record_census(recovered, 2_400).unwrap();
         assert!(fixture.store.inspect(2_500).is_complete());
 
         fixture
@@ -1582,5 +2102,295 @@ mod tests {
             Err(RegistryError::UnknownState(_))
         ));
         assert_eq!(fs::read(fixture.store.path()).unwrap(), corrupt);
+    }
+
+    #[test]
+    fn first_census_snapshot_is_available_and_digest_ignores_prior_output() {
+        let fixture = TempRegistry::new("first-census");
+        fixture
+            .store
+            .initialize(vec![root("root-first")], 1_000)
+            .unwrap();
+        assert!(matches!(
+            fixture.store.census_input_snapshot(1_050),
+            Err(RegistryError::UnknownState(_))
+        ));
+        fixture
+            .store
+            .register(seed("planner-first"), 1_100, 20_000)
+            .unwrap();
+
+        let first = fixture.store.census_input_snapshot(1_200).unwrap();
+        assert_eq!(first.attestation.registry_generation, 2);
+        assert_eq!(first.configured_roots.len(), 1);
+        assert_eq!(first.registrations.len(), 1);
+        fixture
+            .store
+            .record_census_if_unchanged(
+                &first.attestation,
+                census(2, vec![("root-first", vec!["planner-first".into()])]),
+                2_000,
+            )
+            .unwrap();
+
+        let after_census = fixture.store.census_input_snapshot(2_100).unwrap();
+        assert_eq!(first.attestation, after_census.attestation);
+        let mut timestamp_only = raw_document(&fixture.store);
+        timestamp_only.updated_at_ms += 1;
+        timestamp_only.registrations[0].updated_at_ms += 1;
+        timestamp_only.registrations[0].heartbeat_at_ms += 1;
+        timestamp_only.registrations[0].lease_expires_at_ms += 1;
+        fs::write(
+            fixture.store.path(),
+            serde_json::to_vec(&timestamp_only).unwrap(),
+        )
+        .unwrap();
+        let after_timestamp_only = fixture.store.census_input_snapshot(2_200).unwrap();
+        assert_eq!(first.attestation, after_timestamp_only.attestation);
+        fixture
+            .store
+            .heartbeat("planner-first", 1, 3_000, 20_000)
+            .unwrap();
+        let after_heartbeat = fixture.store.census_input_snapshot(3_100).unwrap();
+        assert_ne!(first.attestation, after_heartbeat.attestation);
+    }
+
+    #[test]
+    fn forged_lifetimes_future_times_and_structural_overflow_are_unknown() {
+        let fixture = TempRegistry::new("bounds");
+        fixture
+            .store
+            .initialize(vec![root("root-bounds")], 1_000)
+            .unwrap();
+        fixture
+            .store
+            .register(seed("planner-bounds"), 1_100, 20_000)
+            .unwrap();
+        let valid = raw_document(&fixture.store);
+
+        let mut excessive_lease = valid.clone();
+        excessive_lease.registrations[0].lease_expires_at_ms = excessive_lease.registrations[0]
+            .heartbeat_at_ms
+            .checked_add(MAX_LEASE_MS + 1)
+            .unwrap();
+        fs::write(
+            fixture.store.path(),
+            serde_json::to_vec(&excessive_lease).unwrap(),
+        )
+        .unwrap();
+        assert!(matches!(
+            fixture.store.census_input_snapshot(1_200),
+            Err(RegistryError::UnknownState(_))
+        ));
+
+        let mut future = valid.clone();
+        future.updated_at_ms = 1_201;
+        fs::write(fixture.store.path(), serde_json::to_vec(&future).unwrap()).unwrap();
+        assert!(matches!(
+            fixture.store.census_input_snapshot(1_200),
+            Err(RegistryError::UnknownState(ref issues))
+                if issues.contains(&RegistryIssue::FutureDocumentUpdate(1_201))
+        ));
+
+        let mut overflow = valid.clone();
+        overflow.registrations[0].heartbeat_at_ms = u64::MAX;
+        overflow.registrations[0].lease_expires_at_ms = 1;
+        fs::write(fixture.store.path(), serde_json::to_vec(&overflow).unwrap()).unwrap();
+        assert!(matches!(
+            fixture.store.census_input_snapshot(1_200),
+            Err(RegistryError::UnknownState(_))
+        ));
+
+        for (maximum, label) in [
+            (MAX_CONFIGURED_ROOTS, "roots"),
+            (MAX_REGISTRATIONS, "registrations"),
+            (MAX_NODES_PER_REGISTRATION, "nodes"),
+            (MAX_FILES_PER_MANIFEST, "files"),
+            (MAX_RESOURCES_PER_MANIFEST, "resources"),
+            (MAX_CENSUS_PLANNERS_PER_ROOT, "census planners"),
+            (MAX_TOTAL_MANIFEST_ENTRIES, "aggregate entries"),
+        ] {
+            assert!(require_bound(label, maximum, maximum).is_ok());
+            assert!(require_bound(label, maximum + 1, maximum).is_err());
+        }
+        let excessive_census = DiscoveryCensus {
+            registry_generation: 2,
+            captured_at_ms: 1,
+            expires_at_ms: 1 + MAX_CENSUS_TTL_MS + 1,
+            roots: Vec::new(),
+        };
+        assert!(validate_census_shape(&excessive_census).is_err());
+
+        let mut too_many_registrations = valid;
+        let template = too_many_registrations.registrations[0].clone();
+        too_many_registrations.registrations = (0..=MAX_REGISTRATIONS)
+            .map(|index| {
+                let mut registration = template.clone();
+                registration.identity.planner_id = format!("planner-{index:04}");
+                registration
+            })
+            .collect();
+        assert!(validate_document_static(&too_many_registrations)
+            .iter()
+            .any(|issue| matches!(issue, RegistryIssue::InvalidDocument(message) if message.contains("registration count"))));
+    }
+
+    #[test]
+    fn physical_alias_swaps_change_or_invalidate_the_attestation() {
+        let fixture = TempRegistry::new("identity-swap");
+        fixture
+            .store
+            .initialize(vec![root("root-swap")], 1_000)
+            .unwrap();
+        let registered = fixture
+            .store
+            .register(seed("planner-swap"), 1_100, 20_000)
+            .unwrap();
+        let before = fixture.store.census_input_snapshot(1_200).unwrap();
+        let plan = PathBuf::from(&registered.identity.plan_path);
+        fs::remove_file(&plan).unwrap();
+        fs::write(&plan, b"{\"replacement\":true}\n").unwrap();
+        let after = fixture.store.census_input_snapshot(1_300).unwrap();
+        assert_ne!(
+            before.attestation.input_digest,
+            after.attestation.input_digest
+        );
+        assert!(matches!(
+            fixture.store.record_census_if_unchanged(
+                &before.attestation,
+                census(2, vec![("root-swap", vec!["planner-swap".into()])]),
+                2_000,
+            ),
+            Err(RegistryError::Conflict(_))
+        ));
+
+        let target = fixture.root.join("junction-target");
+        let alias = fixture.root.join("junction-alias");
+        fs::create_dir_all(&target).unwrap();
+        create_directory_alias(&alias, &target);
+        let aliased = TempRegistry::new("aliased-root");
+        aliased
+            .store
+            .initialize(
+                vec![ConfiguredDiscoveryRoot {
+                    root_id: "root-alias".into(),
+                    canonical_path: alias.to_string_lossy().into_owned(),
+                }],
+                1_000,
+            )
+            .unwrap();
+        assert!(matches!(
+            aliased.store.census_input_snapshot(1_100),
+            Err(RegistryError::UnknownState(_))
+        ));
+    }
+
+    #[test]
+    fn stable_hardlink_aliases_share_one_plan_authority_identity() {
+        let fixture = TempRegistry::new("hardlink");
+        fixture
+            .store
+            .initialize(vec![root("root-hardlink")], 1_000)
+            .unwrap();
+        let registered = fixture
+            .store
+            .register(seed("planner-hardlink"), 1_100, 20_000)
+            .unwrap();
+        let original = PathBuf::from(&registered.identity.plan_path);
+        let alias = original.with_file_name("plan-alias.json");
+        if alias.exists() {
+            fs::remove_file(&alias).unwrap();
+        }
+        fs::hard_link(&original, &alias).unwrap();
+        let original_snapshot = fixture.store.census_input_snapshot(1_200).unwrap();
+
+        let mut document = raw_document(&fixture.store);
+        document.registrations[0].identity.plan_path = alias.to_string_lossy().into_owned();
+        fs::write(fixture.store.path(), serde_json::to_vec(&document).unwrap()).unwrap();
+        let alias_snapshot = fixture.store.census_input_snapshot(1_200).unwrap();
+        assert_eq!(original_snapshot.attestation, alias_snapshot.attestation);
+    }
+
+    #[test]
+    fn conditional_census_write_rejects_mutation_and_duplicate_races() {
+        let fixture = TempRegistry::new("conditional-race");
+        fixture
+            .store
+            .initialize(vec![root("root-race")], 1_000)
+            .unwrap();
+        fixture
+            .store
+            .register(seed("planner-race"), 1_100, 20_000)
+            .unwrap();
+        let stale = fixture.store.census_input_snapshot(1_200).unwrap();
+        fixture
+            .store
+            .heartbeat("planner-race", 1, 1_300, 20_000)
+            .unwrap();
+        assert!(matches!(
+            fixture.store.record_census_if_unchanged(
+                &stale.attestation,
+                census(2, vec![("root-race", vec!["planner-race".into()])]),
+                2_000,
+            ),
+            Err(RegistryError::Conflict(_))
+        ));
+
+        let current = fixture.store.census_input_snapshot(1_400).unwrap();
+        let store = fixture.store.clone();
+        let attestation = current.attestation.clone();
+        let first = thread::spawn(move || {
+            store.record_census_if_unchanged(
+                &attestation,
+                census(3, vec![("root-race", vec!["planner-race".into()])]),
+                2_000,
+            )
+        });
+        let second = fixture.store.record_census_if_unchanged(
+            &current.attestation,
+            census(3, vec![("root-race", vec!["planner-race".into()])]),
+            2_000,
+        );
+        let first = first.join().unwrap();
+        assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+    }
+
+    #[test]
+    fn digest_encoding_is_domain_and_length_separated() {
+        let digest = |domain: &'static [u8], fields: &[&str]| {
+            let mut encoder = DigestEncoder::new(domain);
+            for field in fields {
+                encoder.text(field);
+            }
+            encoder.finish()
+        };
+        assert_ne!(
+            digest(b"domain-a", &["ab", "c"]),
+            digest(b"domain-a", &["a", "bc"])
+        );
+        assert_ne!(
+            digest(b"domain-a", &["same"]),
+            digest(b"domain-b", &["same"])
+        );
+        assert_eq!(
+            digest(b"domain-a", &["same"]),
+            digest(b"domain-a", &["same"])
+        );
+    }
+
+    #[cfg(windows)]
+    fn create_directory_alias(link: &Path, target: &Path) {
+        let output = std::process::Command::new("cmd")
+            .args(["/D", "/S", "/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .expect("start mklink");
+        assert!(output.status.success(), "mklink /J failed");
+    }
+
+    #[cfg(unix)]
+    fn create_directory_alias(link: &Path, target: &Path) {
+        std::os::unix::fs::symlink(target, link).unwrap();
     }
 }

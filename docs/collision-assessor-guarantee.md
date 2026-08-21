@@ -26,6 +26,37 @@ informational notification.
 The enforcement point is worker admission. A UI label, a JSON value saying `approved`, a chat
 message, a model statement, or an assessor process merely being present is never sufficient.
 
+## Census authority and first-census bootstrap
+
+The machine-wide registry and the plan files named by its live registrations are the census
+authority. Board HTTP is an untrusted display transport: `/whoami`, `/plan` or any other loopback
+response may help render status, but it cannot add a Planner, replace a plan manifest or satisfy
+an absent registry fact.
+
+The first census does not require a previous census. Under the cross-process registry lock, the
+native assessor loads the registry once, validates its schema and strict structural bounds,
+rejects stale or future-dated registrations, and binds every configured root, repository root,
+worktree root and plan file to the operating system's volume and file identity. Only then does it
+issue a private first-census snapshot. Missing, malformed, oversized, aliased or unresolvable
+authority yields `UNKNOWN`; it never yields an empty snapshot.
+
+The snapshot carries a domain-separated SHA-256 digest over the registry schema and generation,
+sorted configured-root identities, sorted registration authority, lease generations, canonical
+node/file/resource manifests, and physical root/plan identities. Registry update timestamps and
+prior census output are deliberately excluded, so merely recording a census cannot invalidate
+its own authority input. Freshness is validated separately both when the snapshot is issued and
+when its result is consumed.
+
+Census output is persisted through one conditional operation. It reacquires the registry lock,
+rebuilds the current authority snapshot, compares both generation and digest, revalidates every
+physical identity and writes only if the input is unchanged. A concurrent heartbeat, manifest
+mutation, root change, delete/recreate, mapping change or stale duplicate result is rejected.
+
+On Windows, stable local volume/file IDs are equality authority; path spelling is not. Two stable
+hardlinks therefore identify the same object and must collide. Junctions, symbolic links, reparse
+points, SUBST drives, mapped/remote drives, unsupported or zero file IDs, and identities that
+change during validation force `UNKNOWN` instead of falling back to lower-cased path text.
+
 ## Three separate authorities
 
 The system deliberately separates authority:
