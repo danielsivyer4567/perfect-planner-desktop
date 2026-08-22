@@ -269,6 +269,13 @@ fn to_frontend_scope(scope: &MessageScope) -> FrontendScope {
 }
 
 fn to_core_destination(destination: &FrontendDestination) -> Result<MessageDestination, String> {
+    let kind = core_destination_kind(&destination.kind)?;
+    if matches!(kind, DestinationKind::Chat | DestinationKind::Ide) {
+        return Err(
+            "external destinations require a fresh native route; renderer-selected task authority is forbidden"
+                .to_string(),
+        );
+    }
     let route_is_complete = destination.enabled
         && destination
             .registration_id
@@ -279,7 +286,7 @@ fn to_core_destination(destination: &FrontendDestination) -> Result<MessageDesti
             .as_deref()
             .is_some_and(|value| !value.trim().is_empty());
     Ok(MessageDestination {
-        kind: core_destination_kind(&destination.kind)?,
+        kind,
         target_id: destination
             .address
             .clone()
@@ -456,6 +463,25 @@ fn ensure_repository_message(
         .ok_or_else(|| "control message not found in repository".to_string())
 }
 
+fn ensure_renderer_delivery_message(
+    store: &ControlPlaneStore,
+    repository_id: &str,
+    message_id: &str,
+    now_ms: u64,
+) -> Result<MessageView, String> {
+    let view = ensure_repository_message(store, repository_id, message_id, now_ms)?;
+    if matches!(
+        view.message.destination.kind,
+        DestinationKind::Chat | DestinationKind::Ide
+    ) {
+        return Err(
+            "external delivery state is connector-owned and cannot be changed by the renderer"
+                .to_string(),
+        );
+    }
+    Ok(view)
+}
+
 #[tauri::command]
 pub fn post_control_message(
     state: tauri::State<'_, ControlPlaneStore>,
@@ -528,6 +554,12 @@ pub fn claim_control_deliveries(
         if view.state != DeliveryState::Queued {
             return false;
         }
+        if matches!(
+            view.message.destination.kind,
+            DestinationKind::Chat | DestinationKind::Ide
+        ) {
+            return false;
+        }
         if let Some(orchestrator_id) = request
             .filter
             .as_ref()
@@ -575,7 +607,7 @@ pub fn record_control_delivery(
     request: RecordControlDeliveryRequest,
 ) -> Result<FrontendMessage, String> {
     let now_ms = control_plane::unix_ms();
-    ensure_repository_message(&state, &request.repository_id, &request.message_id, now_ms)?;
+    ensure_renderer_delivery_message(&state, &request.repository_id, &request.message_id, now_ms)?;
     let succeeded = match request.outcome.as_str() {
         "delivered" => true,
         "failed" => false,
@@ -606,7 +638,7 @@ pub fn acknowledge_control_message(
     request: AcknowledgeControlMessageRequest,
 ) -> Result<FrontendMessage, String> {
     let now_ms = control_plane::unix_ms();
-    ensure_repository_message(&state, &request.repository_id, &request.message_id, now_ms)?;
+    ensure_renderer_delivery_message(&state, &request.repository_id, &request.message_id, now_ms)?;
     let view = state.acknowledge_message(
         AcknowledgeMessageRequest {
             message_id: request.message_id,
@@ -636,10 +668,8 @@ mod tests {
             registered_at_ms: None,
             metadata: BTreeMap::new(),
         };
-        let core = to_core_destination(&destination).unwrap();
-        assert_eq!(core.kind, DestinationKind::Chat);
-        assert!(core.route_id.is_none());
-        assert_eq!(core.target_id, "unregistered");
+        let error = to_core_destination(&destination).unwrap_err();
+        assert!(error.contains("fresh native route"));
     }
 
     #[test]

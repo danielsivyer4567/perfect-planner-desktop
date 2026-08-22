@@ -421,6 +421,25 @@ body {
   white-space: nowrap;
 }
 
+.rail-chat-route {
+  margin-top: 4px;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid #b35b51;
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: #8c4038;
+  font: 700 9px var(--mono);
+  letter-spacing: 0.25px;
+  text-transform: uppercase;
+}
+
+.rail-chat-route.delivered {
+  border-color: #4e8a5c;
+  color: #347145;
+}
+
+
 .rail-empty {
   padding: 12px 4px;
   color: var(--dim);
@@ -738,7 +757,7 @@ body {
 
 .orchestrator-messenger {
   display: grid;
-  grid-template-columns: minmax(210px, 0.8fr) minmax(300px, 2fr) auto;
+  grid-template-columns: minmax(500px, 1.5fr) minmax(170px, 1fr) minmax(190px, auto);
   align-items: center;
   gap: 8px;
   min-height: 38px;
@@ -763,6 +782,105 @@ body {
 .orchestrator-messenger-header {
   min-width: 0;
   gap: 8px;
+}
+
+.orchestrator-messenger-header .orchestrator-message-badges {
+  flex-wrap: wrap;
+}
+
+.looplet-live-feed-mark {
+  --looplet-glow: #38bdf8;
+  --looplet-bright: #e0f2fe;
+  --looplet-deep: #0c4a6e;
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(92px, 1fr);
+  flex: none;
+  align-items: center;
+  min-width: 204px;
+  min-height: 58px;
+  padding: 4px 7px 4px 5px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background:
+    linear-gradient(#121a1f, #172127) padding-box,
+    linear-gradient(135deg, #d8f4ff 0%, var(--looplet-glow) 24%, var(--looplet-deep) 72%, #071820 100%) border-box;
+  box-shadow: inset 0 0 18px rgba(56, 189, 248, 0.06), 0 0 12px rgba(56, 189, 248, 0.08);
+  overflow: hidden;
+  color: var(--looplet-glow);
+}
+
+.looplet-live-feed-mark::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.08) 50%, transparent 65%);
+  content: "";
+  pointer-events: none;
+  transform: translateX(-120%);
+  animation: looplet-feed-scan 5s ease-in-out infinite;
+}
+
+.looplet-live-feed-mark pre {
+  width: 12ch;
+  margin: 0;
+  color: var(--looplet-glow);
+  font: 7px/0.76 "Cascadia Mono", "Segoe UI Symbol", monospace;
+  letter-spacing: 0;
+  text-shadow: 0 0 7px color-mix(in srgb, var(--looplet-glow) 72%, transparent);
+  white-space: pre;
+}
+
+.looplet-live-feed-mark > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.looplet-live-feed-mark b,
+.looplet-live-feed-mark em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.looplet-live-feed-mark b {
+  color: var(--looplet-bright);
+  font: 900 8px var(--mono);
+  letter-spacing: 1px;
+}
+
+.looplet-live-feed-mark em {
+  color: var(--looplet-glow);
+  font: 800 6.5px var(--mono);
+  font-style: normal;
+  letter-spacing: 0.5px;
+}
+
+.looplet-live-feed-mark.waiting {
+  --looplet-glow: #fbbf24;
+  --looplet-bright: #fef3c7;
+  --looplet-deep: #78350f;
+}
+
+.looplet-live-feed-mark.blocked {
+  --looplet-glow: #fb7185;
+  --looplet-bright: #ffe4e6;
+  --looplet-deep: #881337;
+}
+
+.looplet-live-feed-mark.idle {
+  --looplet-glow: #94a3b8;
+  --looplet-bright: #e2e8f0;
+  --looplet-deep: #334155;
+}
+
+@keyframes looplet-feed-scan {
+  0%, 72%, 100% { transform: translateX(-120%); }
+  86% { transform: translateX(120%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .looplet-live-feed-mark::after { animation: none; }
 }
 
 .orchestrator-messenger-title {
@@ -882,6 +1000,7 @@ body {
   justify-content: flex-end;
   gap: 3px;
   overflow-x: auto;
+  flex-wrap: wrap;
 }
 
 .orchestrator-delivery-state-legend .delivery-state {

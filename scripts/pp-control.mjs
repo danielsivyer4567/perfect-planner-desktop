@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
 const APP_IDENTIFIER = "com.looplet.perfectplanner";
 const INBOX_DIRECTORY = "control-plane-inbox";
@@ -142,17 +143,31 @@ function tauriAppDataDirectory(override) {
 }
 
 function validateEnvelope(envelope) {
-  if (envelope.schemaVersion !== 1 || envelope.type !== "POST_MESSAGE") {
+  if (
+    envelope.schemaVersion !== 1 ||
+    !["POST_MESSAGE", "REGISTER_APPROVAL_ROUTE"].includes(envelope.type)
+  ) {
     fail("invalid control-plane drop envelope");
   }
   if (!Number.isSafeInteger(envelope.createdAtMs) || envelope.createdAtMs <= 0) {
     fail("drop createdAtMs must be a positive integer");
   }
-  const bodyBytes = Buffer.byteLength(required(envelope.request?.body, "request.body"), "utf8");
-  if (bodyBytes > MAX_BODY_BYTES) fail(`request.body exceeds ${MAX_BODY_BYTES} bytes`);
-  required(envelope.request?.scope?.repositoryId, "request.scope.repositoryId");
-  required(envelope.request?.scope?.planId, "request.scope.planId");
-  required(envelope.request?.idempotencyKey, "request.idempotencyKey");
+  if (envelope.type === "POST_MESSAGE") {
+    const bodyBytes = Buffer.byteLength(required(envelope.request?.body, "request.body"), "utf8");
+    if (bodyBytes > MAX_BODY_BYTES) fail(`request.body exceeds ${MAX_BODY_BYTES} bytes`);
+    required(envelope.request?.scope?.repositoryId, "request.scope.repositoryId");
+    required(envelope.request?.scope?.planId, "request.scope.planId");
+    required(envelope.request?.idempotencyKey, "request.idempotencyKey");
+    return;
+  }
+  for (const [field, value] of [
+    ["request.repositoryId", envelope.request?.repositoryId],
+    ["request.planId", envelope.request?.planId],
+    ["request.planPath", envelope.request?.planPath],
+    ["request.taskId", envelope.request?.taskId],
+    ["request.launchNonce", envelope.request?.launchNonce],
+    ["request.routeId", envelope.request?.routeId],
+  ]) required(value, field);
 }
 
 /**
@@ -164,7 +179,10 @@ function writeDrop(envelope, appDataOverride) {
   validateEnvelope(envelope);
   const inbox = path.join(tauriAppDataDirectory(appDataOverride), INBOX_DIRECTORY);
   fs.mkdirSync(inbox, { recursive: true });
-  const keyHash = stableEntityId("drop", envelope.request.idempotencyKey).slice("pp-drop-".length);
+  const durableKey = envelope.type === "POST_MESSAGE"
+    ? envelope.request.idempotencyKey
+    : `${envelope.request.routeId}\0${envelope.request.launchNonce}`;
+  const keyHash = stableEntityId("drop", durableKey).slice("pp-drop-".length);
   for (let attempt = 0; attempt < 32; attempt += 1) {
     dropSequence += 1;
     const stem = `${envelope.createdAtMs}-${process.pid}-${dropSequence}-${keyHash}`;
@@ -284,8 +302,45 @@ function noteEnvelope(options, nowMs = Date.now()) {
   };
 }
 
-function codexRegistrationEnvelope(options, nowMs = Date.now()) {
-  rejectUnknownOptions(options, new Set(["plan", "thread", "thread-id", "label", "app-data"]));
+async function discoverExactBoard(planPath) {
+  const expected = path.resolve(planPath).toLocaleLowerCase();
+  const matches = [];
+  await Promise.all(
+    Array.from({ length: 20 }, (_, index) => 5230 + index).map(async (port) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 800);
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/whoami`, {
+          headers: { Host: `127.0.0.1:${port}` },
+          signal: controller.signal,
+        });
+        if (!response.ok) return;
+        const identity = await response.json();
+        if (
+          identity?.ok === true &&
+          path.resolve(String(identity.planPath || "")).toLocaleLowerCase() === expected &&
+          Number.isSafeInteger(identity.pid) && identity.pid > 0
+        ) {
+          matches.push({ port, pid: identity.pid });
+        }
+      } catch {
+        // A closed port is expected. Registration fails below unless exactly one board matches.
+      } finally {
+        clearTimeout(timeout);
+      }
+    }),
+  );
+  if (matches.length !== 1) {
+    fail(`expected exactly one live board for ${planPath}; found ${matches.length}`);
+  }
+  return matches[0];
+}
+
+async function codexRegistrationEnvelope(options, nowMs = Date.now()) {
+  rejectUnknownOptions(
+    options,
+    new Set(["plan", "thread", "thread-id", "label", "app-data", "launch-nonce", "ttl-minutes"]),
+  );
   const scope = readPlanScope(option(options, "plan", "PP_PLAN"));
   const threadId = required(
     option(options, "thread-id", "CODEX_THREAD_ID", option(options, "thread", null)),
@@ -293,35 +348,36 @@ function codexRegistrationEnvelope(options, nowMs = Date.now()) {
   );
   const routeId = `codex-exec:${scope.repositoryId}:${threadId}`;
   const label = option(options, "label", null, `Codex task ${threadId}`).trim();
+  const board = await discoverExactBoard(scope.planPath);
+  const launchNonce = required(
+    option(options, "launch-nonce", "PP_BOARD_LAUNCH_NONCE", randomUUID()),
+    "--launch-nonce",
+  );
+  const ttlMinutes = Number(option(options, "ttl-minutes", "PP_ROUTE_TTL_MINUTES", "480"));
+  if (!Number.isSafeInteger(ttlMinutes) || ttlMinutes < 1 || ttlMinutes > 1440) {
+    fail("--ttl-minutes must be an integer from 1 to 1440");
+  }
   return {
     schemaVersion: 1,
-    type: "POST_MESSAGE",
+    type: "REGISTER_APPROVAL_ROUTE",
     createdAtMs: nowMs,
     request: {
-      scope: baseScope(scope, REPOSITORY_SENTINEL, null, REPOSITORY_SENTINEL),
-      kind: "STATUS",
-      sender: { kind: "CONNECTOR", actorId: "codex-exec" },
-      destination: {
-        kind: "CHAT",
-        targetId: threadId,
-        connectorId: "codex-exec",
-        routeId,
-        label: required(label, "--label"),
-        requiresAcknowledgement: true,
-        retryBaseMs: 5_000,
-        registeredAtMs: null,
-        metadata: {
-          connector: "codex-exec",
-          registration: "repository",
-          planNumber: scope.planNumber,
-        },
-      },
-      subject: "Codex chat route registered",
-      body: `Registered codex-exec route ${routeId} for repository ${scope.repositoryId}.`,
-      idempotencyKey: `connector-registration:${routeId}`,
-      correlationId: `connector-registration:${scope.repositoryId}`,
-      replyToMessageId: null,
-      maxDeliveryAttempts: 3,
+      organizationId: scope.organizationId,
+      repositoryId: scope.repositoryId,
+      repositoryRoot: scope.repositoryRoot,
+      worktreePath: scope.worktreePath,
+      branchName: scope.branchName,
+      planId: scope.planId,
+      planPath: scope.planPath,
+      boardPort: board.port,
+      boardPid: board.pid,
+      launchNonce,
+      taskId: threadId,
+      connectorId: "codex-exec",
+      routeId,
+      label: required(label, "--label"),
+      createdAtMs: nowMs,
+      expiresAtMs: nowMs + ttlMinutes * 60_000,
     },
   };
 }
@@ -369,7 +425,7 @@ function printUsage() {
   process.stdout.write(`Drops are written atomically to the Tauri app-data control-plane-inbox. No chat CLI is executed.\n`);
 }
 
-function main() {
+async function main() {
   const { command, options } = parseArguments(process.argv.slice(2));
   if (command === "help" || command === "--help" || command === "-h") {
     printUsage();
@@ -382,16 +438,16 @@ function main() {
   }
   let envelope;
   if (command === "note") envelope = noteEnvelope(options);
-  else if (command === "register-codex") envelope = codexRegistrationEnvelope(options);
+  else if (command === "register-codex") envelope = await codexRegistrationEnvelope(options);
   else fail(`unknown command: ${command}`);
   const file = writeDrop(envelope, option(options, "app-data", "PP_CONTROL_APP_DATA"));
   process.stdout.write(
-    `${JSON.stringify({ ok: true, file, repositoryId: envelope.request.scope.repositoryId, planId: envelope.request.scope.planId, routeId: envelope.request.destination.routeId })}\n`,
+    `${JSON.stringify({ ok: true, file, type: envelope.type, repositoryId: envelope.request.scope?.repositoryId || envelope.request.repositoryId, planId: envelope.request.scope?.planId || envelope.request.planId, routeId: envelope.request.destination?.routeId || envelope.request.routeId, boardPort: envelope.request.boardPort || null, boardPid: envelope.request.boardPid || null, launchNonce: envelope.request.launchNonce || null })}\n`,
   );
 }
 
 try {
-  main();
+  await main();
 } catch (error) {
   process.stderr.write(`pp-control: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = 1;

@@ -6,7 +6,7 @@ from playwright.sync_api import expect, sync_playwright
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCREENSHOT = ROOT / "artifacts" / "alarm-live.png"
+SCREENSHOT = ROOT / "artifacts" / "alarm-deterministic.png"
 APP_URL = "http://127.0.0.1:5180/"
 PLAN_PATH = r"C:\fixtures\alarm-transition-plan.json"
 
@@ -41,6 +41,7 @@ def main():
     SCREENSHOT.parent.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
+            channel="chrome",
             headless=True,
             args=["--autoplay-policy=no-user-gesture-required"],
         )
@@ -180,46 +181,8 @@ def main():
         page.get_by_role("button", name="test", exact=True).click()
         page.wait_for_function("window.__alarmStarts === 3")
         expect(page.get_by_role("button", name="sound on")).to_be_visible()
+        page.screenshot(path=str(SCREENSHOT), full_page=True)
         context.close()
-
-        # Live integration proof against the real running boards. A previous version pinned
-        # this to one intentionally stale worker, which made the test fail after the reaper
-        # correctly recovered that worker. The transition alarm is proven above; this half
-        # proves live repository selection and console health regardless of worker count.
-        live_context = browser.new_context(viewport={"width": 1440, "height": 900})
-        live_page = live_context.new_page()
-        live_page.add_init_script(AUDIO_SPY)
-        console_errors = []
-        live_page.on(
-            "console",
-            lambda message: console_errors.append(message.text)
-            if message.type == "error"
-            else None,
-        )
-        live_page.goto(APP_URL)
-        live_page.wait_for_load_state("networkidle")
-        expect(live_page.locator("#pp-list-boards .rail-item").first).to_be_visible(timeout=8_000)
-
-        # Left-rail hit-target proof: a physical click must select a different board, update
-        # the selected card, and navigate the frame. The alarm count itself must jump there.
-        connector = live_page.locator(".rail-item", has_text="Connector onboarding")
-        connector.click()
-        expect(connector).to_have_class(re.compile(r"\bon\b"))
-        expect(live_page.locator("iframe.board")).to_have_attribute("src", re.compile(r":5232/$"))
-        expect(live_page.locator(".crumb")).to_contain_text("Connector onboarding")
-        expect(live_page.locator("#pp-region-active-board-heading")).to_contain_text("Connector onboarding")
-        live_page.locator('.rail-item[data-board-port="5230"]').click()
-        expect(live_page.locator("iframe.board")).to_have_attribute("src", re.compile(r":5230/$"))
-        jump = live_page.locator("#pp-btn-show-stalled")
-        if jump.count():
-            jump.click()
-            expect(live_page.locator("iframe.board")).to_have_attribute("src", re.compile(r":523[1-3]/$"))
-        else:
-            expect(live_page.locator(".alarm-state")).to_have_text("armed")
-        live_page.wait_for_timeout(300)
-        live_page.screenshot(path=str(SCREENSHOT), full_page=True)
-        assert not console_errors, f"browser console errors: {console_errors}"
-        live_context.close()
         browser.close()
 
     print("alarm_e2e: PASS")

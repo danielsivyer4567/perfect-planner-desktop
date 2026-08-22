@@ -8,12 +8,14 @@ use std::path::Path;
 use std::time::Duration;
 use tauri::Manager;
 
+mod approval_bridge;
 pub mod collision_assessor;
 mod connectors;
 mod control_plane;
 mod control_plane_api;
 pub mod orchestrator;
 mod supervisor;
+use approval_bridge::{ApprovalBridgeStatus, ApprovalBridgeStore, BoardApprovalObservation};
 use collision_assessor::api::{
     collision_assessor_collect_census, collision_assessor_issue_discovery_capability,
     collision_assessor_revoke_discovery_capability, CensusCommandState,
@@ -253,6 +255,55 @@ fn read_board_evidence(port: u16, plan_path: String, file_name: String) -> Optio
     }
 }
 
+/// Observe approval only after the native layer re-proves the exact board process identity.
+/// The renderer cannot supply a task, route, PID, approval value, or notification body.
+#[tauri::command]
+fn observe_board_approval(
+    state: tauri::State<'_, ApprovalBridgeStore>,
+    port: u16,
+    plan_path: String,
+) -> Result<ApprovalBridgeStatus, String> {
+    if !(WINDOW_START..=WINDOW_END).contains(&port) || plan_path.trim().is_empty() {
+        return Err("invalid board approval observation target".to_string());
+    }
+    let identity =
+        probe_identity(port).ok_or_else(|| format!("board identity unavailable on port {port}"))?;
+    if identity.get("planPath").and_then(Value::as_str) != Some(plan_path.as_str()) {
+        return Err("board identity changed before approval observation".to_string());
+    }
+    let board_pid = identity
+        .get("pid")
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| *value > 0)
+        .ok_or_else(|| "board did not report a valid process identity".to_string())?;
+    let approved = identity
+        .get("approved")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    state.observe_board_approval(
+        BoardApprovalObservation {
+            plan_path,
+            board_port: port,
+            board_pid,
+            approved,
+        },
+        unix_ms(),
+    )
+}
+
+#[tauri::command]
+fn approval_bridge_snapshot(
+    state: tauri::State<'_, ApprovalBridgeStore>,
+    plan_path: String,
+) -> Result<ApprovalBridgeStatus, String> {
+    if plan_path.trim().is_empty() {
+        return Err("planPath is required".to_string());
+    }
+    state.status_for_plan(&plan_path, unix_ms())
+}
+
 /// Reconcile board observations into the app-local lease registry. This never edits a plan or
 /// kills a process: it releases only claims held by this supervisor, and only after the reaper
 /// has durably journaled the transition.
@@ -316,9 +367,18 @@ pub fn run() {
             app.manage(census);
             let control_plane_path = app_data_dir.join("control-plane.jsonl");
             let control_plane = ControlPlaneStore::open(control_plane_path)?;
-            let connectors = ConnectorSupervisor::open(control_plane.clone(), app_data_dir)?;
+            let approval_bridge = ApprovalBridgeStore::open(
+                app_data_dir.join("approval-bridge.jsonl"),
+                control_plane.clone(),
+            )?;
+            let connectors = ConnectorSupervisor::open(
+                control_plane.clone(),
+                approval_bridge.clone(),
+                app_data_dir,
+            )?;
             connectors.spawn()?;
             app.manage(control_plane);
+            app.manage(approval_bridge);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -326,6 +386,8 @@ pub fn run() {
             read_board_workers,
             read_board_plan,
             read_board_evidence,
+            observe_board_approval,
+            approval_bridge_snapshot,
             reconcile_session_leases,
             supervisor_snapshot,
             recover_board_session,

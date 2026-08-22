@@ -4,6 +4,8 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +63,43 @@ def git(repository, *arguments):
     if result.returncode != 0:
         raise AssertionError(f"git {' '.join(arguments)} failed: {result.stderr}")
     return result.stdout.strip()
+
+
+def serve_board(plan_path):
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path != "/whoami" or self.headers.get("Host") != f"127.0.0.1:{self.server.server_port}":
+                self.send_response(404)
+                self.end_headers()
+                return
+            body = json.dumps(
+                {
+                    "ok": True,
+                    "planPath": str(plan_path.resolve()),
+                    "pid": os.getpid(),
+                    "approved": "pending",
+                }
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_):
+            return
+
+    for port in range(5230, 5250):
+        try:
+            server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+            break
+        except OSError:
+            continue
+    else:
+        raise AssertionError("no free Perfect Planner board port for connector test")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, thread
 
 
 def main():
@@ -124,26 +163,40 @@ def main():
         note_output = json.loads(note_result.stdout)
         assert note_output["ok"] is True
 
-        register_result = run(
-            [
-                "register-codex",
-                "--plan",
-                str(plan_path),
-                "--thread-id",
-                "task-6a86a696-cac8",
-            ],
-            environment,
-        )
+        server, thread = serve_board(plan_path)
+        try:
+            register_result = run(
+                [
+                    "register-codex",
+                    "--plan",
+                    str(plan_path),
+                    "--thread-id",
+                    "task-6a86a696-cac8",
+                    "--launch-nonce",
+                    "11111111-2222-4333-8444-555555555555",
+                    "--ttl-minutes",
+                    "30",
+                ],
+                environment,
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
         register_output = json.loads(register_result.stdout)
         assert register_output["ok"] is True
+        assert register_output["type"] == "REGISTER_APPROVAL_ROUTE"
+        assert register_output["boardPort"] == server.server_port
+        assert register_output["boardPid"] == os.getpid()
         assert "must-not-be-executed" not in register_result.stdout
 
         drops = read_drops(app_data)
         assert len(drops) == 2
-        assert all(drop["schemaVersion"] == 1 and drop["type"] == "POST_MESSAGE" for drop in drops)
-        requests = {drop["request"]["kind"]: drop["request"] for drop in drops}
-        note = requests["WORKER_NOTE"]
-        registration = requests["STATUS"]
+        assert all(drop["schemaVersion"] == 1 for drop in drops)
+        note = next(drop["request"] for drop in drops if drop["type"] == "POST_MESSAGE")
+        registration = next(
+            drop["request"] for drop in drops if drop["type"] == "REGISTER_APPROVAL_ROUTE"
+        )
 
         canonical_repository = str(repository.resolve())
         repository_source = canonical_repository.replace("\\", "/").lower()
@@ -167,17 +220,17 @@ def main():
 
         thread_id = "task-6a86a696-cac8"
         expected_route = f"codex-exec:{expected_repository_id}:{thread_id}"
-        assert registration["kind"] == "STATUS"
-        assert registration["sender"] == {"kind": "CONNECTOR", "actorId": "codex-exec"}
-        assert registration["scope"]["nodeId"] == "__repository__"
-        assert registration["scope"]["workerId"] == "__repository__"
-        assert registration["scope"]["orchestratorId"] is None
-        assert registration["destination"]["kind"] == "CHAT"
-        assert registration["destination"]["connectorId"] == "codex-exec"
-        assert registration["destination"]["routeId"] == expected_route
-        assert registration["destination"]["targetId"] == thread_id
-        assert registration["destination"]["requiresAcknowledgement"] is True
-        assert registration["idempotencyKey"] == f"connector-registration:{expected_route}"
+        assert registration["organizationId"] == expected_repository_id
+        assert registration["repositoryId"] == expected_repository_id
+        assert registration["planId"] == expected_plan_id
+        assert registration["planPath"] == str(plan_path.resolve())
+        assert registration["boardPort"] == server.server_port
+        assert registration["boardPid"] == os.getpid()
+        assert registration["launchNonce"] == "11111111-2222-4333-8444-555555555555"
+        assert registration["connectorId"] == "codex-exec"
+        assert registration["routeId"] == expected_route
+        assert registration["taskId"] == thread_id
+        assert registration["expiresAtMs"] - registration["createdAtMs"] == 30 * 60_000
 
         invalid = run(
             [

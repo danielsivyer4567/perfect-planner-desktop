@@ -34,6 +34,33 @@ export interface Board {
   repoRoot: string;
   worktreeName: string;
   branch: string;
+  approvalBridge?: ApprovalBridgeStatus | null;
+}
+
+export type ApprovalBridgeState =
+  | "PENDING"
+  | "UNREGISTERED"
+  | "QUEUED"
+  | "CLAIMED"
+  | "RETRYING"
+  | "DELIVERED"
+  | "ACKNOWLEDGED"
+  | "DEAD_LETTER"
+  | "ROUTE_EXPIRED"
+  | "ROUTE_REVOKED"
+  | "IDENTITY_MISMATCH";
+
+export interface ApprovalBridgeStatus {
+  planPath: string;
+  registrationId: string | null;
+  routeId: string | null;
+  taskId: string | null;
+  messageId: string | null;
+  state: ApprovalBridgeState;
+  admissionReleased: boolean;
+  deliveryReceipt: string | null;
+  lastError: string | null;
+  routeExpiresAtMs: number | null;
 }
 
 export interface WorkerAssignment {
@@ -105,6 +132,7 @@ interface WhoAmI {
   repoRoot?: string;
   worktreeName?: string;
   branch?: string;
+  approvalBridge?: ApprovalBridgeStatus | null;
 }
 
 interface RawWorkerSnapshot {
@@ -215,7 +243,26 @@ function toBoard(port: number, who: WhoAmI): Board | null {
     repoRoot,
     worktreeName,
     branch: who.branch?.trim() || "unknown branch",
+    approvalBridge: who.approvalBridge || null,
   };
+}
+
+/** Native-only approval observation. The native command re-reads `/whoami`; the renderer does
+ * not supply the approval value, process ID, task ID, route, message text, or receipt. */
+export async function observeBoardApproval(
+  board: Board
+): Promise<ApprovalBridgeStatus | null> {
+  if (!inTauri()) return board.approvalBridge || null;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<ApprovalBridgeStatus>("observe_board_approval", {
+      port: board.port,
+      planPath: board.planPath,
+    });
+  } catch (error) {
+    console.warn("[perfect-planner] approval bridge observation failed:", error);
+    return null;
+  }
 }
 
 async function probeViaDevServer(port: number): Promise<Board | null> {

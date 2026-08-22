@@ -1,3 +1,4 @@
+use crate::approval_bridge::{ApprovalBridgeStore, ApprovalRouteRegistrationRequest};
 use crate::control_plane::{
     unix_ms, ClaimDeliveryRequest, ControlMessage, ControlPlaneStore, DeliveryState,
     DestinationKind, PostMessageRequest, RecordDeliveryResultRequest,
@@ -26,6 +27,7 @@ const MAX_TARGET_ID_BYTES: usize = 160;
 #[derive(Clone)]
 pub struct ConnectorSupervisor {
     store: ControlPlaneStore,
+    approval_bridge: ApprovalBridgeStore,
     inbox_dir: PathBuf,
     artifact_dir: PathBuf,
     error_log: PathBuf,
@@ -33,12 +35,31 @@ pub struct ConnectorSupervisor {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct DropEnvelope {
+struct DropHeader {
+    schema_version: u32,
+    #[serde(rename = "type")]
+    envelope_type: String,
+    created_at_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MessageDropEnvelope {
     schema_version: u32,
     #[serde(rename = "type")]
     envelope_type: String,
     created_at_ms: u64,
     request: PostMessageRequest,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApprovalRouteDropEnvelope {
+    schema_version: u32,
+    #[serde(rename = "type")]
+    envelope_type: String,
+    created_at_ms: u64,
+    request: ApprovalRouteRegistrationRequest,
 }
 
 #[derive(Debug, Serialize)]
@@ -61,7 +82,11 @@ struct ProcessResult {
 }
 
 impl ConnectorSupervisor {
-    pub fn open(store: ControlPlaneStore, app_data_dir: PathBuf) -> Result<Self, String> {
+    pub fn open(
+        store: ControlPlaneStore,
+        approval_bridge: ApprovalBridgeStore,
+        app_data_dir: PathBuf,
+    ) -> Result<Self, String> {
         let inbox_dir = app_data_dir.join("control-plane-inbox");
         let artifact_dir = app_data_dir.join("control-plane-delivery-artifacts");
         fs::create_dir_all(&inbox_dir)
@@ -70,6 +95,7 @@ impl ConnectorSupervisor {
             .map_err(|error| format!("cannot create control-plane artifact directory: {error}"))?;
         Ok(Self {
             store,
+            approval_bridge,
             inbox_dir,
             artifact_dir,
             error_log: app_data_dir.join("control-plane-connector-errors.jsonl"),
@@ -92,6 +118,12 @@ impl ConnectorSupervisor {
     fn run_cycle(&self) {
         if let Err(error) = self.ingest_drop_files() {
             self.record_connector_error("inbox", None, &error);
+        }
+        if let Err(error) = self.approval_bridge.poll_registered_boards(unix_ms()) {
+            self.record_connector_error("approval-observer", None, &error);
+        }
+        if let Err(error) = self.approval_bridge.flush_all(unix_ms()) {
+            self.record_connector_error("approval-outbox", None, &error);
         }
         if let Err(error) = self.deliver_next_codex_message() {
             self.record_connector_error("codex-delivery", None, &error);
@@ -147,22 +179,37 @@ impl ConnectorSupervisor {
         File::open(path)
             .and_then(|mut file| file.read_to_end(&mut bytes))
             .map_err(|error| format!("cannot read drop file: {error}"))?;
-        let envelope: DropEnvelope = serde_json::from_slice(&bytes)
+        let header: DropHeader = serde_json::from_slice(&bytes)
             .map_err(|error| format!("invalid drop envelope: {error}"))?;
-        if envelope.schema_version != INBOX_SCHEMA_VERSION {
+        if header.schema_version != INBOX_SCHEMA_VERSION {
             return Err(format!(
                 "unsupported drop schema version: {}",
-                envelope.schema_version
+                header.schema_version
             ));
         }
-        if envelope.envelope_type != "POST_MESSAGE" {
-            return Err(format!("unsupported drop type: {}", envelope.envelope_type));
-        }
-        if envelope.created_at_ms == 0 || envelope.created_at_ms > unix_ms().saturating_add(300_000)
-        {
+        if header.created_at_ms == 0 || header.created_at_ms > unix_ms().saturating_add(300_000) {
             return Err("drop createdAtMs is missing or unreasonably in the future".to_string());
         }
-        self.store.post_message(envelope.request, unix_ms())?;
+        match header.envelope_type.as_str() {
+            "POST_MESSAGE" => {
+                let envelope: MessageDropEnvelope = serde_json::from_slice(&bytes)
+                    .map_err(|error| format!("invalid message drop envelope: {error}"))?;
+                debug_assert_eq!(envelope.schema_version, INBOX_SCHEMA_VERSION);
+                debug_assert_eq!(envelope.envelope_type, "POST_MESSAGE");
+                debug_assert_eq!(envelope.created_at_ms, header.created_at_ms);
+                self.store.post_message(envelope.request, unix_ms())?;
+            }
+            "REGISTER_APPROVAL_ROUTE" => {
+                let envelope: ApprovalRouteDropEnvelope = serde_json::from_slice(&bytes)
+                    .map_err(|error| format!("invalid approval route drop envelope: {error}"))?;
+                debug_assert_eq!(envelope.schema_version, INBOX_SCHEMA_VERSION);
+                debug_assert_eq!(envelope.envelope_type, "REGISTER_APPROVAL_ROUTE");
+                debug_assert_eq!(envelope.created_at_ms, header.created_at_ms);
+                self.approval_bridge
+                    .register_route(envelope.request, unix_ms())?;
+            }
+            other => return Err(format!("unsupported drop type: {other}")),
+        }
         Ok(())
     }
 
@@ -195,6 +242,7 @@ impl ConnectorSupervisor {
                     .is_none_or(|retry_at| retry_at <= now)
             })
             .filter(|view| is_codex_destination(&view.message))
+            .filter(|view| self.approval_bridge.authorizes_delivery(&view.message, now))
             .min_by_key(|view| (view.message.created_at_ms, view.message.id.clone()))
             .map(|view| view.message.clone());
         let Some(message) = candidate else {
@@ -252,6 +300,7 @@ impl ConnectorSupervisor {
             },
             completed_at,
         )?;
+        self.approval_bridge.refresh_all(completed_at)?;
         Ok(true)
     }
 
@@ -544,11 +593,17 @@ mod tests {
         }
     }
 
+    fn connector(root: &Path, store: ControlPlaneStore) -> ConnectorSupervisor {
+        let bridge =
+            ApprovalBridgeStore::open(root.join("approval-bridge.jsonl"), store.clone()).unwrap();
+        ConnectorSupervisor::open(store, bridge, root.to_path_buf()).unwrap()
+    }
+
     #[test]
     fn ingests_atomic_drop_and_retries_idempotently() {
         let root = test_root("ingest");
         let store = ControlPlaneStore::open(root.join("control-plane.jsonl")).unwrap();
-        let connector = ConnectorSupervisor::open(store.clone(), root.clone()).unwrap();
+        let connector = connector(&root, store.clone());
         let envelope = json!({
             "schemaVersion": INBOX_SCHEMA_VERSION,
             "type": "POST_MESSAGE",
@@ -571,7 +626,7 @@ mod tests {
     fn quarantines_malformed_drop_without_poisoning_the_inbox() {
         let root = test_root("quarantine");
         let store = ControlPlaneStore::open(root.join("control-plane.jsonl")).unwrap();
-        let connector = ConnectorSupervisor::open(store, root.clone()).unwrap();
+        let connector = connector(&root, store);
         let path = connector.inbox_dir.join("bad.json");
         fs::write(&path, b"not-json").unwrap();
         assert_eq!(connector.ingest_drop_files().unwrap(), 0);

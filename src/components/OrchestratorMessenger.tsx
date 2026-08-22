@@ -60,6 +60,170 @@ const DELIVERY_STATES = [
   "DEAD_LETTER",
 ] as const;
 
+type LoopletFeedState = "live" | "waiting" | "blocked" | "idle";
+type Point3 = { x: number; y: number; z: number };
+
+const BRAILLE_BLANK = "\u2800";
+const LOOPLET_DOT_WEIGHTS = [
+  [0x01, 0x08],
+  [0x02, 0x10],
+  [0x04, 0x20],
+  [0x40, 0x80],
+] as const;
+
+function rotateX(point: Point3, angle: number): Point3 {
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  return { x: point.x, y: point.y * cosine - point.z * sine, z: point.y * sine + point.z * cosine };
+}
+
+function rotateY(point: Point3, angle: number): Point3 {
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  return { x: point.x * cosine + point.z * sine, y: point.y, z: -point.x * sine + point.z * cosine };
+}
+
+function rotateZ(point: Point3, angle: number): Point3 {
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  return { x: point.x * cosine - point.y * sine, y: point.x * sine + point.y * cosine, z: point.z };
+}
+
+function makeLoopletRings(): Array<{ outer: boolean; points: Point3[] }> {
+  const circle = (transform: (point: Point3) => Point3, outer = false) => ({
+    outer,
+    points: Array.from({ length: 181 }, (_, index) => {
+      const angle = index / 180 * Math.PI * 2;
+      return transform({ x: Math.cos(angle), y: Math.sin(angle), z: 0 });
+    }),
+  });
+  return [
+    circle((point) => rotateX(point, Math.PI / 2)),
+    circle((point) => rotateY(point, Math.PI / 2)),
+    circle((point) => rotateX(point, Math.PI / 6)),
+    circle((point) => rotateX(point, -Math.PI / 6)),
+    circle((point) => point, true),
+  ];
+}
+
+const LOOPLET_RINGS = makeLoopletRings();
+
+function renderLoopletBraille(time: number, width = 12, height = 6): string {
+  const subWidth = width * 2;
+  const subHeight = height * 4;
+  const pixels = Array.from({ length: subHeight }, () => Array<number>(subWidth).fill(0));
+  const angleY = time * 1.54;
+  const angleX = 0.32 + 0.08 * Math.sin(time * 0.44);
+  const angleZ = 0.06 * Math.cos(time * 0.33);
+  const scaleX = (subWidth - 5) * 0.45;
+  const scaleY = (subHeight - 3) * 0.46;
+  const centerX = subWidth / 2;
+  const centerY = subHeight / 2;
+  const cameraDistance = 2.8;
+
+  const plot = (point: Point3) => {
+    const depth = point.z + cameraDistance;
+    if (depth <= 0.1) return;
+    const x = Math.round(centerX + point.x * scaleX * cameraDistance / depth);
+    const y = Math.round(centerY - point.y * scaleY * cameraDistance / depth);
+    if (x >= 0 && x < subWidth && y >= 0 && y < subHeight) pixels[y][x] = 1;
+  };
+
+  for (const ring of LOOPLET_RINGS) {
+    for (const source of ring.points) {
+      let point = ring.outer ? rotateZ(source, -time * 0.44) : rotateY(source, angleY);
+      if (!ring.outer) {
+        point = rotateX(point, angleX);
+        point = rotateZ(point, angleZ);
+      }
+      plot(point);
+    }
+  }
+
+  const loopPhase = time * 2.2 % (Math.PI * 2);
+  let ball = rotateX({ x: Math.cos(loopPhase), y: Math.sin(loopPhase), z: 0 }, Math.PI / 7);
+  ball = rotateZ(rotateX(rotateY(ball, angleY), angleX), angleZ);
+  const ballDepth = ball.z + cameraDistance;
+  const ballX = Math.round(centerX + ball.x * scaleX * cameraDistance / ballDepth);
+  const ballY = Math.round(centerY - ball.y * scaleY * cameraDistance / ballDepth);
+  for (let yOffset = -1; yOffset <= 1; yOffset += 1) {
+    for (let xOffset = -1; xOffset <= 1; xOffset += 1) {
+      const x = ballX + xOffset;
+      const y = ballY + yOffset;
+      if (x >= 0 && x < subWidth && y >= 0 && y < subHeight) pixels[y][x] = 1;
+    }
+  }
+
+  return Array.from({ length: height }, (_, cellY) =>
+    Array.from({ length: width }, (_, cellX) => {
+      let code = 0;
+      for (let dotY = 0; dotY < 4; dotY += 1) {
+        for (let dotX = 0; dotX < 2; dotX += 1) {
+          if (pixels[cellY * 4 + dotY][cellX * 2 + dotX]) code |= LOOPLET_DOT_WEIGHTS[dotY][dotX];
+        }
+      }
+      return code ? String.fromCharCode(0x2800 + code) : BRAILLE_BLANK;
+    }).join("")
+  ).join("\n");
+}
+
+function LoopletLiveFeedMark({ state }: { state: LoopletFeedState }) {
+  const frameRef = useRef<HTMLPreElement | null>(null);
+  const label = state === "blocked"
+    ? "DELIVERY BLOCKED"
+    : state === "waiting"
+      ? "ROUTE ATTENTION"
+      : state === "live"
+        ? "CONTROL FEED LIVE"
+        : "CONTROL FEED STANDBY";
+
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let requestId = 0;
+    let lastPaint = 0;
+    const start = performance.now();
+
+    const paint = (now: number) => {
+      if (!document.hidden && now - lastPaint >= 125) {
+        const elapsed = reducedMotion.matches ? 0.55 : (now - start) / 1_000;
+        frame.textContent = renderLoopletBraille(elapsed);
+        lastPaint = now;
+      }
+      if (!reducedMotion.matches) requestId = window.requestAnimationFrame(paint);
+    };
+
+    paint(performance.now());
+    const onPreferenceChange = () => {
+      window.cancelAnimationFrame(requestId);
+      requestId = 0;
+      paint(performance.now());
+    };
+    reducedMotion.addEventListener("change", onPreferenceChange);
+    return () => {
+      window.cancelAnimationFrame(requestId);
+      reducedMotion.removeEventListener("change", onPreferenceChange);
+    };
+  }, []);
+
+  return (
+    <div
+      className={`looplet-live-feed-mark ${state}`}
+      id="pp-status-looplet-live-feed"
+      role="img"
+      aria-label={`Looplet ${label.toLowerCase()}`}
+      data-feed-state={state}
+    >
+      <pre ref={frameRef} aria-hidden="true">{renderLoopletBraille(0.55)}</pre>
+      <span>
+        <b>LOOPLET LIVE</b>
+        <em>{label}</em>
+      </span>
+    </div>
+  );
+}
+
 function asRecord(value: unknown): UnknownRecord {
   return value && typeof value === "object" ? value as UnknownRecord : {};
 }
@@ -288,6 +452,13 @@ export function OrchestratorMessenger({
   const outboxCount = scopedMessages.filter((message) =>
     messageAuthor(message) === orchestratorId && deliveryState(message) !== "ACKNOWLEDGED"
   ).length;
+  const feedState: LoopletFeedState = syncError || (snapshot?.stateCounts.deadLetter || 0) > 0
+    ? "blocked"
+    : (snapshot?.stateCounts.unrouted || 0) > 0 || (snapshot?.stateCounts.queued || 0) > 0 || (snapshot?.stateCounts.claimed || 0) > 0
+      ? "waiting"
+      : snapshot
+        ? "live"
+        : "idle";
 
   const workerScope = useMemo(() => {
     if (!scope || !selectedWorker) return null;
@@ -432,6 +603,7 @@ export function OrchestratorMessenger({
       data-entity-id={orchestratorId || "unassigned"}
     >
       <header className="orchestrator-messenger-header" id="pp-header-orchestrator-messenger">
+        <LoopletLiveFeedMark state={feedState} />
         <div className="orchestrator-messenger-title">
           <span>ORCHESTRATOR MESSAGES</span>
           <code id="pp-value-orchestrator-message-id">{orchestratorId || "ID UNASSIGNED"}</code>

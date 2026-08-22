@@ -12,6 +12,7 @@ import {
   repositoryForBoard,
   OrganizationScope,
   readBoardPlan,
+  observeBoardApproval,
   readBoardWorkers,
   stalledWorkerKey,
   WorkerAssignment,
@@ -153,16 +154,22 @@ export const App: React.FC = () => {
     setScanning(true);
     try {
       const found = await discoverBoards();
-      setBoards(found);
       setActivePort((current) => {
         if (current !== null && found.some((b) => b.port === current)) return current;
         return found.length ? found[0].port : null;
       });
 
-      const [snapshots, manifests] = await Promise.all([
+      const [snapshots, manifests, approvalBridges] = await Promise.all([
         Promise.all(found.map(readBoardWorkers)),
         Promise.all(found.map(readBoardPlan)),
+        Promise.all(found.map(observeBoardApproval)),
       ]);
+      setBoards(
+        found.map((board, index) => ({
+          ...board,
+          approvalBridge: approvalBridges[index],
+        }))
+      );
       setPlanSnapshots(
         Object.fromEntries(
           found.flatMap((board, index) => manifests[index] ? [[board.planPath, manifests[index]]] : [])
@@ -594,6 +601,13 @@ export const App: React.FC = () => {
                                 {b.worktreeName} · :{b.port}
                                 {b.awaiting ? " · awaiting" : ""}
                                 {boardStalls ? ` · ${boardStalls} stalled` : ""}
+                              </span>
+                              <span
+                                className={`rail-chat-route ${b.approvalBridge?.admissionReleased ? "delivered" : "blocked"}`}
+                                data-approval-bridge-state={b.approvalBridge?.state || "UNAVAILABLE"}
+                                title={b.approvalBridge?.lastError || b.approvalBridge?.routeId || "No native task route is registered"}
+                              >
+                                chat · {b.approvalBridge?.state?.replace(/_/g, " ").toLowerCase() || "unavailable"}
                               </span>
                             </button>
                           </div>
