@@ -70,7 +70,6 @@ pub struct CreateRunApiRequest {
     pub plan_path: PathBuf,
     #[serde(default)]
     pub next_actions: Vec<String>,
-    pub nodes: Vec<ScheduledNode>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -497,22 +496,32 @@ pub fn orchestrator_create_run(
 ) -> Result<CreateRunApiResponse, String> {
     let repository_root = canonical_repository(&request.repository_root)?;
     validate_run_id(&request.run_id)?;
-    if request.nodes.is_empty() {
-        return Err("scheduler requires at least one node".to_string());
-    }
-    validate_initial_nodes(&request.nodes)?;
-
     let scope = RunScope::create(CreateRunScope {
         repository_root: repository_root.clone(),
         run_id: request.run_id.clone(),
         plan_path: request.plan_path,
         next_actions: request.next_actions,
     })?;
+    let nodes = scope
+        .manifest
+        .nodes
+        .iter()
+        .map(|node| ScheduledNode {
+            id: node.node_id.clone(),
+            wave: node.wave,
+            depends_on: node.depends_on.clone(),
+            attempts: 0,
+            status: NodeStatus::Ready,
+            lease: None,
+            stall_alarm_fence: None,
+        })
+        .collect::<Vec<_>>();
+    validate_initial_nodes(&nodes)?;
     let context = open_context(&ScopedRunRequest {
         repository_root,
         run_id: request.run_id,
     })?;
-    let scheduler = open_scheduler(&context, request.nodes)?.public_snapshot()?;
+    let scheduler = open_scheduler(&context, nodes)?.public_snapshot()?;
     let hot_resume = scope.read_hot_resume()?;
 
     Ok(CreateRunApiResponse {
@@ -2617,15 +2626,6 @@ mod tests {
             run_id: scope_request.run_id.clone(),
             plan_path: PathBuf::from(".claude/scratch/perfect-plan/api-plan.json"),
             next_actions: vec!["claim A01".to_string()],
-            nodes: vec![ScheduledNode {
-                id: "A01".to_string(),
-                wave: 1,
-                depends_on: Vec::new(),
-                attempts: 0,
-                status: NodeStatus::Ready,
-                lease: None,
-                stall_alarm_fence: None,
-            }],
         })
         .unwrap();
         assert!(create.run_dir.starts_with(&repository_root));

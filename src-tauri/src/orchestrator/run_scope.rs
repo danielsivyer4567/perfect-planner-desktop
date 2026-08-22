@@ -1,14 +1,14 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 3;
 const MANIFEST_FILE: &str = "manifest.json";
 const AUDIT_FILE: &str = "audit.jsonl";
 const EVENTS_FILE: &str = "events.jsonl";
@@ -40,7 +40,19 @@ pub struct AllowedFileManifest {
     pub plan_contract_digest: String,
     pub approval_receipt_digest: String,
     pub allowed_files: Vec<PathBuf>,
+    pub allowed_resources: Vec<String>,
+    pub nodes: Vec<AllowedNodeManifest>,
     pub manifest_digest: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AllowedNodeManifest {
+    pub node_id: String,
+    pub wave: u32,
+    pub depends_on: Vec<String>,
+    pub allowed_files: Vec<PathBuf>,
+    pub allowed_resources: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,6 +94,8 @@ struct LiveRunBinding {
     plan_contract_digest: String,
     approval_receipt_digest: String,
     allowed_files: Vec<PathBuf>,
+    allowed_resources: Vec<String>,
+    nodes: Vec<AllowedNodeManifest>,
 }
 
 impl RunScope {
@@ -358,28 +372,141 @@ fn derive_live_binding(
     if vertebrae.is_empty() {
         return Err("plan must contain at least one vertebra".to_string());
     }
+    struct ParsedNode {
+        node_id: String,
+        depends_on: Vec<String>,
+        allowed_files: Vec<PathBuf>,
+        allowed_resources: Vec<String>,
+    }
+
+    let mut parsed_nodes = Vec::new();
+    let mut node_ids = BTreeSet::new();
     let mut allowed_files = Vec::new();
+    let mut allowed_resources = Vec::new();
     for vertebra in vertebrae {
         let item = vertebra
             .as_object()
             .ok_or_else(|| "plan vertebra must be an object".to_string())?;
         let id = required_json_text(item, "id", "plan vertebra.id")?;
         validate_id("vertebra id", &id)?;
+        if !node_ids.insert(id.clone()) {
+            return Err(format!("plan contains duplicate vertebra id {id}"));
+        }
+        let depends_on = item
+            .get("dependsOn")
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("plan vertebra {id} has no dependsOn array"))?
+            .iter()
+            .map(|dependency| {
+                dependency
+                    .as_str()
+                    .ok_or_else(|| format!("plan vertebra {id} contains a non-text dependency"))
+                    .and_then(|dependency| {
+                        validate_id("dependency id", dependency)?;
+                        Ok(dependency.to_string())
+                    })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let mut canonical_dependencies = depends_on.clone();
+        canonical_dependencies.sort();
+        canonical_dependencies.dedup();
+        if canonical_dependencies != depends_on || depends_on.iter().any(|value| value == &id) {
+            return Err(format!(
+                "plan vertebra {id} dependencies must be sorted, unique and non-self-referential"
+            ));
+        }
         let files = item
             .get("files")
             .and_then(Value::as_array)
             .ok_or_else(|| format!("plan vertebra {id} has no files array"))?;
+        let mut node_files = Vec::new();
         for file in files {
             let file = file
                 .as_str()
                 .ok_or_else(|| format!("plan vertebra {id} contains a non-text file claim"))?;
-            allowed_files.push(PathBuf::from(file));
+            node_files.push(PathBuf::from(file));
         }
+        let node_files = normalize_allowed_files(&node_files)?;
+        if node_files.is_empty() {
+            return Err(format!(
+                "plan vertebra {id} has an empty allowed-file manifest"
+            ));
+        }
+        let resources = item
+            .get("resources")
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("plan vertebra {id} has no resources array"))?
+            .iter()
+            .map(|resource| {
+                resource
+                    .as_str()
+                    .ok_or_else(|| format!("plan vertebra {id} contains a non-text resource claim"))
+                    .map(str::to_string)
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let node_resources = normalize_resource_claims(&resources)?;
+        allowed_files.extend(node_files.iter().cloned());
+        allowed_resources.extend(node_resources.iter().cloned());
+        parsed_nodes.push(ParsedNode {
+            node_id: id,
+            depends_on,
+            allowed_files: node_files,
+            allowed_resources: node_resources,
+        });
     }
     let allowed_files = normalize_allowed_files(&allowed_files)?;
     if allowed_files.is_empty() {
         return Err("plan allowed-file manifest must not be empty".to_string());
     }
+    let allowed_resources = normalize_resource_claims(&allowed_resources)?;
+
+    let mut waves = BTreeMap::<String, u32>::new();
+    while waves.len() < parsed_nodes.len() {
+        let mut progressed = false;
+        for node in &parsed_nodes {
+            if waves.contains_key(&node.node_id) {
+                continue;
+            }
+            if let Some(missing) = node
+                .depends_on
+                .iter()
+                .find(|dependency| !node_ids.contains(*dependency))
+            {
+                return Err(format!(
+                    "plan vertebra {} depends on unknown node {missing}",
+                    node.node_id
+                ));
+            }
+            if node
+                .depends_on
+                .iter()
+                .all(|dependency| waves.contains_key(dependency))
+            {
+                let wave = node
+                    .depends_on
+                    .iter()
+                    .filter_map(|dependency| waves.get(dependency))
+                    .copied()
+                    .max()
+                    .map_or(0, |wave| wave + 1);
+                waves.insert(node.node_id.clone(), wave);
+                progressed = true;
+            }
+        }
+        if !progressed {
+            return Err("plan dependency graph contains a cycle".to_string());
+        }
+    }
+    let nodes = parsed_nodes
+        .into_iter()
+        .map(|node| AllowedNodeManifest {
+            wave: waves[&node.node_id],
+            node_id: node.node_id,
+            depends_on: node.depends_on,
+            allowed_files: node.allowed_files,
+            allowed_resources: node.allowed_resources,
+        })
+        .collect();
 
     let mut contract = plan.clone();
     strip_volatile_plan_fields(&mut contract);
@@ -411,6 +538,8 @@ fn derive_live_binding(
         plan_contract_digest,
         approval_receipt_digest,
         allowed_files,
+        allowed_resources,
+        nodes,
     })
 }
 
@@ -436,6 +565,8 @@ fn build_manifest(
         plan_contract_digest: binding.plan_contract_digest.clone(),
         approval_receipt_digest: binding.approval_receipt_digest.clone(),
         allowed_files: binding.allowed_files.clone(),
+        allowed_resources: binding.allowed_resources.clone(),
+        nodes: binding.nodes.clone(),
         manifest_digest: String::new(),
     };
     manifest.manifest_digest = manifest_digest(&manifest)?;
@@ -464,6 +595,36 @@ fn validate_manifest_integrity(manifest: &AllowedFileManifest) -> Result<(), Str
     if normalized.is_empty() || normalized != manifest.allowed_files {
         return Err("immutable run manifest files are empty or non-canonical".to_string());
     }
+    let resources = normalize_resource_claims(&manifest.allowed_resources)?;
+    if resources != manifest.allowed_resources {
+        return Err("immutable run manifest resources are non-canonical".to_string());
+    }
+    if manifest.nodes.is_empty() {
+        return Err("immutable run manifest contains no nodes".to_string());
+    }
+    let node_ids = manifest
+        .nodes
+        .iter()
+        .map(|node| node.node_id.as_str())
+        .collect::<BTreeSet<_>>();
+    if node_ids.len() != manifest.nodes.len() {
+        return Err("immutable run manifest contains duplicate node IDs".to_string());
+    }
+    for node in &manifest.nodes {
+        validate_id("node id", &node.node_id)?;
+        if normalize_allowed_files(&node.allowed_files)? != node.allowed_files
+            || node.allowed_files.is_empty()
+            || normalize_resource_claims(&node.allowed_resources)? != node.allowed_resources
+            || node.depends_on.iter().any(|dependency| {
+                dependency == &node.node_id || !node_ids.contains(dependency.as_str())
+            })
+        {
+            return Err(format!(
+                "immutable node manifest {} is invalid or non-canonical",
+                node.node_id
+            ));
+        }
+    }
     if manifest_digest(manifest)? != manifest.manifest_digest {
         return Err("immutable run manifest digest does not verify".to_string());
     }
@@ -475,7 +636,21 @@ fn manifest_digest(manifest: &AllowedFileManifest) -> Result<String, String> {
     unsigned.manifest_digest.clear();
     let bytes = serde_json::to_vec(&unsigned)
         .map_err(|error| format!("failed to serialize immutable run manifest: {error}"))?;
-    Ok(sha256_domain(b"perfect-planner-run-manifest-v2\0", &bytes))
+    Ok(sha256_domain(b"perfect-planner-run-manifest-v3\0", &bytes))
+}
+
+fn normalize_resource_claims(resources: &[String]) -> Result<Vec<String>, String> {
+    let mut normalized = BTreeSet::new();
+    for resource in resources {
+        let value = resource.trim();
+        if value.is_empty() || value.len() > 512 || value.chars().any(char::is_control) {
+            return Err(
+                "resource claims must be non-empty printable text up to 512 characters".to_string(),
+            );
+        }
+        normalized.insert(value.to_string());
+    }
+    Ok(normalized.into_iter().collect())
 }
 
 fn git_text(repository_root: &Path, args: &[&str]) -> Result<String, String> {
@@ -833,7 +1008,7 @@ mod tests {
                 "status": "pending",
                 "dependsOn": [],
                 "files": [file],
-                "resources": [],
+                "resources": ["test:resource"],
                 "checklist": [{
                     "text": "Exact binding holds",
                     "built": false,
@@ -860,13 +1035,17 @@ mod tests {
         let manifest: AllowedFileManifest =
             serde_json::from_slice(&fs::read(&scope.manifest_path).unwrap()).unwrap();
         assert_eq!(manifest, scope.manifest);
-        assert_eq!(manifest.schema_version, 2);
+        assert_eq!(manifest.schema_version, 3);
         assert_eq!(manifest.plan_id, "PP-TEST");
         assert!(is_digest(&manifest.worktree_id));
         assert!(is_digest(&manifest.plan_contract_digest));
         assert!(is_digest(&manifest.approval_receipt_digest));
         assert!(is_digest(&manifest.manifest_digest));
         assert_eq!(manifest.allowed_files.len(), 1);
+        assert_eq!(manifest.allowed_resources, vec!["test:resource"]);
+        assert_eq!(manifest.nodes.len(), 1);
+        assert_eq!(manifest.nodes[0].node_id, "B01");
+        assert_eq!(manifest.nodes[0].wave, 0);
         let resume = scope.read_hot_resume().unwrap();
         assert_eq!(resume.status, "ready");
         assert_eq!(resume.next_actions.len(), 2);

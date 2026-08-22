@@ -186,6 +186,14 @@ export interface AllowedFileManifest {
   repositoryRoot: string;
   branch: string;
   allowedFiles: string[];
+  allowedResources: string[];
+  nodes: Array<{
+    nodeId: string;
+    wave: number;
+    dependsOn: string[];
+    allowedFiles: string[];
+    allowedResources: string[];
+  }>;
 }
 
 export interface HotResumeState {
@@ -745,10 +753,8 @@ export interface ScopedRunRequest {
 }
 
 export interface CreateRunRequest extends ScopedRunRequest {
-  branch: string;
-  allowedFiles: string[];
+  planPath: string;
   nextActions: string[];
-  nodes: ScheduledNode[];
 }
 
 export interface CreateRunResult {
@@ -1398,9 +1404,7 @@ export async function orchestratorCreateRun(
 ): Promise<CreateRunResult> {
   requireRun(request);
   requireText(request.repositoryRoot, "repositoryRoot");
-  requireText(request.branch, "branch");
-  if (!request.allowedFiles.length) throw new Error("allowedFiles must not be empty");
-  if (!request.nodes.length) throw new Error("nodes must not be empty");
+  requireText(request.planPath, "planPath");
   return invokePipeline(ORCHESTRATOR_COMMANDS.createRun, request);
 }
 
