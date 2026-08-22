@@ -6636,7 +6636,7 @@
       "spineId": "P6",
       "side": "L",
       "title": "Resource-aware PowerShell hazard sentinel",
-      "status": "in-progress",
+      "status": "done",
       "dependsOn": [
         "B02",
         "B03",
@@ -6666,33 +6666,419 @@
       "checklist": [
         {
           "text": "Reject wrong repository, non-Windows execution, missing Cargo tests, malformed stage selection and unsafe output paths before running any hazard case",
-          "built": false,
-          "tested": false,
-          "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -ValidateOnly"
+          "built": true,
+          "tested": true,
+          "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -ValidateOnly",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-4d15c758",
+            "at": "2026-08-22T04:04:59.892Z",
+            "git": {
+              "sha": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 1000,
+            "loc": {
+              "baseline": "61fa0485f7d2fd6fbdce0f8f4a1c47258f52374c",
+              "scope": "files",
+              "added": 9,
+              "removed": 0,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "scripts/Invoke-CollisionHazardTests.ps1",
+                  "added": 9,
+                  "removed": 0
+                }
+              ],
+              "fileCount": 1,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "systematic-debugging"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T04:05:24.158Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-4d15c758",
+            "note": "ran `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -ValidateOnly` → exit 0 in 5574ms",
+            "log": "PP-002-B21-0-1787371517994.log",
+            "sha256": "39ec0a80c24a9c8c58d4ddcde6697a8aa40107b9564f79ab300ae0884a63f66f",
+            "exit": 0,
+            "durationMs": 5574,
+            "git": {
+              "sha": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -ValidateOnly",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B21-0-1787371517994.diff",
+            "diffSha256": "5e6521a5abbfd15b4ddb9c8c8701b2b59dcbd5289545f806ffbce7c85caad50b",
+            "diffBaseline": "7f06cd6f309b41d38a6606fad2ae0186ff0baae3",
+            "diffFiles": [
+              "docs/collision-hazard-test-matrix.md",
+              "scripts/Invoke-CollisionHazardTests.ps1",
+              "scripts/collision-hazard-tests.psd1"
+            ],
+            "tokensEst": 3000,
+            "loc": {
+              "baseline": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Exercise registry, discovery capability and native census hazards including incomplete coverage, replay, expiry, alias swaps, malformed frames and post-scan plan races",
-          "built": false,
-          "tested": false,
-          "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage Registry,Discovery,NativeCensus"
+          "built": true,
+          "tested": true,
+          "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage Registry,Discovery,NativeCensus",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-4d15c758",
+            "at": "2026-08-22T04:05:02.769Z",
+            "git": {
+              "sha": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 1000,
+            "loc": {
+              "baseline": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "systematic-debugging"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T04:06:09.125Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-4d15c758",
+            "note": "ran `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage Registry,Discovery,NativeCensus` → exit 0 in 33266ms",
+            "log": "PP-002-B21-1-1787371535042.log",
+            "sha256": "08301d1cca8b0e0e08a92a045d7c4b2a5f2be6db4a838a24dd09c04113517c59",
+            "exit": 0,
+            "durationMs": 33266,
+            "git": {
+              "sha": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage Registry,Discovery,NativeCensus",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B21-1-1787371535042.diff",
+            "diffSha256": "5e6521a5abbfd15b4ddb9c8c8701b2b59dcbd5289545f806ffbce7c85caad50b",
+            "diffBaseline": "7f06cd6f309b41d38a6606fad2ae0186ff0baae3",
+            "diffFiles": [
+              "docs/collision-hazard-test-matrix.md",
+              "scripts/Invoke-CollisionHazardTests.ps1",
+              "scripts/collision-hazard-tests.psd1"
+            ],
+            "tokensEst": 4000,
+            "loc": {
+              "baseline": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Exercise canonical claims, deterministic collision graph and immutable snapshot hazards including traversal, unsupported globs, permutation drift, overflow and proof splicing",
-          "built": false,
-          "tested": false,
-          "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage CanonicalClaims,CollisionGraph,Snapshot"
+          "built": true,
+          "tested": true,
+          "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage CanonicalClaims,CollisionGraph,Snapshot",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-4d15c758",
+            "at": "2026-08-22T04:05:05.814Z",
+            "git": {
+              "sha": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 1000,
+            "loc": {
+              "baseline": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "systematic-debugging"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T04:06:51.956Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-4d15c758",
+            "note": "ran `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage CanonicalClaims,CollisionGraph,Snapshot` → exit 0 in 33708ms",
+            "log": "PP-002-B21-2-1787371577728.log",
+            "sha256": "727e52cbf1f1064c2d0086c27b9b6345bfad06a1f05911af43fd95ba59095768",
+            "exit": 0,
+            "durationMs": 33708,
+            "git": {
+              "sha": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage CanonicalClaims,CollisionGraph,Snapshot",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B21-2-1787371577728.diff",
+            "diffSha256": "5e6521a5abbfd15b4ddb9c8c8701b2b59dcbd5289545f806ffbce7c85caad50b",
+            "diffBaseline": "7f06cd6f309b41d38a6606fad2ae0186ff0baae3",
+            "diffFiles": [
+              "docs/collision-hazard-test-matrix.md",
+              "scripts/Invoke-CollisionHazardTests.ps1",
+              "scripts/collision-hazard-tests.psd1"
+            ],
+            "tokensEst": 4000,
+            "loc": {
+              "baseline": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Exercise clearance, ticket broker and journal hazards including replay, cross-owner access, expiry, tamper, restart, rollback, torn writes and concurrent append contention",
-          "built": false,
-          "tested": false,
-          "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage Clearance,Tickets,Journal"
+          "built": true,
+          "tested": true,
+          "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage Clearance,Tickets,Journal",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-4d15c758",
+            "at": "2026-08-22T04:05:08.606Z",
+            "git": {
+              "sha": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 1000,
+            "loc": {
+              "baseline": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "systematic-debugging"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T04:07:36.817Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-4d15c758",
+            "note": "ran `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage Clearance,Tickets,Journal` → exit 0 in 35985ms",
+            "log": "PP-002-B21-3-1787371620003.log",
+            "sha256": "a58d1ac2db34e9cbac3576d0169207e4c16efbbcc4bb8a9b819e36df707b00c2",
+            "exit": 0,
+            "durationMs": 35985,
+            "git": {
+              "sha": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage Clearance,Tickets,Journal",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B21-3-1787371620003.diff",
+            "diffSha256": "5e6521a5abbfd15b4ddb9c8c8701b2b59dcbd5289545f806ffbce7c85caad50b",
+            "diffBaseline": "7f06cd6f309b41d38a6606fad2ae0186ff0baae3",
+            "diffFiles": [
+              "docs/collision-hazard-test-matrix.md",
+              "scripts/Invoke-CollisionHazardTests.ps1",
+              "scripts/collision-hazard-tests.psd1"
+            ],
+            "tokensEst": 4000,
+            "loc": {
+              "baseline": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Run the full staged suite sequentially under CPU and free-memory admission gates, save per-case logs plus a machine-readable summary, and return nonzero on failure, timeout, pressure abort or missing coverage",
-          "built": false,
-          "tested": false,
-          "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Full"
+          "built": true,
+          "tested": true,
+          "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Full",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-4d15c758",
+            "at": "2026-08-22T04:05:10.842Z",
+            "git": {
+              "sha": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 1000,
+            "loc": {
+              "baseline": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "systematic-debugging"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T04:11:46.094Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-4d15c758",
+            "note": "ran `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Full` → exit 0 in 239125ms",
+            "log": "PP-002-B21-4-1787371666269.log",
+            "sha256": "f2233a9fb9cd7fb4e79b5da484de1e058867b0c153078faeeecca21d1989f75e",
+            "exit": 0,
+            "durationMs": 239125,
+            "git": {
+              "sha": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Full",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B21-4-1787371666269.diff",
+            "diffSha256": "5e6521a5abbfd15b4ddb9c8c8701b2b59dcbd5289545f806ffbce7c85caad50b",
+            "diffBaseline": "7f06cd6f309b41d38a6606fad2ae0186ff0baae3",
+            "diffFiles": [
+              "docs/collision-hazard-test-matrix.md",
+              "scripts/Invoke-CollisionHazardTests.ps1",
+              "scripts/collision-hazard-tests.psd1"
+            ],
+            "tokensEst": 5000,
+            "loc": {
+              "baseline": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         }
       ],
       "startSha": "7f06cd6f309b41d38a6606fad2ae0186ff0baae3",
@@ -6702,6 +7088,15 @@
         "user": "danielsivyer4567",
         "session": "s-4d15c758",
         "at": "2026-08-22T03:26:00.726Z"
+      },
+      "lastStampSha": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+      "doneAt": "2026-08-22T04:11:54.769Z",
+      "doneBy": {
+        "model": "gpt-5.6-codex",
+        "user": "danielsivyer4567",
+        "session": "s-4d15c758",
+        "at": "2026-08-22T04:11:54.769Z",
+        "forced": false
       }
     }
   ]

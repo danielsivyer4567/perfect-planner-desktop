@@ -1,0 +1,721 @@
+diff --git a/docs/collision-hazard-test-matrix.md b/docs/collision-hazard-test-matrix.md
+new file mode 100644
+index 0000000..eddbaef
+--- /dev/null
++++ b/docs/collision-hazard-test-matrix.md
+@@ -0,0 +1,45 @@
++# Collision Assessor PowerShell hazard matrix
++
++This is a pre-certification sentinel for the collision-assessor foundations that are already
++built. It deliberately does **not** activate worker admission, the approval-to-chat bridge, or
++the production scheduler authority. Those paths remain gated by PP-002 B15, B20, B09 and B10;
++B12 must extend this matrix when they exist.
++
++Run from the isolated Perfect Planner Desktop worktree:
++
++```powershell
++powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -ValidateOnly
++powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick
++powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Full
++powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Stress -Stage Journal,Tickets,Scale -Repeat 20
++```
++
++The runner executes one exact allowlisted Cargo test at a time. Before every case it checks free
++RAM and CPU load, waits briefly if the machine is busy, and aborts rather than adding uncontrolled
++pressure. Every child test has a hard deadline. Logs and `summary.json` are written only below
++`artifacts/hazard-tests/`; an outside path, existing output directory, or junction/reparse-point
++component is rejected so one run cannot escape the repo or overwrite another run's evidence.
++
++`Stress` runs the full selected stages once, then repeats only their explicitly designated
++contention cases. It does not multiply every ordinary test by the repeat count.
++
++The runner fingerprints `HEAD`, the complete tracked diff, and every untracked source file before
++and after execution. Any mid-run source change is reported as `SOURCE_DRIFT` and cannot certify the
++run.
++
++| Stage | Boundary | Common hazards attacked |
++|---|---|---|
++| Registry | machine registry | incomplete coverage, malformed state, alias swaps, lost updates, post-scan plan races |
++| Discovery | one-use capability | replay, nonce rebinding, truncated/oversized frames, unexpected plans |
++| NativeCensus | native collection | concurrent replay, mid-call expiry/revoke, identity drift, error-detail leakage |
++| CanonicalClaims | signed claim snapshot | glob ambiguity, unsigned mutation, subset laundering, issuer rotation |
++| CollisionGraph | pure analyzer | discovery-order drift, false prefixes, duplicates, contradictory policy, overflow |
++| Snapshot | immutable assessment | hidden conflicts, proof splicing/truncation, reordering, same-key byte replacement |
++| Clearance | one-use admission permit | parallel replay, exact expiry, binding drift, invalid MAC, prior epoch |
++| Tickets | owner mailbox | accidental production enablement, cross-owner access, route expiry, duplicate events |
++| Journal | audit durability | concurrent writer loss, torn writes, corruption, rollback, unanchored restart |
++| Scale | bounded contention | quadratic fanout, duplicate delivery, oversized assessment and ticket sets |
++
++Exit codes are stable: `0` pass, `1` test failure, `2` validation/configuration failure, `3`
++resource-pressure abort, `4` child-test timeout, and `5` source drift. A skipped or missing test is
++never counted as a pass.
+diff --git a/scripts/Invoke-CollisionHazardTests.ps1 b/scripts/Invoke-CollisionHazardTests.ps1
+new file mode 100644
+index 0000000..3779333
+--- /dev/null
++++ b/scripts/Invoke-CollisionHazardTests.ps1
+@@ -0,0 +1,484 @@
++[CmdletBinding()]
++param(
++    [ValidateSet('Quick', 'Full', 'Stress')]
++    [string]$Profile = 'Quick',
++
++    [string]$Stage = 'All',
++
++    [switch]$ValidateOnly,
++
++    [ValidateRange(2, 100)]
++    [int]$Repeat = 20,
++
++    [ValidateRange(15, 1800)]
++    [int]$PerTestTimeoutSeconds = 180,
++
++    [ValidateRange(512, 1048576)]
++    [int]$MinimumFreeMemoryMb = 2048,
++
++    [ValidateRange(50, 100)]
++    [int]$MaximumCpuPercent = 95,
++
++    [ValidateRange(5, 900)]
++    [int]$PressureWaitSeconds = 60,
++
++    [ValidateRange(0, 10000)]
++    [int]$PauseMilliseconds = 250,
++
++    [string]$OutputDirectory,
++
++    [switch]$StopOnFailure,
++
++    [switch]$ListStages
++)
++
++Set-StrictMode -Version Latest
++$ErrorActionPreference = 'Stop'
++
++# A Windows PowerShell child launched through Node/cmd can inherit PowerShell 7's PSModulePath
++# ordering and try to auto-load an incompatible Microsoft.PowerShell.Utility module. Pin the
++# utility module to this engine's own PSHOME so proof runners and direct shells behave identically.
++$utilityModule = Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1'
++if (-not (Test-Path -LiteralPath $utilityModule -PathType Leaf)) {
++    throw "Built-in PowerShell Utility module is missing: $utilityModule"
++}
++Import-Module -Name $utilityModule -ErrorAction Stop
++
++$script:RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
++$script:ManifestPath = Join-Path $PSScriptRoot 'collision-hazard-tests.psd1'
++$script:CargoManifest = Join-Path $script:RepoRoot 'src-tauri\Cargo.toml'
++
++function Assert-RepositoryIdentity {
++    $packagePath = Join-Path $script:RepoRoot 'package.json'
++    $windowsVariable = Get-Variable -Name IsWindows -ErrorAction SilentlyContinue
++    $isWindowsHost = if ($windowsVariable) { [bool]$windowsVariable.Value } else { $env:OS -eq 'Windows_NT' }
++    if (-not $isWindowsHost) {
++        throw 'This hazard suite certifies Windows behavior and refuses to run on a non-Windows host.'
++    }
++    if (-not (Test-Path -LiteralPath $script:CargoManifest -PathType Leaf)) {
++        throw "Wrong repository: missing $script:CargoManifest"
++    }
++    if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf)) {
++        throw "Wrong repository: missing $packagePath"
++    }
++    $package = Get-Content -Raw -LiteralPath $packagePath | ConvertFrom-Json
++    if ($package.name -ne 'perfect-planner-desktop') {
++        throw "Wrong repository: expected package perfect-planner-desktop, found '$($package.name)'."
++    }
++    $gitRoot = (& git -C $script:RepoRoot rev-parse --show-toplevel 2>$null).Trim()
++    if (-not $gitRoot -or [IO.Path]::GetFullPath($gitRoot) -ne $script:RepoRoot) {
++        throw "Worktree identity mismatch: Git resolved '$gitRoot', expected '$script:RepoRoot'."
++    }
++}
++
++function Resolve-SafeOutputDirectory {
++    param([string]$Requested)
++
++    $artifactRoot = [IO.Path]::GetFullPath((Join-Path $script:RepoRoot 'artifacts\hazard-tests'))
++    $candidate = if ([string]::IsNullOrWhiteSpace($Requested)) {
++        Join-Path $artifactRoot ("$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ'))-$PID")
++    } elseif ([IO.Path]::IsPathRooted($Requested)) {
++        [IO.Path]::GetFullPath($Requested)
++    } else {
++        [IO.Path]::GetFullPath((Join-Path $script:RepoRoot $Requested))
++    }
++
++    $rootWithSeparator = $artifactRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
++    if (-not ($candidate + [IO.Path]::DirectorySeparatorChar).StartsWith($rootWithSeparator, [StringComparison]::OrdinalIgnoreCase)) {
++        throw "Unsafe output path: '$candidate' must remain below '$artifactRoot'."
++    }
++    if ($candidate.Equals($artifactRoot, [StringComparison]::OrdinalIgnoreCase)) {
++        throw 'Unsafe output path: each run requires its own child directory below artifacts\hazard-tests.'
++    }
++
++    $relative = $candidate.Substring($script:RepoRoot.Length).TrimStart('\')
++    $current = $script:RepoRoot
++    foreach ($segment in ($relative -split '\\')) {
++        if (-not $segment) { continue }
++        $current = Join-Path $current $segment
++        if (-not (Test-Path -LiteralPath $current)) { continue }
++        $item = Get-Item -Force -LiteralPath $current
++        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
++            throw "Unsafe output path: existing component '$current' is a reparse point."
++        }
++    }
++    if (Test-Path -LiteralPath $candidate) {
++        throw "Output collision: '$candidate' already exists; refusing to overwrite evidence."
++    }
++    return $candidate
++}
++
++function New-ProcessResult {
++    param(
++        [string]$FileName,
++        [string[]]$Arguments,
++        [int]$TimeoutSeconds
++    )
++
++    $startInfo = [Diagnostics.ProcessStartInfo]::new()
++    $startInfo.FileName = $FileName
++    $startInfo.WorkingDirectory = $script:RepoRoot
++    $startInfo.UseShellExecute = $false
++    $startInfo.CreateNoWindow = $true
++    $startInfo.RedirectStandardOutput = $true
++    $startInfo.RedirectStandardError = $true
++    $quotedArguments = foreach ($argument in $Arguments) {
++        if ($argument.Contains('"')) {
++            throw "Unsafe quote in native process argument: $argument"
++        }
++        if ($argument -match '\s') { '"' + $argument + '"' } else { $argument }
++    }
++    $startInfo.Arguments = $quotedArguments -join ' '
++
++    $process = [Diagnostics.Process]::new()
++    $process.StartInfo = $startInfo
++    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
++    if (-not $process.Start()) {
++        throw "Failed to start $FileName."
++    }
++    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
++    $stderrTask = $process.StandardError.ReadToEndAsync()
++    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
++    $peakWorkingSet = [int64]0
++    while (-not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) {
++        try {
++            $process.Refresh()
++            $peakWorkingSet = [math]::Max($peakWorkingSet, $process.WorkingSet64)
++        } catch {
++            # A process can exit between HasExited and Refresh. The exit state is checked below.
++        }
++        Start-Sleep -Milliseconds 100
++    }
++    $timedOut = -not $process.HasExited
++    if ($timedOut) {
++        $killer = [Diagnostics.ProcessStartInfo]::new()
++        $killer.FileName = 'taskkill.exe'
++        $killer.Arguments = "/PID $($process.Id) /T /F"
++        $killer.UseShellExecute = $false
++        $killer.CreateNoWindow = $true
++        try {
++            $killProcess = [Diagnostics.Process]::Start($killer)
++            [void]$killProcess.WaitForExit(10000)
++        } catch {
++            try { $process.Kill() } catch { }
++        }
++    }
++    if (-not $process.HasExited) {
++        try { $process.Kill() } catch { }
++    }
++    if (-not $process.HasExited) {
++        throw "Timed-out process $FileName could not be terminated."
++    }
++    if ($process.HasExited) {
++        $process.WaitForExit()
++    }
++    $stopwatch.Stop()
++    $stdout = $stdoutTask.GetAwaiter().GetResult()
++    $stderr = $stderrTask.GetAwaiter().GetResult()
++
++    [pscustomobject]@{
++        ExitCode = if ($timedOut) { -1 } else { $process.ExitCode }
++        TimedOut = $timedOut
++        DurationMs = $stopwatch.ElapsedMilliseconds
++        PeakWorkingSetMb = [math]::Round($peakWorkingSet / 1MB, 1)
++        Stdout = $stdout
++        Stderr = $stderr
++    }
++}
++
++function Get-ResourceSnapshot {
++    try {
++        $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
++        $processors = @(Get-CimInstance -ClassName Win32_Processor -ErrorAction Stop)
++        if (-not $os -or $processors.Count -eq 0) {
++            throw 'Windows resource sensors returned no data.'
++        }
++        $cpu = [math]::Round((($processors | Measure-Object -Property LoadPercentage -Average).Average), 1)
++        [pscustomobject]@{
++            CapturedAt = [DateTime]::UtcNow.ToString('o')
++            FreeMemoryMb = [math]::Floor([double]$os.FreePhysicalMemory / 1024)
++            CpuPercent = $cpu
++        }
++    } catch {
++        throw "Cannot prove host resource pressure safely: $($_.Exception.Message)"
++    }
++}
++
++function Wait-ResourceBudget {
++    $deadline = [DateTime]::UtcNow.AddSeconds($PressureWaitSeconds)
++    do {
++        $snapshot = Get-ResourceSnapshot
++        if ($snapshot.FreeMemoryMb -ge $MinimumFreeMemoryMb -and $snapshot.CpuPercent -le $MaximumCpuPercent) {
++            return $snapshot
++        }
++        Write-Warning "Resource gate paused: free RAM $($snapshot.FreeMemoryMb) MB; CPU $($snapshot.CpuPercent)%."
++        Start-Sleep -Seconds 2
++    } while ([DateTime]::UtcNow -lt $deadline)
++
++    throw "Resource pressure did not clear within $PressureWaitSeconds seconds (requires >= $MinimumFreeMemoryMb MB free RAM and <= $MaximumCpuPercent% CPU)."
++}
++
++function Get-SelectedStages {
++    param([object[]]$Definitions)
++
++    $known = @($Definitions | ForEach-Object { [string]$_.Name })
++    $requested = @($Stage -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
++    if ($requested.Count -eq 1 -and $requested[0] -eq 'All') {
++        return @($Definitions)
++    }
++    $unknown = @($requested | Where-Object { $_ -notin $known })
++    if ($unknown.Count -gt 0) {
++        throw "Unknown stage(s): $($unknown -join ', '). Valid stages: $($known -join ', ')."
++    }
++    return @($Definitions | Where-Object { $_.Name -in $requested })
++}
++
++function Get-TestsForStage {
++    param([object]$Definition)
++
++    $tests = @($Definition.QuickTests)
++    if ($Profile -in @('Full', 'Stress')) {
++        $tests += @($Definition.FullTests)
++    }
++    if ($Profile -eq 'Stress' -and $Definition.ContainsKey('StressTests')) {
++        $tests += @($Definition.StressTests)
++    }
++    return @($tests | Select-Object -Unique)
++}
++
++function Get-AttemptsForTest {
++    param(
++        [object]$Definition,
++        [string]$TestName
++    )
++    if ($Profile -ne 'Stress' -or -not $Definition.ContainsKey('StressTests')) {
++        return 1
++    }
++    if ($TestName -in @($Definition.StressTests)) {
++        return $Repeat
++    }
++    return 1
++}
++
++function Assert-TestInventory {
++    param([object[]]$SelectedStages)
++
++    $list = New-ProcessResult -FileName 'cargo' -Arguments @(
++        'test', '--manifest-path', $script:CargoManifest, '--', '--list'
++    ) -TimeoutSeconds $PerTestTimeoutSeconds
++    if ($list.TimedOut -or $list.ExitCode -ne 0) {
++        throw "Could not enumerate Cargo tests. Exit $($list.ExitCode).`n$($list.Stderr)"
++    }
++    $available = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
++    foreach ($line in ($list.Stdout -split "`r?`n")) {
++        if ($line -match '^(?<name>[^:]+(?:::[^:]+)+): test$') {
++            [void]$available.Add($Matches.name)
++        }
++    }
++
++    $configured = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
++    foreach ($definition in $SelectedStages) {
++        foreach ($test in (Get-TestsForStage $definition)) {
++            if (-not $configured.Add([string]$test)) {
++                throw "Duplicate test assignment in selected stages: $test"
++            }
++            if (-not $available.Contains([string]$test)) {
++                throw "Configured Cargo hazard test does not exist exactly: $test"
++            }
++        }
++    }
++    return $configured.Count
++}
++
++function ConvertTo-SafeFileName {
++    param([string]$Value)
++    return ($Value -replace '[^A-Za-z0-9_.-]', '_')
++}
++
++function Get-SourceFingerprint {
++    $head = (& git -C $script:RepoRoot rev-parse HEAD 2>$null).Trim()
++    if ($LASTEXITCODE -ne 0 -or -not $head) {
++        throw 'Cannot fingerprint source: git rev-parse failed.'
++    }
++    $diff = (& git -C $script:RepoRoot diff --binary HEAD -- 2>$null) -join "`n"
++    if ($LASTEXITCODE -ne 0) {
++        throw 'Cannot fingerprint source: git diff failed.'
++    }
++    $untracked = @(& git -C $script:RepoRoot ls-files --others --exclude-standard 2>$null | Sort-Object)
++    if ($LASTEXITCODE -ne 0) {
++        throw 'Cannot fingerprint source: untracked-file inventory failed.'
++    }
++
++    $builder = [Text.StringBuilder]::new()
++    [void]$builder.AppendLine($head)
++    [void]$builder.AppendLine($diff)
++    foreach ($relativePath in $untracked) {
++        $absolutePath = Join-Path $script:RepoRoot $relativePath
++        if (-not (Test-Path -LiteralPath $absolutePath -PathType Leaf)) {
++            throw "Cannot fingerprint source: untracked file disappeared: $relativePath"
++        }
++        $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $absolutePath).Hash.ToLowerInvariant()
++        [void]$builder.AppendLine("$relativePath=$hash")
++    }
++    $sha = [Security.Cryptography.SHA256]::Create()
++    try {
++        $bytes = [Text.Encoding]::UTF8.GetBytes($builder.ToString())
++        return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant()
++    } finally {
++        $sha.Dispose()
++    }
++}
++
++try {
++    Assert-RepositoryIdentity
++    if (-not (Test-Path -LiteralPath $script:ManifestPath -PathType Leaf)) {
++        throw "Hazard manifest missing: $script:ManifestPath"
++    }
++    $manifest = Import-PowerShellDataFile -LiteralPath $script:ManifestPath
++    if ($manifest.SchemaVersion -ne 1 -or -not $manifest.Stages) {
++        throw 'Unsupported or empty hazard manifest.'
++    }
++
++    if ($ListStages) {
++        foreach ($definition in $manifest.Stages) {
++            [pscustomobject]@{
++                Stage = $definition.Name
++                Step = $definition.Step
++                Quick = @($definition.QuickTests).Count
++                Full = @($definition.QuickTests).Count + @($definition.FullTests).Count
++                StressRepeated = if ($definition.ContainsKey('StressTests')) { @($definition.StressTests).Count } else { 0 }
++                Hazards = ($definition.Hazards -join '; ')
++            }
++        }
++        exit 0
++    }
++
++    $selectedStages = @(Get-SelectedStages $manifest.Stages)
++    $safeOutput = Resolve-SafeOutputDirectory $OutputDirectory
++    $sourceFingerprintBefore = Get-SourceFingerprint
++    $testCount = Assert-TestInventory $selectedStages
++    try {
++        $initialPressure = Wait-ResourceBudget
++    } catch {
++        [Console]::Error.WriteLine($_.Exception.Message)
++        exit 3
++    }
++    if ($ValidateOnly) {
++        Write-Host "VALID: $testCount exact hazard tests across $($selectedStages.Count) stage(s)."
++        Write-Host "RESOURCE GATE: $($initialPressure.FreeMemoryMb) MB free RAM, $($initialPressure.CpuPercent)% CPU."
++        Write-Host "SOURCE FINGERPRINT: $sourceFingerprintBefore"
++        Write-Host "OUTPUT: $safeOutput"
++        exit 0
++    }
++
++    [void](New-Item -ItemType Directory -Path $safeOutput)
++    $results = [Collections.Generic.List[object]]::new()
++    $abort = $false
++
++    foreach ($definition in $selectedStages) {
++        if ($abort) { break }
++        foreach ($test in (Get-TestsForStage $definition)) {
++            if ($abort) { break }
++            $attempts = Get-AttemptsForTest -Definition $definition -TestName $test
++            for ($attempt = 1; $attempt -le $attempts; $attempt++) {
++                try {
++                    $pressure = Wait-ResourceBudget
++                } catch {
++                    $results.Add([pscustomobject]@{
++                        Stage = $definition.Name; Test = $test; Attempt = $attempt
++                        Status = 'PRESSURE_ABORT'; ExitCode = 3; DurationMs = 0
++                        PeakWorkingSetMb = 0; Pressure = $null; Log = $null
++                        Error = $_.Exception.Message
++                    })
++                    $abort = $true
++                    break
++                }
++
++                $label = ConvertTo-SafeFileName "$($definition.Name)-$attempt-$test"
++                $logPath = Join-Path $safeOutput "$label.log"
++                Write-Host "[$($definition.Name)] attempt $attempt/$attempts $test"
++                $run = New-ProcessResult -FileName 'cargo' -Arguments @(
++                    'test', '--manifest-path', $script:CargoManifest, $test,
++                    '--', '--exact', '--nocapture', '--test-threads=1'
++                ) -TimeoutSeconds $PerTestTimeoutSeconds
++                $status = if ($run.TimedOut) { 'TIMEOUT' } elseif ($run.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }
++                $log = @(
++                    "stage=$($definition.Name)"
++                    "step=$($definition.Step)"
++                    "test=$test"
++                    "attempt=$attempt/$attempts"
++                    "status=$status"
++                    "exit=$($run.ExitCode)"
++                    "durationMs=$($run.DurationMs)"
++                    "peakWorkingSetMb=$($run.PeakWorkingSetMb)"
++                    "freeMemoryMbBefore=$($pressure.FreeMemoryMb)"
++                    "cpuPercentBefore=$($pressure.CpuPercent)"
++                    '--- stdout ---'
++                    $run.Stdout
++                    '--- stderr ---'
++                    $run.Stderr
++                ) -join [Environment]::NewLine
++                Set-Content -LiteralPath $logPath -Value $log -Encoding utf8
++                $results.Add([pscustomobject]@{
++                    Stage = $definition.Name; Test = $test; Attempt = $attempt
++                    Status = $status; ExitCode = $run.ExitCode; DurationMs = $run.DurationMs
++                    PeakWorkingSetMb = $run.PeakWorkingSetMb; Pressure = $pressure
++                    Log = $logPath.Substring($script:RepoRoot.Length).TrimStart('\'); Error = $null
++                })
++
++                if ($status -ne 'PASS' -and $StopOnFailure) {
++                    $abort = $true
++                    break
++                }
++                if ($PauseMilliseconds -gt 0) {
++                    Start-Sleep -Milliseconds $PauseMilliseconds
++                }
++            }
++        }
++    }
++
++    $finishedAt = [DateTime]::UtcNow
++    $sourceFingerprintAfter = Get-SourceFingerprint
++    $sourceStable = $sourceFingerprintBefore -eq $sourceFingerprintAfter
++    $summary = [ordered]@{
++        schemaVersion = 1
++        profile = $Profile
++        stages = @($selectedStages | ForEach-Object { $_.Name })
++        startedAt = $initialPressure.CapturedAt
++        finishedAt = $finishedAt.ToString('o')
++        resourcePolicy = [ordered]@{
++            minimumFreeMemoryMb = $MinimumFreeMemoryMb
++            maximumCpuPercent = $MaximumCpuPercent
++            pressureWaitSeconds = $PressureWaitSeconds
++            perTestTimeoutSeconds = $PerTestTimeoutSeconds
++            pauseMilliseconds = $PauseMilliseconds
++        }
++        source = [ordered]@{
++            before = $sourceFingerprintBefore
++            after = $sourceFingerprintAfter
++            stable = $sourceStable
++        }
++        counts = [ordered]@{
++            total = $results.Count
++            passed = @($results | Where-Object Status -eq 'PASS').Count
++            failed = @($results | Where-Object Status -eq 'FAIL').Count
++            timedOut = @($results | Where-Object Status -eq 'TIMEOUT').Count
++            pressureAborted = @($results | Where-Object Status -eq 'PRESSURE_ABORT').Count
++            sourceDrift = if ($sourceStable) { 0 } else { 1 }
++        }
++        results = @($results)
++    }
++    $summaryPath = Join-Path $safeOutput 'summary.json'
++    $summary | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $summaryPath -Encoding utf8
++    Write-Host "SUMMARY: $summaryPath"
++    Write-Host "PASS $($summary.counts.passed)/$($summary.counts.total); FAIL $($summary.counts.failed); TIMEOUT $($summary.counts.timedOut); PRESSURE_ABORT $($summary.counts.pressureAborted); SOURCE_DRIFT $($summary.counts.sourceDrift)"
++
++    if (-not $sourceStable) { exit 5 }
++    if ($summary.counts.pressureAborted -gt 0) { exit 3 }
++    if ($summary.counts.timedOut -gt 0) { exit 4 }
++    if ($summary.counts.failed -gt 0) { exit 1 }
++    exit 0
++} catch {
++    [Console]::Error.WriteLine($_.Exception.Message)
++    exit 2
++}
+diff --git a/scripts/collision-hazard-tests.psd1 b/scripts/collision-hazard-tests.psd1
+new file mode 100644
+index 0000000..ffd973a
+--- /dev/null
++++ b/scripts/collision-hazard-tests.psd1
+@@ -0,0 +1,174 @@
++@{
++    SchemaVersion = 1
++    Stages = @(
++        @{
++            Name = 'Registry'
++            Step = 'Machine-wide registry admission and persistence'
++            Hazards = @('incomplete coverage', 'malformed state', 'alias swap', 'lost concurrent update', 'post-scan plan race')
++            QuickTests = @(
++                'collision_assessor::registry::tests::missing_malformed_partial_unsupported_duplicate_and_stale_are_unknown'
++                'collision_assessor::registry::tests::incomplete_root_census_never_becomes_complete'
++                'collision_assessor::registry::tests::physical_alias_swaps_change_or_invalidate_the_attestation'
++            )
++            FullTests = @(
++                'collision_assessor::registry::tests::conditional_census_write_rejects_mutation_and_duplicate_races'
++                'collision_assessor::registry::tests::capability_expiry_while_waiting_for_registry_lock_prevents_acceptance'
++                'collision_assessor::registry::tests::extra_plan_created_after_child_scan_is_rejected_before_persistence'
++                'collision_assessor::registry::tests::extra_plan_created_after_persistence_makes_restart_inspection_unknown'
++                'collision_assessor::registry::tests::startup_migrates_stale_v1_once_and_never_rewrites_malformed_legacy'
++            )
++        }
++        @{
++            Name = 'Discovery'
++            Step = 'Single-use read-only discovery capability'
++            Hazards = @('token replay', 'nonce rebinding', 'truncated frame', 'oversized response', 'unregistered plan')
++            QuickTests = @(
++                'collision_assessor::discovery::tests::replayed_or_rebound_response_nonce_is_rejected'
++                'collision_assessor::discovery::tests::missing_malformed_duplicate_node_and_duplicate_manifest_are_unknown'
++                'collision_assessor::discovery::tests::unregistered_extra_plan_in_fixed_directory_is_unknown'
++            )
++            FullTests = @(
++                'collision_assessor::discovery::tests::frames_reject_trailing_truncated_unknown_and_oversized_input'
++                'collision_assessor::discovery::tests::strict_request_rejects_unknown_fields_and_nonce_rebinding'
++                'collision_assessor::discovery::tests::nested_or_sibling_configured_root_is_unknown'
++            )
++        }
++        @{
++            Name = 'NativeCensus'
++            Step = 'Native collector boundary and one-time persistence'
++            Hazards = @('concurrent replay', 'expiry during collection', 'explicit revocation', 'identity drift', 'detail leakage')
++            QuickTests = @(
++                'collision_assessor::api::tests::concurrent_replay_runs_exactly_one_native_collection'
++                'collision_assessor::api::tests::expiry_during_collection_is_rechecked_and_never_persisted'
++                'collision_assessor::api::tests::invalid_or_unknown_token_causes_zero_registry_or_collector_reads'
++            )
++            FullTests = @(
++                'collision_assessor::api::tests::explicit_revoke_during_collection_cancels_native_boundary_and_discards_result'
++                'collision_assessor::api::tests::conditional_persistence_failure_revokes_without_leaking_detail'
++                'collision_assessor::api::tests::same_generation_native_identity_drift_revokes_before_persistence'
++                'collision_assessor::api::tests::failure_codes_do_not_serialize_native_details'
++            )
++        }
++        @{
++            Name = 'CanonicalClaims'
++            Step = 'Canonical claim and signed disposition construction'
++            Hazards = @('unsupported glob', 'unsigned mutation', 'subset laundering', 'issuer rotation', 'dependency tombstone loss')
++            QuickTests = @(
++                'collision_assessor::registry::tests::unsupported_glob_remains_registered_but_snapshot_is_unknown'
++                'collision_assessor::registry::tests::signed_publisher_rejects_every_unapproved_contract_mutation'
++                'collision_assessor::registry::tests::owner_pin_rejects_same_generation_subset_and_no_receipt_tamper_laundering'
++            )
++            FullTests = @(
++                'collision_assessor::registry::tests::atomic_authority_set_is_exact_owner_pinned_and_transition_safe'
++                'collision_assessor::registry::tests::issuer_rotation_rejects_old_receipts_and_is_atomic_on_native_failure'
++                'collision_assessor::registry::tests::terminal_dependency_tombstone_releases_claims_without_erasing_dependency_identity'
++            )
++        }
++        @{
++            Name = 'CollisionGraph'
++            Step = 'Pure deterministic collision analysis'
++            Hazards = @('input permutation', 'false path prefix', 'duplicate participant', 'policy contradiction', 'work-budget overflow')
++            QuickTests = @(
++                'collision_assessor::analyzer::tests::every_three_planner_and_root_permutation_has_identical_ids_graph_and_verdict'
++                'collision_assessor::analyzer::tests::complete_current_coverage_is_required_before_clear'
++                'collision_assessor::analyzer::tests::duplicate_participant_claim_and_contract_inputs_are_unknown'
++            )
++            FullTests = @(
++                'collision_assessor::analyzer::tests::one_hundred_mixed_participants_use_indexes_and_false_prefixes_do_not_collide'
++                'collision_assessor::analyzer::tests::hot_key_fanout_fails_unknown_instead_of_quadratic_or_truncated_output'
++                'collision_assessor::analyzer::tests::contradictory_and_mixed_policy_never_hide_the_known_graph'
++                'collision_assessor::analyzer::tests::conflict_ids_are_domain_separated_basis_bound_and_order_independent'
++            )
++        }
++        @{
++            Name = 'Snapshot'
++            Step = 'Immutable assessment and conflict commitment'
++            Hazards = @('hidden conflict', 'field splice', 'proof truncation', 'participant reorder', 'different bytes at same key')
++            QuickTests = @(
++                'collision_assessor::snapshot::tests::clear_snapshot_cannot_hide_a_conflict'
++                'collision_assessor::snapshot::tests::tamper_expiry_and_participant_order_invalidate_the_hash_or_shape'
++                'collision_assessor::snapshot::tests::conflict_commitment_proves_every_exact_field_and_rejects_splices'
++            )
++            FullTests = @(
++                'collision_assessor::snapshot::tests::non_power_of_two_commitments_reject_truncated_extra_and_flipped_proofs'
++                'collision_assessor::snapshot::tests::self_rehashed_participant_binding_and_dependency_cycle_are_rejected'
++                'collision_assessor::snapshot::tests::immutable_store_round_trips_and_rejects_different_existing_bytes'
++            )
++        }
++        @{
++            Name = 'Clearance'
++            Step = 'Single-use clearance issue, consume and revoke'
++            Hazards = @('parallel replay', 'exact-boundary expiry', 'binding drift', 'invalid MAC', 'issuer restart')
++            QuickTests = @(
++                'collision_assessor::clearance::tests::one_hundred_simultaneous_replays_have_exactly_one_winner'
++                'collision_assessor::clearance::tests::exact_expiry_is_denied_and_durably_revoked'
++                'collision_assessor::clearance::tests::every_clearance_binding_field_rejects_drift'
++            )
++            FullTests = @(
++                'collision_assessor::clearance::tests::invalid_mac_neither_consumes_nor_appends'
++                'collision_assessor::clearance::tests::snapshot_loss_before_consumption_revokes_instead_of_admitting'
++                'collision_assessor::clearance::tests::clearance_from_prior_issuer_epoch_is_denied_before_state_change'
++                'collision_assessor::clearance::tests::consuming_clearance_can_be_revoked_and_never_replayed'
++            )
++        }
++        @{
++            Name = 'Tickets'
++            Step = 'Owner-scoped conflict-ticket messaging'
++            Hazards = @('production enablement bypass', 'cross-owner access', 'route expiry', 'duplicate signal', 'unauthorized acknowledgement')
++            QuickTests = @(
++                'collision_assessor::tickets::tests::broker_is_production_disabled_and_has_no_generic_control_plane_dependency'
++                'collision_assessor::tickets::tests::capability_is_owner_scoped_epoch_bound_and_not_a_ticket_lookup_api'
++                'collision_assessor::tickets::tests::signal_and_ack_are_exactly_idempotent_and_survive_restart'
++            )
++            FullTests = @(
++                'collision_assessor::tickets::tests::minted_mailbox_cannot_outlive_or_mutate_its_route_authority'
++                'collision_assessor::tickets::tests::non_neighbor_cannot_acknowledge_a_signal_it_could_not_receive'
++                'collision_assessor::tickets::tests::one_manifest_transition_atomically_reaches_every_conflicting_peer'
++                'collision_assessor::tickets::tests::one_hundred_parallel_signal_retries_append_exactly_once'
++                'collision_assessor::tickets::tests::ticket_index_cache_is_bounded_and_eviction_does_not_mutate_issued_capability'
++            )
++            StressTests = @(
++                'collision_assessor::tickets::tests::one_hundred_parallel_signal_retries_append_exactly_once'
++            )
++        }
++        @{
++            Name = 'Journal'
++            Step = 'Append-only audit durability and restart recovery'
++            Hazards = @('concurrent writer loss', 'torn tail', 'middle corruption', 'rollback', 'unanchored restart')
++            QuickTests = @(
++                'collision_assessor::journal::tests::concurrent_appenders_produce_one_complete_hash_chain'
++                'collision_assessor::journal::tests::malformed_torn_tail_is_truncated_but_middle_corruption_blocks_append'
++                'collision_assessor::journal::tests::live_high_water_rejects_full_file_rollback'
++            )
++            FullTests = @(
++                'collision_assessor::journal::tests::damage_to_a_committed_final_newline_is_not_silently_repaired'
++                'collision_assessor::journal::tests::missing_or_zeroed_history_after_restart_never_becomes_authoritative'
++                'collision_assessor::journal::tests::restarted_history_is_unanchored_and_cannot_authorize_clearance'
++                'collision_assessor::journal::tests::snapshot_revocation_between_consuming_and_consumed_blocks_commit'
++                'collision_assessor::journal::tests::assessment_and_clearance_timestamps_stay_inside_snapshot_window'
++            )
++            StressTests = @(
++                'collision_assessor::journal::tests::concurrent_appenders_produce_one_complete_hash_chain'
++            )
++        }
++        @{
++            Name = 'Scale'
++            Step = 'Bounded high-contention behavior'
++            Hazards = @('quadratic fanout', 'duplicate delivery', 'unbounded ticket materialization', 'maximum assessment overflow')
++            QuickTests = @(
++                'collision_assessor::tickets::tests::one_hundred_distinct_participants_publish_and_ack_owned_edges_in_parallel'
++                'collision_assessor::journal::tests::maximum_participant_and_unique_edge_assessment_fits_and_restarts'
++            )
++            FullTests = @(
++                'collision_assessor::tickets::tests::one_hundred_agent_complete_conflict_graph_stays_bounded_and_fans_out_once'
++                'collision_assessor::tickets::tests::maximum_ticket_set_materializes_lazily_and_journals_only_active_delivery'
++                'collision_assessor::analyzer::tests::sealed_analyzer_entry_handles_a_ten_thousand_participant_chain'
++            )
++            StressTests = @(
++                'collision_assessor::tickets::tests::one_hundred_distinct_participants_publish_and_ack_owned_edges_in_parallel'
++                'collision_assessor::journal::tests::maximum_participant_and_unique_edge_assessment_fits_and_restarts'
++                'collision_assessor::tickets::tests::one_hundred_agent_complete_conflict_graph_stays_bounded_and_fans_out_once'
++            )
++        }
++    )
++}
