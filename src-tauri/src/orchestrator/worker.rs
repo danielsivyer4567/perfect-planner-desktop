@@ -40,8 +40,8 @@ pub fn validate_manifest(manifest: &WorkerManifest) -> Result<(), String> {
     {
         return Err("worker manifest identity is incomplete".to_string());
     }
-    if manifest.allowed_files.is_empty() || manifest.verification_commands.is_empty() {
-        return Err("worker manifest requires files and verification commands".to_string());
+    if manifest.verification_commands.is_empty() {
+        return Err("worker manifest requires verification commands".to_string());
     }
     for path in &manifest.allowed_files {
         validate_relative_path(path)?;
@@ -69,11 +69,27 @@ pub fn validate_submission(
             escapes.push(path.clone());
         }
     }
-    let evidence = validate_evidence(
+    let mut evidence = validate_evidence(
         &manifest.profile,
         &submission.artifacts,
         &submission.verification,
     );
+    let expected_commands = manifest
+        .verification_commands
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let actual_commands = submission
+        .verification
+        .iter()
+        .map(|result| result.command_id.clone())
+        .collect::<BTreeSet<_>>();
+    if expected_commands != actual_commands {
+        evidence.failed_commands.push(
+            "verification command set does not match the immutable node contract".to_string(),
+        );
+        evidence.passed = false;
+    }
     Ok(WorkerGateResult {
         passed: escapes.is_empty() && evidence.passed,
         manifest_escapes: escapes,
@@ -139,7 +155,7 @@ mod tests {
                     artifact(EvidenceKind::GitDiff),
                 ],
                 verification: vec![VerificationResult {
-                    command_id: "cargo".to_string(),
+                    command_id: "cargo test".to_string(),
                     exit_code: 0,
                     output_artifact: "cargo.log".to_string(),
                 }],

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { Board } from "../services/boards";
+import type { OrchestratorSnapshot } from "../services/orchestratorPipeline";
 import type { PlanSnapshot, Vertebra } from "../types/plan";
 import type { ResourceGuardState } from "./ResourceGuard";
 
@@ -15,14 +16,14 @@ export function DiagnosticsConsole({
   activeBoard,
   activePlan,
   resourceGuard,
-  pipelineReady,
+  pipelineSnapshot,
   entries,
   onClear,
 }: {
   activeBoard: Board | null;
   activePlan?: PlanSnapshot | null;
   resourceGuard: ResourceGuardState;
-  pipelineReady: boolean;
+  pipelineSnapshot?: OrchestratorSnapshot | null;
   entries: DiagnosticEntry[];
   onClear: () => void;
 }) {
@@ -47,16 +48,76 @@ export function DiagnosticsConsole({
           ? checklist.some((item) => !item.built || !item.tested)
           : node.status !== "done";
       })
-      .sort((left, right) => {
-        if (left.id === "B20") return -1;
-        if (right.id === "B20") return 1;
-        return left.id.localeCompare(right.id, undefined, { numeric: true });
-      });
+      .sort((left, right) => left.id.localeCompare(right.id, undefined, { numeric: true }));
   }, [activePlan]);
-  const collisionGuaranteePending = useMemo(() => {
-    const required = new Set(["B20", "B09", "B10", "B11", "B16", "B12", "B13", "B14"]);
-    return incompleteNodes.filter((node) => required.has(node.id)).map((node) => node.id);
-  }, [incompleteNodes]);
+  const collisionGuarantee = useMemo(() => {
+    if (!pipelineSnapshot) {
+      return {
+        state: "unknown",
+        code: "not-initialized",
+        label: "NOT ACTIVE · NO VERIFIED RUN",
+        detail: "Select or create an exact native run; a plan checkbox is not an admission receipt.",
+      } as const;
+    }
+    const nodes = Object.values(pipelineSnapshot.scheduler.nodes);
+    const safelyCompleted = nodes.length > 0 && nodes.every((node) => {
+      const completion = pipelineSnapshot.scheduler.completions?.[node.id];
+      return node.status === "DONE" &&
+        Boolean(completion?.gate.passed) &&
+        Boolean(completion?.artifacts.length) &&
+        completion?.verification.every((result) => result.exitCode === 0);
+    });
+    if (safelyCompleted) {
+      return {
+        state: "ready",
+        code: "completed",
+        label: "ENFORCED · COMPLETED",
+        detail: `${nodes.length} node${nodes.length === 1 ? "" : "s"} completed under immutable manifests, fenced authority, validation, and hashed evidence.`,
+      } as const;
+    }
+    const running = nodes.filter((node) => node.status === "RUNNING");
+    const runningAuthorityComplete = running.length > 0 && running.every(
+      (node) => node.lease?.authorityEpoch !== null && Boolean(node.lease?.authorizationId)
+    );
+    if (pipelineSnapshot.runApproval && runningAuthorityComplete) {
+      return {
+        state: "ready",
+        code: "lease-active",
+        label: "ENFORCED · LEASE ACTIVE",
+        detail: `${running.length} worker lease${running.length === 1 ? "" : "s"} bound to approval ${pipelineSnapshot.runApproval.approvalDigest.slice(0, 12)}…`,
+      } as const;
+    }
+    if (running.length) {
+      return {
+        state: "warning",
+        code: "authority-missing",
+        label: "BLOCKED · AUTHORITY INCOMPLETE",
+        detail: "A running node lacks its native approval, authorization ID, or authority epoch; treat the claim as untrusted.",
+      } as const;
+    }
+    if (!pipelineSnapshot.preflightFresh) {
+      return {
+        state: "warning",
+        code: "preflight-expired",
+        label: "BLOCKED · PREFLIGHT EXPIRED",
+        detail: "Refresh native preflight and explicitly re-approve before another admission.",
+      } as const;
+    }
+    if (!pipelineSnapshot.runApproval) {
+      return {
+        state: "warning",
+        code: "approval-required",
+        label: "BLOCKED · APPROVAL REQUIRED",
+        detail: "No native approval receipt is attached to this exact run and manifest.",
+      } as const;
+    }
+    return {
+      state: "ready",
+      code: "approved",
+      label: "ENFORCED · APPROVED",
+      detail: `Native collision census approved ${pipelineSnapshot.runApproval.collisionAssessments.length} node${pipelineSnapshot.runApproval.collisionAssessments.length === 1 ? "" : "s"}; admission remains native-only.`,
+    } as const;
+  }, [pipelineSnapshot]);
 
   useEffect(() => {
     if (errorCount) setOpen(true);
@@ -98,12 +159,12 @@ export function DiagnosticsConsole({
               <article data-state={activeBoard ? "ready" : "unknown"}><span>Local board</span><strong>{activeBoard ? `LIVE · :${activeBoard.port}` : "NOT DISCOVERED"}</strong><small>{activeBoard?.planPath || "No active plan"}</small></article>
               <article data-state={isTauri && activeBoard?.approvalBridge?.registrationId ? "ready" : "warning"}><span>Chat route</span><strong>{isTauri ? activeBoard?.approvalBridge?.state || "UNREGISTERED" : "UNVERIFIED BOARD CLAIM"}</strong><small>{isTauri ? activeBoard?.approvalBridge?.routeId || "No registered native route receipt" : "Browser HTTP state is display-only and cannot attest a chat route."}</small></article>
               <article data-state={isTauri && resourceGuard.status === "active" ? "ready" : "warning"}><span>Tauri native</span><strong>{isTauri ? resourceGuard.status.toUpperCase() : "BROWSER ONLY"}</strong><small>{resourceGuard.status === "unavailable" ? resourceGuard.error : resourceGuard.result?.provider || "Native bridge not available"}</small></article>
-              <article data-state={pipelineReady ? "ready" : "unknown"}><span>Orchestrator run</span><strong>{pipelineReady ? "VERIFIED SNAPSHOT" : "NOT INITIALIZED"}</strong><small>A Perfect Plan ID is not automatically an orchestrator run ID.</small></article>
+              <article data-state={pipelineSnapshot ? "ready" : "unknown"}><span>Orchestrator run</span><strong>{pipelineSnapshot ? `VERIFIED · ${pipelineSnapshot.run.runId}` : "NOT INITIALIZED"}</strong><small>A Perfect Plan ID is not automatically an orchestrator run ID.</small></article>
               <article data-state="unknown"><span>MCP runtime</span><strong>NOT ATTESTED</strong><small>No MCP handshake receipt is present. Worker access is not assumed.</small></article>
-              <article data-state="warning"><span>Collision guarantee</span><strong>NOT ACTIVE · FOUNDATION ONLY</strong><small>{collisionGuaranteePending.length ? `Pending authority sequence: ${collisionGuaranteePending.join(" → ")}.` : "No production activation receipt is present; plan completion alone cannot activate admission."}</small></article>
+              <article data-state={collisionGuarantee.state} data-collision-state={collisionGuarantee.code}><span>Collision guarantee</span><strong>{collisionGuarantee.label}</strong><small>{collisionGuarantee.detail}</small></article>
             </div>
           ) : tab === "gaps" ? (
-            <PlanGaps activePlan={activePlan || null} nodes={incompleteNodes} collisionGuaranteePending={collisionGuaranteePending} />
+            <PlanGaps activePlan={activePlan || null} nodes={incompleteNodes} collisionGuarantee={collisionGuarantee} />
           ) : (
             <div className="diagnostics-log" role="tabpanel" aria-live="polite">
               <button type="button" id="pp-btn-diagnostics-clear" onClick={onClear}>Clear display</button>
@@ -122,7 +183,15 @@ export function DiagnosticsConsole({
   );
 }
 
-function PlanGaps({ activePlan, nodes, collisionGuaranteePending }: { activePlan: PlanSnapshot | null; nodes: Vertebra[]; collisionGuaranteePending: string[] }) {
+function PlanGaps({
+  activePlan,
+  nodes,
+  collisionGuarantee,
+}: {
+  activePlan: PlanSnapshot | null;
+  nodes: Vertebra[];
+  collisionGuarantee: { label: string; detail: string; state: string };
+}) {
   if (!activePlan) {
     return (
       <div className="diagnostics-gaps-empty" role="tabpanel">
@@ -143,9 +212,9 @@ function PlanGaps({ activePlan, nodes, collisionGuaranteePending }: { activePlan
 
   return (
     <div className="diagnostics-gaps" role="tabpanel" aria-label="Incomplete plan nodes">
-      <aside className="diagnostics-guarantee-warning" role="status">
-        <strong>GUARANTEE NOT ACTIVE</strong>
-        <span>{collisionGuaranteePending.length ? `Required sequence remains incomplete: ${collisionGuaranteePending.join(" → ")}.` : "No native production-activation receipt is loaded."}</span>
+      <aside className="diagnostics-guarantee-warning" role="status" data-state={collisionGuarantee.state}>
+        <strong>{collisionGuarantee.label}</strong>
+        <span>{collisionGuarantee.detail}</span>
       </aside>
       <header>
         <div>
@@ -154,7 +223,7 @@ function PlanGaps({ activePlan, nodes, collisionGuaranteePending }: { activePlan
         </div>
         <p>{nodes.length} node{nodes.length === 1 ? "" : "s"} still contain unbuilt or untested work. Nothing in this view changes plan state.</p>
       </header>
-      {nodes.map((node) => {
+      {nodes.map((node, nodeIndex) => {
         const checklist = node.checklist || [];
         const incomplete = checklist
           .map((item, index) => ({ item, index }))
@@ -165,7 +234,7 @@ function PlanGaps({ activePlan, nodes, collisionGuaranteePending }: { activePlan
           <details
             className="diagnostics-gap-node"
             key={node.id}
-            open={node.id === "B20"}
+            open={nodeIndex === 0}
             data-context-kind="node"
             data-context-label={`${node.id} ${node.title}`}
           >

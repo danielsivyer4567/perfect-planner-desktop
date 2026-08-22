@@ -5,7 +5,7 @@ use super::authority_projection::{
 use super::authority_runtime::SchedulerAuthorityRuntime;
 use super::delivery::{deliver_run, DeliveryOutcome, DeliveryRequest};
 use super::event_bus::{EventBus, EventType, RunEvent};
-use super::evidence::capture_artifact;
+use super::evidence::{capture_artifact, EvidenceArtifact, EvidenceKind, VerificationResult};
 use super::preclaim_store::{PreclaimRecord, PreclaimStore};
 use super::preflight::{
     DenyProcessAdapter, PortBinding, PreflightDisposition, PreflightEngine, PreflightReport,
@@ -13,14 +13,16 @@ use super::preflight::{
 };
 use super::reconcile::{reconcile, ReconciliationInput, ReconciliationResult};
 use super::release::{evaluate_release, ReleaseGateInput, ReleaseGateResult};
-use super::run_scope::{AllowedFileManifest, CreateRunScope, HotResumeState, RunScope};
+use super::run_scope::{
+    AllowedFileManifest, CreateRunScope, HotResumeState, RunAuditEvent, RunScope,
+};
 use super::scheduler::{
-    NodeLease, NodeStatus, PublicNodeLease, PublicSchedulerState, ReapAction, ScheduledNode,
-    SchedulerStore,
+    AdmissionGitBaseline, NodeCompletion, NodeLease, NodeStatus, PublicNodeLease,
+    PublicSchedulerState, ReapAction, ScheduledNode, SchedulerStore,
 };
-use super::worker::{
-    validate_manifest, validate_submission, WorkerGateResult, WorkerManifest, WorkerSubmission,
-};
+#[cfg(test)]
+use super::worker::validate_manifest;
+use super::worker::{validate_submission, WorkerGateResult, WorkerManifest, WorkerSubmission};
 use crate::collision_assessor::authority::ReservationBinding;
 use crate::collision_assessor::registry::{
     PlannerNodeManifest, PlannerRegistrationSeed, PlannerRegistryStore,
@@ -40,6 +42,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const SCHEDULER_FILE: &str = "scheduler.json";
 const PREFLIGHT_RESULT_FILE: &str = "preflight.json";
+const RUN_APPROVAL_FILE: &str = "run-approval.json";
 const RECONCILIATION_RESULT_FILE: &str = "reconciliation.json";
 const RELEASE_RESULT_FILE: &str = "release.json";
 const RECORDED_RESULT_SCHEMA_VERSION: u32 = 1;
@@ -134,11 +137,31 @@ pub struct PipelineSnapshotResponse {
     pub scheduler: PublicSchedulerState,
     pub preflight: Option<PreflightReport>,
     pub preflight_recorded_at_ms: Option<u64>,
+    pub run_approval: Option<RunApprovalReceipt>,
+    pub run_approval_recorded_at_ms: Option<u64>,
     pub reconciliation: Option<ReconciliationResult>,
     pub reconciliation_recorded_at_ms: Option<u64>,
     pub release: Option<ReleaseGateResult>,
     pub release_recorded_at_ms: Option<u64>,
     pub event_tail: EventTailResponse,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NodeCollisionApproval {
+    pub node_id: String,
+    pub census_digest: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunApprovalReceipt {
+    pub manifest_digest: String,
+    pub plan_contract_digest: String,
+    pub preflight_recorded_at_ms: u64,
+    pub registry_generation: u64,
+    pub collision_assessments: Vec<NodeCollisionApproval>,
+    pub approval_digest: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -161,6 +184,8 @@ pub struct RunCatalogEntry {
     pub run_id: String,
     pub repository_root: PathBuf,
     pub branch: String,
+    pub plan_id: String,
+    pub plan_path: PathBuf,
     pub status: String,
     pub completed_nodes: usize,
     pub total_nodes: usize,
@@ -220,10 +245,15 @@ pub struct FencedCompletionApiRequest {
     #[serde(flatten)]
     pub scope: ScopedRunRequest,
     pub node_id: String,
-    pub token: String,
-    pub now_ms: u64,
-    pub manifest: WorkerManifest,
-    pub submission: WorkerSubmission,
+    #[serde(default)]
+    pub artifacts: Vec<SupplementalArtifactRequest>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SupplementalArtifactRequest {
+    pub kind: EvidenceKind,
+    pub path: PathBuf,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -232,7 +262,6 @@ pub struct FailureApiRequest {
     #[serde(flatten)]
     pub scope: ScopedRunRequest,
     pub node_id: String,
-    pub token: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -240,7 +269,6 @@ pub struct FailureApiRequest {
 pub struct ReapApiRequest {
     #[serde(flatten)]
     pub scope: ScopedRunRequest,
-    pub now_ms: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -266,9 +294,9 @@ pub enum ReapActionResponse {
 pub struct WorkerValidationApiRequest {
     #[serde(flatten)]
     pub scope: ScopedRunRequest,
-    pub now_ms: u64,
-    pub manifest: WorkerManifest,
-    pub submission: WorkerSubmission,
+    pub node_id: String,
+    #[serde(default)]
+    pub artifacts: Vec<SupplementalArtifactRequest>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -304,39 +332,22 @@ struct ScopedContext {
 }
 
 fn planner_registration_seed(context: &ScopedContext) -> Result<PlannerRegistrationSeed, String> {
-    let plan_bytes = read_bounded_file(&context.scope.manifest.plan_path, 16 * 1024 * 1024)?;
-    let plan: Value = serde_json::from_slice(&plan_bytes)
-        .map_err(|error| format!("approved plan is not valid JSON: {error}"))?;
-    let vertebrae = plan
-        .get("vertebrae")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "approved plan has no vertebrae array".to_string())?;
-    let mut nodes = Vec::new();
-    let mut files = BTreeSet::new();
-    let mut resources = BTreeSet::new();
-    for vertebra in vertebrae {
-        let node_id = vertebra
-            .get("id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "approved plan contains a node without an ID".to_string())?;
-        validate_text("plan node id", node_id)?;
-        let node_files = string_array(vertebra, "files")?;
-        let node_resources = string_array(vertebra, "resources")?;
-        if node_files.is_empty() && node_resources.is_empty() {
-            continue;
-        }
-        files.extend(node_files.iter().cloned());
-        resources.extend(node_resources.iter().cloned());
-        nodes.push(PlannerNodeManifest {
-            node_id: node_id.to_string(),
-            files: node_files,
-            resources: node_resources,
-        });
-    }
+    let mut nodes = context
+        .scope
+        .manifest
+        .nodes
+        .iter()
+        .map(|node| PlannerNodeManifest {
+            node_id: node.node_id.clone(),
+            files: node
+                .allowed_files
+                .iter()
+                .map(|file| file.to_string_lossy().replace('\\', "/"))
+                .collect(),
+            resources: node.allowed_resources.clone(),
+        })
+        .collect::<Vec<_>>();
     nodes.sort_by(|left, right| left.node_id.cmp(&right.node_id));
-    if nodes.is_empty() {
-        return Err("approved plan contains no bounded file or resource ownership".to_string());
-    }
     let repository_id = format!(
         "repo-{}",
         digest_text(&[&context.scope.manifest.git_common_dir.to_string_lossy()])
@@ -362,59 +373,16 @@ fn planner_registration_seed(context: &ScopedContext) -> Result<PlannerRegistrat
             .plan_path
             .to_string_lossy()
             .into_owned(),
-        files: files.into_iter().collect(),
-        resources: resources.into_iter().collect(),
+        files: context
+            .scope
+            .manifest
+            .allowed_files
+            .iter()
+            .map(|file| file.to_string_lossy().replace('\\', "/"))
+            .collect(),
+        resources: context.scope.manifest.allowed_resources.clone(),
         nodes,
     })
-}
-
-fn read_bounded_file(path: &Path, max_bytes: u64) -> Result<Vec<u8>, String> {
-    let metadata = fs::metadata(path)
-        .map_err(|error| format!("cannot inspect {}: {error}", path.display()))?;
-    if !metadata.is_file() || metadata.len() > max_bytes {
-        return Err(format!("{} is not a bounded regular file", path.display()));
-    }
-    fs::read(path).map_err(|error| format!("cannot read {}: {error}", path.display()))
-}
-
-fn string_array(value: &Value, field: &str) -> Result<Vec<String>, String> {
-    let Some(entries) = value.get(field) else {
-        return Ok(Vec::new());
-    };
-    let entries = entries
-        .as_array()
-        .ok_or_else(|| format!("plan field {field} must be an array"))?;
-    let mut output = entries
-        .iter()
-        .map(|entry| {
-            entry
-                .as_str()
-                .map(normalize_manifest_entry)
-                .ok_or_else(|| format!("plan field {field} contains a non-string entry"))?
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    output.sort();
-    output.dedup();
-    Ok(output)
-}
-
-fn normalize_manifest_entry(value: &str) -> Result<String, String> {
-    let normalized = value.trim().replace('\\', "/");
-    let path = Path::new(&normalized);
-    if normalized.is_empty()
-        || path.is_absolute()
-        || path.components().any(|component| {
-            matches!(
-                component,
-                std::path::Component::ParentDir
-                    | std::path::Component::RootDir
-                    | std::path::Component::Prefix(_)
-            )
-        })
-    {
-        return Err("plan manifest entry is empty, absolute or traversing".to_string());
-    }
-    Ok(normalized)
 }
 
 fn reject_dirty_target_files(
@@ -459,6 +427,148 @@ fn reject_dirty_target_files(
             collisions.join(", ")
         ))
     }
+}
+
+fn git_dirty_paths(repository_root: &Path) -> Result<BTreeSet<String>, String> {
+    let mut dirty = BTreeSet::new();
+    for args in [
+        ["diff", "--name-only", "-z", "--"].as_slice(),
+        ["diff", "--cached", "--name-only", "-z", "--"].as_slice(),
+        ["ls-files", "--others", "--exclude-standard", "-z", "--"].as_slice(),
+    ] {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(repository_root)
+            .args(args)
+            .env("GIT_OPTIONAL_LOCKS", "0")
+            .output()
+            .map_err(|error| format!("cannot inspect repository dirty paths: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "Git refused repository dirty-path inspection: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        for raw in output
+            .stdout
+            .split(|byte| *byte == 0)
+            .filter(|raw| !raw.is_empty())
+        {
+            let value = std::str::from_utf8(raw)
+                .map_err(|_| "Git returned a non-UTF-8 dirty path".to_string())?;
+            dirty.insert(value.replace('\\', "/"));
+        }
+    }
+    if dirty.len() > 16_384 {
+        return Err("repository dirty-path census exceeds the safety limit".to_string());
+    }
+    Ok(dirty)
+}
+
+fn admission_git_baseline(
+    repository_root: &Path,
+    target_files: &[String],
+) -> Result<AdmissionGitBaseline, String> {
+    Ok(AdmissionGitBaseline {
+        head_commit: git_head(repository_root)?,
+        outside_manifest_digest: outside_manifest_digest(repository_root, target_files)?,
+    })
+}
+
+fn git_head(repository_root: &Path) -> Result<String, String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repository_root)
+        .args(["rev-parse", "--verify", "HEAD"])
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .output()
+        .map_err(|error| format!("cannot inspect Git HEAD: {error}"))?;
+    let head = String::from_utf8(output.stdout)
+        .map_err(|_| "Git HEAD is not UTF-8".to_string())?
+        .trim()
+        .to_ascii_lowercase();
+    if !output.status.success()
+        || head.len() != 40
+        || !head.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("Git HEAD is unavailable or malformed".to_string());
+    }
+    Ok(head)
+}
+
+fn outside_manifest_digest(
+    repository_root: &Path,
+    target_files: &[String],
+) -> Result<String, String> {
+    let claims = target_files
+        .iter()
+        .map(|value| value.replace('\\', "/").to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let mut digest = Sha256::new();
+    digest.update(b"perfect-planner:outside-manifest-git-state:v1\0");
+    for path in git_dirty_paths(repository_root)?
+        .into_iter()
+        .filter(|path| {
+            let normalized = path.replace('\\', "/").to_ascii_lowercase();
+            !normalized.starts_with(".claude/scratch/orchestrator/")
+                && !claims.iter().any(|claim| path_matches_claim(path, claim))
+        })
+    {
+        let path_bytes = path.as_bytes();
+        digest.update((path_bytes.len() as u64).to_le_bytes());
+        digest.update(path_bytes);
+        for args in [
+            vec!["status", "--porcelain=v2", "-z", "--", path.as_str()],
+            vec!["diff", "--binary", "HEAD", "--", path.as_str()],
+            vec!["ls-files", "-s", "-z", "--", path.as_str()],
+        ] {
+            let output = Command::new("git")
+                .arg("-C")
+                .arg(repository_root)
+                .args(&args)
+                .env("GIT_OPTIONAL_LOCKS", "0")
+                .output()
+                .map_err(|error| format!("cannot digest Git state for {path}: {error}"))?;
+            if !output.status.success() || output.stdout.len() > 32 * 1024 * 1024 {
+                return Err(format!("Git state for {path} is unavailable or oversized"));
+            }
+            digest.update((output.stdout.len() as u64).to_le_bytes());
+            digest.update(&output.stdout);
+        }
+        let absolute = repository_root.join(Path::new(&path));
+        match fs::symlink_metadata(&absolute) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(format!("dirty path {path} is a symbolic link"));
+            }
+            Ok(metadata) if metadata.is_file() => {
+                if metadata.len() > 32 * 1024 * 1024 {
+                    return Err(format!("dirty path {path} exceeds the evidence limit"));
+                }
+                let bytes = fs::read(&absolute)
+                    .map_err(|error| format!("cannot read dirty path {path}: {error}"))?;
+                digest.update((bytes.len() as u64).to_le_bytes());
+                digest.update(&bytes);
+            }
+            Ok(_) => return Err(format!("dirty path {path} is not a regular file")),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                digest.update(0_u64.to_le_bytes())
+            }
+            Err(error) => return Err(format!("cannot inspect dirty path {path}: {error}")),
+        }
+    }
+    Ok(format!("{:x}", digest.finalize()))
+}
+
+fn path_matches_claim(path: &str, claim: &str) -> bool {
+    let path = path.replace('\\', "/").to_ascii_lowercase();
+    let claim = claim
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_ascii_lowercase();
+    path == claim
+        || path
+            .strip_prefix(&claim)
+            .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
 fn digest_bytes(parts: &[&str]) -> [u8; 32] {
@@ -557,6 +667,180 @@ pub fn orchestrator_preflight_inspect(
     Ok(report)
 }
 
+/// Issue one durable activation receipt only after the user clicks approve and native code
+/// rechecks the current system preflight plus every node against the machine-wide ownership
+/// registry. No approval boolean, digest, clock, manifest, or collision verdict crosses the
+/// renderer boundary.
+#[tauri::command]
+pub fn orchestrator_approve_run(
+    registry: tauri::State<'_, PlannerRegistryStore>,
+    request: ScopedRunRequest,
+) -> Result<RunApprovalReceipt, String> {
+    approve_run(&registry, request)
+}
+
+fn approve_run(
+    registry: &PlannerRegistryStore,
+    request: ScopedRunRequest,
+) -> Result<RunApprovalReceipt, String> {
+    const REGISTRY_LEASE_MS: u64 = 300_000;
+    const PREFLIGHT_MAX_AGE_MS: u64 = 60_000;
+
+    eprintln!("approve_run trace: opening context");
+    let context = open_context(&request)?;
+    eprintln!("approve_run trace: context opened");
+    let now_ms = unix_ms();
+    let preflight = load_optional_scoped_json::<PreflightReport>(&context, PREFLIGHT_RESULT_FILE)?
+        .ok_or_else(|| "run approval requires a recorded native preflight".to_string())?;
+    if preflight.result.disposition != PreflightDisposition::Ready
+        || preflight.result.baseline.repository_root != context.repository_root
+        || preflight.recorded_at_ms > now_ms
+        || now_ms.saturating_sub(preflight.recorded_at_ms) > PREFLIGHT_MAX_AGE_MS
+    {
+        return Err("run approval preflight is stale, mismatched or not READY".to_string());
+    }
+
+    let seed = planner_registration_seed(&context)?;
+    eprintln!("approve_run trace: registration seed built");
+    let scheduler_state = open_scheduler(&context, Vec::new())?.snapshot()?;
+    eprintln!("approve_run trace: scheduler loaded");
+    for node in &seed.nodes {
+        let scheduled = scheduler_state.nodes.get(&node.node_id).ok_or_else(|| {
+            format!(
+                "approved plan node {} is absent from scheduler state",
+                node.node_id
+            )
+        })?;
+        if scheduled.attempts == 0 {
+            reject_dirty_target_files(&context.repository_root, &node.files)?;
+        }
+    }
+    let mut registry_generation = None;
+    let mut collision_assessments = Vec::with_capacity(seed.nodes.len());
+    for node in &seed.nodes {
+        eprintln!("approve_run trace: assessing node {}", node.node_id);
+        let collision = registry
+            .prepare_manifest_collision_snapshot(
+                seed.clone(),
+                &node.node_id,
+                now_ms,
+                REGISTRY_LEASE_MS,
+            )
+            .map_err(|error| format!("run approval collision census is UNKNOWN: {error}"))?;
+        eprintln!("approve_run trace: assessed node {}", node.node_id);
+        if !collision.conflict_ids.is_empty() {
+            return Err(format!(
+                "run approval refused because node {} has {} ownership conflict(s)",
+                node.node_id,
+                collision.conflict_ids.len()
+            ));
+        }
+        match registry_generation {
+            Some(expected) if expected != collision.registry_generation => {
+                return Err("run approval collision registry changed during assessment".to_string())
+            }
+            None => registry_generation = Some(collision.registry_generation),
+            _ => {}
+        }
+        collision_assessments.push(NodeCollisionApproval {
+            node_id: node.node_id.clone(),
+            census_digest: collision.digest,
+        });
+    }
+    collision_assessments.sort_by(|left, right| left.node_id.cmp(&right.node_id));
+    let registry_generation = registry_generation
+        .ok_or_else(|| "run approval requires at least one immutable plan node".to_string())?;
+    let encoded_assessments = serde_json::to_string(&collision_assessments)
+        .map_err(|error| format!("cannot encode approval assessment: {error}"))?;
+    let approval_digest = digest_text(&[
+        "native-run-approval-v1",
+        &context.scope.manifest.manifest_digest,
+        &context.scope.manifest.plan_contract_digest,
+        &preflight.recorded_at_ms.to_string(),
+        &registry_generation.to_string(),
+        &encoded_assessments,
+    ]);
+    let receipt = RunApprovalReceipt {
+        manifest_digest: context.scope.manifest.manifest_digest.clone(),
+        plan_contract_digest: context.scope.manifest.plan_contract_digest.clone(),
+        preflight_recorded_at_ms: preflight.recorded_at_ms,
+        registry_generation,
+        collision_assessments,
+        approval_digest,
+    };
+    if let Some(existing) =
+        load_optional_scoped_json::<RunApprovalReceipt>(&context, RUN_APPROVAL_FILE)?
+    {
+        if existing.result == receipt {
+            return Ok(existing.result);
+        }
+    }
+    persist_scoped_json(&context, RUN_APPROVAL_FILE, &receipt)?;
+    eprintln!("approve_run trace: approval persisted");
+    append_event(
+        &context,
+        None,
+        "head-orchestrator",
+        EventType::GatePass,
+        "run explicitly approved after whole-plan collision assessment",
+        json!({
+            "approvalDigest": receipt.approval_digest,
+            "registryGeneration": receipt.registry_generation,
+            "assessedNodes": receipt.collision_assessments.len(),
+        }),
+    )?;
+    Ok(receipt)
+}
+
+fn validate_run_approval(
+    context: &ScopedContext,
+    preflight_recorded_at_ms: u64,
+    receipt: &RunApprovalReceipt,
+) -> Result<(), String> {
+    let node_ids = context
+        .scope
+        .manifest
+        .nodes
+        .iter()
+        .map(|node| node.node_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let assessment_ids = receipt
+        .collision_assessments
+        .iter()
+        .map(|assessment| assessment.node_id.as_str())
+        .collect::<BTreeSet<_>>();
+    if receipt.manifest_digest != context.scope.manifest.manifest_digest
+        || receipt.plan_contract_digest != context.scope.manifest.plan_contract_digest
+        || receipt.preflight_recorded_at_ms != preflight_recorded_at_ms
+        || node_ids != assessment_ids
+        || receipt.collision_assessments.len() != node_ids.len()
+        || receipt.registry_generation == 0
+        || receipt.collision_assessments.iter().any(|assessment| {
+            assessment.census_digest.len() != 64
+                || !assessment
+                    .census_digest
+                    .chars()
+                    .all(|value| value.is_ascii_hexdigit())
+        })
+    {
+        return Err("admission run approval is stale, incomplete or scope-mismatched".to_string());
+    }
+    let encoded = serde_json::to_string(&receipt.collision_assessments)
+        .map_err(|error| format!("cannot encode approval assessment: {error}"))?;
+    let expected = digest_text(&[
+        "native-run-approval-v1",
+        &receipt.manifest_digest,
+        &receipt.plan_contract_digest,
+        &receipt.preflight_recorded_at_ms.to_string(),
+        &receipt.registry_generation.to_string(),
+        &encoded,
+    ]);
+    if expected != receipt.approval_digest {
+        return Err("admission run approval digest is invalid".to_string());
+    }
+    Ok(())
+}
+
 /// Read-only capacity telemetry for the always-visible resource guard.
 /// Reuses the fixed PowerShell 7 + Windows CIM preflight probe and gains no stop authority.
 #[tauri::command]
@@ -564,24 +848,50 @@ pub fn orchestrator_resource_probe(
     request: ResourceProbeApiRequest,
 ) -> Result<ResourceProbeApiResponse, String> {
     let repository_root = canonical_repository(&request.repository_root)?;
-    let probe = Pwsh7SystemProbe::fixed()?;
-    let resources = probe.resources(&repository_root)?;
+    let resources = native_resource_snapshot(&repository_root)?;
     Ok(ResourceProbeApiResponse {
-        provider: "Windows CIM via PowerShell 7",
-        executable: probe.executable,
+        provider: "Windows native system APIs",
+        executable: std::env::current_exe()
+            .map_err(|error| format!("cannot resolve native resource probe executable: {error}"))?,
         sampled_at_ms: unix_ms(),
         resources,
     })
 }
 
 #[tauri::command]
+#[allow(private_interfaces)]
 pub fn orchestrator_pipeline_snapshot(
+    authority: tauri::State<'_, SchedulerAuthorityRuntime>,
+    request: SnapshotApiRequest,
+) -> Result<PipelineSnapshotResponse, String> {
+    pipeline_snapshot(&authority, request)
+}
+
+fn pipeline_snapshot(
+    authority: &SchedulerAuthorityRuntime,
     request: SnapshotApiRequest,
 ) -> Result<PipelineSnapshotResponse, String> {
     let context = open_context(&request.scope)?;
+    let scheduler_store = open_scheduler(&context, Vec::new())?;
+    if !recover_scheduler_leases(authority, &context, &scheduler_store)?.is_empty() {
+        sync_hot_resume(&context, &scheduler_store, None)?;
+    }
+    for completion in scheduler_store.snapshot()?.completions.values() {
+        finalize_completion(&context, &scheduler_store, completion)?;
+    }
     let hot_resume = context.scope.read_hot_resume()?;
-    let scheduler = open_scheduler(&context, Vec::new())?.public_snapshot()?;
+    let scheduler = scheduler_store.public_snapshot()?;
     let preflight = load_optional_scoped_json::<PreflightReport>(&context, PREFLIGHT_RESULT_FILE)?;
+    let persisted_run_approval =
+        load_optional_scoped_json::<RunApprovalReceipt>(&context, RUN_APPROVAL_FILE)?;
+    // An approval is active authority only for the exact preflight that it approved.
+    // Keep an older receipt on disk for audit, but do not project it as current after
+    // a later preflight; the operator must explicitly approve the new facts.
+    let run_approval = persisted_run_approval.filter(|approval| {
+        preflight.as_ref().is_some_and(|current| {
+            approval.result.preflight_recorded_at_ms == current.recorded_at_ms
+        })
+    });
     let reconciliation =
         load_optional_scoped_json::<ReconciliationResult>(&context, RECONCILIATION_RESULT_FILE)?;
     let release = load_optional_scoped_json::<ReleaseGateResult>(&context, RELEASE_RESULT_FILE)?;
@@ -597,6 +907,8 @@ pub fn orchestrator_pipeline_snapshot(
         scheduler,
         preflight_recorded_at_ms: preflight.as_ref().map(|record| record.recorded_at_ms),
         preflight: preflight.map(|record| record.result),
+        run_approval_recorded_at_ms: run_approval.as_ref().map(|record| record.recorded_at_ms),
+        run_approval: run_approval.map(|record| record.result),
         reconciliation_recorded_at_ms: reconciliation.as_ref().map(|record| record.recorded_at_ms),
         reconciliation: reconciliation.map(|record| record.result),
         release_recorded_at_ms: release.as_ref().map(|record| record.recorded_at_ms),
@@ -639,6 +951,9 @@ fn admit_worker(
     {
         return Err("admission preflight is stale, mismatched or not READY".to_string());
     }
+    let approval = load_optional_scoped_json::<RunApprovalReceipt>(&context, RUN_APPROVAL_FILE)?
+        .ok_or_else(|| "admission requires explicit native run approval".to_string())?;
+    validate_run_approval(&context, preflight.recorded_at_ms, &approval.result)?;
 
     let seed = planner_registration_seed(&context)?;
     let target = seed
@@ -646,7 +961,18 @@ fn admit_worker(
         .iter()
         .find(|node| node.node_id == request.node_id)
         .ok_or_else(|| "admission node is absent from the approved plan".to_string())?;
-    reject_dirty_target_files(&context.repository_root, &target.files)?;
+    let scheduler = open_scheduler(&context, Vec::new())?;
+    let scheduler_state = scheduler.snapshot()?;
+    let node = scheduler_state
+        .nodes
+        .get(&request.node_id)
+        .ok_or_else(|| format!("unknown node {}", request.node_id))?;
+    if node.status != NodeStatus::Ready || node.lease.is_some() {
+        return Err(format!("node {} is not claimable", request.node_id));
+    }
+    if node.attempts == 0 {
+        reject_dirty_target_files(&context.repository_root, &target.files)?;
+    }
 
     let collision = registry
         .prepare_manifest_collision_snapshot(
@@ -662,16 +988,18 @@ fn admit_worker(
             collision.conflict_ids.len()
         ));
     }
-
-    let scheduler = open_scheduler(&context, Vec::new())?;
-    let scheduler_state = scheduler.snapshot()?;
-    let node = scheduler_state
-        .nodes
-        .get(&request.node_id)
-        .ok_or_else(|| format!("unknown node {}", request.node_id))?;
-    if node.status != NodeStatus::Ready || node.lease.is_some() {
-        return Err(format!("node {} is not claimable", request.node_id));
+    let approved_collision = approval
+        .result
+        .collision_assessments
+        .iter()
+        .find(|assessment| assessment.node_id == request.node_id)
+        .ok_or_else(|| "admission run approval omitted the target node".to_string())?;
+    if collision.registry_generation != approval.result.registry_generation
+        || collision.digest != approved_collision.census_digest
+    {
+        return Err("admission collision state changed after explicit approval".to_string());
     }
+
     let fence = scheduler_state.next_fence.max(1);
     let authority_generation = u64::from(node.attempts)
         .checked_add(1)
@@ -825,8 +1153,10 @@ fn admit_worker(
             payload_digest,
             now_ms,
         )?;
-        let lease = scheduler.claim_authorized(&grant, now_ms)?;
+        let git_baseline = admission_git_baseline(&context.repository_root, &target.files)?;
+        let lease = scheduler.claim_authorized(&grant, git_baseline, now_ms)?;
         preclaims.consume(&reserved, &scope_id, &reservation_id, now_ms)?;
+        sync_hot_resume(&context, &scheduler, None)?;
         append_event(
             &context,
             Some(request.node_id.clone()),
@@ -946,22 +1276,34 @@ pub fn orchestrator_heartbeat(request: HeartbeatApiRequest) -> Result<NodeLease,
 }
 
 #[tauri::command]
-pub fn orchestrator_authorize_fenced_completion(
+#[allow(private_interfaces)]
+pub fn orchestrator_complete_worker(
+    authority: tauri::State<'_, SchedulerAuthorityRuntime>,
     request: FencedCompletionApiRequest,
 ) -> Result<WorkerGateResult, String> {
-    validate_token(&request.token)?;
+    authorize_fenced_completion(&authority, request)
+}
+
+fn authorize_fenced_completion(
+    authority: &SchedulerAuthorityRuntime,
+    request: FencedCompletionApiRequest,
+) -> Result<WorkerGateResult, String> {
     let context = open_context(&request.scope)?;
-    validate_worker_identity(
-        &context,
-        &request.node_id,
-        &request.token,
-        &request.manifest,
-        &request.submission,
-    )?;
     let scheduler = open_scheduler(&context, Vec::new())?;
-    scheduler.authorize_commit(&request.node_id, &request.token, request.now_ms)?;
-    verify_submission_artifacts(&context, &request.submission)?;
-    let gate = validate_submission(&request.manifest, &request.submission)?;
+    if let Some(completion) = scheduler.snapshot()?.completions.get(&request.node_id) {
+        finalize_completion(&context, &scheduler, completion)?;
+        return Ok(completion.gate.clone());
+    }
+    let (manifest, submission, lease, now_ms) = native_worker_submission(
+        authority,
+        &context,
+        &scheduler,
+        &request.node_id,
+        request.artifacts,
+    )?;
+    scheduler.authorize_commit(&request.node_id, &submission.lease_token, now_ms)?;
+    verify_submission_artifacts(&context, &submission)?;
+    let gate = validate_submission(&manifest, &submission)?;
     if !gate.passed {
         append_event(
             &context,
@@ -973,23 +1315,170 @@ pub fn orchestrator_authorize_fenced_completion(
         )?;
         return Err("completion rejected by the worker evidence gate".to_string());
     }
-    scheduler.complete(&request.node_id, &request.token, request.now_ms)?;
+    let receipt_id = format!(
+        "completion-{}",
+        digest_text(&[
+            &context.scope.manifest.manifest_digest,
+            &request.node_id,
+            lease.authorization_id.as_deref().unwrap_or_default(),
+            &lease.fence.to_string(),
+            &serde_json::to_string(&submission.artifacts).map_err(|error| error.to_string())?,
+            &serde_json::to_string(&submission.verification).map_err(|error| error.to_string())?,
+        ])
+    );
+    let completion_details = digest_text(&[
+        &receipt_id,
+        &serde_json::to_string(&submission.changed_files).map_err(|error| error.to_string())?,
+        &serde_json::to_string(&submission.artifacts).map_err(|error| error.to_string())?,
+        &serde_json::to_string(&gate).map_err(|error| error.to_string())?,
+    ]);
+    context.scope.append_audit(RunAuditEvent {
+        event_id: format!("{receipt_id}-prepared"),
+        at_ms: now_ms,
+        kind: "NODE_COMPLETION_PREPARED".to_string(),
+        node_id: Some(request.node_id.clone()),
+        receipt_digest: receipt_id.trim_start_matches("completion-").to_string(),
+        details_digest: completion_details,
+    })?;
+    let mut completing = context.scope.read_hot_resume()?;
+    completing.status = format!("completing:{}", request.node_id);
+    completing.locked_files = manifest.allowed_files.iter().map(PathBuf::from).collect();
+    completing.next_actions = vec!["Finish the durable completion transaction".to_string()];
+    context.scope.update_hot_resume(&completing)?;
+    let completion = scheduler.complete_authorized(
+        &request.node_id,
+        &submission.lease_token,
+        now_ms,
+        NodeCompletion {
+            receipt_id: receipt_id.clone(),
+            node_id: request.node_id.clone(),
+            worker_id: lease.worker_id.clone(),
+            fence: lease.fence,
+            authority_epoch: lease.authority_epoch.unwrap_or_default(),
+            authorization_id: lease.authorization_id.clone().unwrap_or_default(),
+            completed_at_ms: now_ms,
+            changed_files: submission.changed_files.clone(),
+            artifacts: submission.artifacts.clone(),
+            verification: submission.verification.clone(),
+            gate: gate.clone(),
+        },
+    )?;
+    finalize_completion(&context, &scheduler, &completion)?;
     append_event(
         &context,
         Some(request.node_id),
-        "worker",
+        &completion.worker_id,
         EventType::NodeDone,
         "fenced completion persisted",
-        serde_json::to_value(&gate).map_err(|error| error.to_string())?,
+        serde_json::to_value(&completion).map_err(|error| error.to_string())?,
     )?;
     Ok(gate)
 }
 
+fn finalize_completion(
+    context: &ScopedContext,
+    scheduler: &SchedulerStore,
+    completion: &NodeCompletion,
+) -> Result<(), String> {
+    sync_hot_resume(context, scheduler, Some(completion.node_id.clone()))?;
+    let details_digest = digest_text(&[
+        &completion.receipt_id,
+        &serde_json::to_string(&completion.changed_files).map_err(|error| error.to_string())?,
+        &serde_json::to_string(&completion.artifacts).map_err(|error| error.to_string())?,
+        &serde_json::to_string(&completion.gate).map_err(|error| error.to_string())?,
+    ]);
+    context.scope.append_audit(RunAuditEvent {
+        event_id: format!("{}-committed", completion.receipt_id),
+        at_ms: completion.completed_at_ms,
+        kind: "NODE_COMPLETION_COMMITTED".to_string(),
+        node_id: Some(completion.node_id.clone()),
+        receipt_digest: completion
+            .receipt_id
+            .trim_start_matches("completion-")
+            .to_string(),
+        details_digest,
+    })?;
+    Ok(())
+}
+
+fn sync_hot_resume(
+    context: &ScopedContext,
+    scheduler: &SchedulerStore,
+    last_completed_step: Option<String>,
+) -> Result<HotResumeState, String> {
+    let snapshot = scheduler.snapshot()?;
+    let mut state = context.scope.read_hot_resume()?;
+    let mut locked = BTreeSet::new();
+    for node in snapshot
+        .nodes
+        .values()
+        .filter(|node| node.status == NodeStatus::Running)
+    {
+        if let Some(manifest) = context
+            .scope
+            .manifest
+            .nodes
+            .iter()
+            .find(|manifest| manifest.node_id == node.id)
+        {
+            locked.extend(manifest.allowed_files.iter().cloned());
+        }
+    }
+    let completed = snapshot
+        .nodes
+        .values()
+        .filter(|node| node.status == NodeStatus::Done)
+        .count();
+    state.status = if completed == snapshot.nodes.len() && !snapshot.nodes.is_empty() {
+        "completed".to_string()
+    } else if snapshot
+        .nodes
+        .values()
+        .any(|node| node.status == NodeStatus::Blocked)
+    {
+        "blocked".to_string()
+    } else if snapshot
+        .nodes
+        .values()
+        .any(|node| node.status == NodeStatus::Running)
+    {
+        "running".to_string()
+    } else {
+        "ready".to_string()
+    };
+    if last_completed_step.is_some() {
+        state.last_completed_step = last_completed_step;
+    }
+    state.locked_files = locked.into_iter().collect();
+    state.next_actions = snapshot
+        .nodes
+        .values()
+        .filter(|node| node.status == NodeStatus::Ready)
+        .filter(|node| {
+            node.depends_on.iter().all(|dependency| {
+                snapshot
+                    .nodes
+                    .get(dependency)
+                    .is_some_and(|dependency| dependency.status == NodeStatus::Done)
+            })
+        })
+        .map(|node| format!("Admit {}", node.id))
+        .collect();
+    context.scope.update_hot_resume(&state)?;
+    Ok(state)
+}
+
 #[tauri::command]
-pub fn orchestrator_record_failure(request: FailureApiRequest) -> Result<NodeStatus, String> {
-    validate_token(&request.token)?;
+#[allow(private_interfaces)]
+pub fn orchestrator_fail_worker(
+    authority: tauri::State<'_, SchedulerAuthorityRuntime>,
+    request: FailureApiRequest,
+) -> Result<NodeStatus, String> {
     let context = open_context(&request.scope)?;
-    let status = open_scheduler(&context, Vec::new())?.fail(&request.node_id, &request.token)?;
+    let scheduler = open_scheduler(&context, Vec::new())?;
+    let lease = live_authority_lease(&authority, &scheduler, &request.node_id)?;
+    let status = scheduler.fail(&request.node_id, &lease.token)?;
+    sync_hot_resume(&context, &scheduler, None)?;
     append_event(
         &context,
         Some(request.node_id),
@@ -1002,11 +1491,24 @@ pub fn orchestrator_record_failure(request: FailureApiRequest) -> Result<NodeSta
 }
 
 #[tauri::command]
-pub fn orchestrator_reap_expired(
+#[allow(private_interfaces)]
+pub fn orchestrator_recover_workers(
+    authority: tauri::State<'_, SchedulerAuthorityRuntime>,
     request: ReapApiRequest,
 ) -> Result<Vec<ReapActionResponse>, String> {
     let context = open_context(&request.scope)?;
-    let actions = open_scheduler(&context, Vec::new())?.reap_expired(request.now_ms)?;
+    let scheduler = open_scheduler(&context, Vec::new())?;
+    let responses = recover_scheduler_leases(&authority, &context, &scheduler)?;
+    sync_hot_resume(&context, &scheduler, None)?;
+    Ok(responses)
+}
+
+fn recover_scheduler_leases(
+    authority: &SchedulerAuthorityRuntime,
+    context: &ScopedContext,
+    scheduler: &SchedulerStore,
+) -> Result<Vec<ReapActionResponse>, String> {
+    let actions = scheduler.recover_stale_authority(authority.epoch(), unix_ms())?;
     let responses = actions
         .into_iter()
         .map(|action| match action {
@@ -1032,11 +1534,11 @@ pub fn orchestrator_reap_expired(
             | ReapActionResponse::Blocked { node_id, worker_id } => (node_id, worker_id),
         };
         append_event(
-            &context,
+            context,
             Some(node_id.clone()),
             worker_id,
             EventType::Reassign,
-            "expired worker lease reaped",
+            "stale or expired worker lease recovered",
             serde_json::to_value(response).map_err(|error| error.to_string())?,
         )?;
     }
@@ -1044,27 +1546,25 @@ pub fn orchestrator_reap_expired(
 }
 
 #[tauri::command]
-pub fn orchestrator_validate_worker_submission(
+#[allow(private_interfaces)]
+pub fn orchestrator_validate_worker(
+    authority: tauri::State<'_, SchedulerAuthorityRuntime>,
     request: WorkerValidationApiRequest,
 ) -> Result<WorkerGateResult, String> {
     let context = open_context(&request.scope)?;
-    validate_worker_identity(
+    let scheduler = open_scheduler(&context, Vec::new())?;
+    let (manifest, submission, _, now_ms) = native_worker_submission(
+        &authority,
         &context,
-        &request.manifest.node_id,
-        &request.submission.lease_token,
-        &request.manifest,
-        &request.submission,
+        &scheduler,
+        &request.node_id,
+        request.artifacts,
     )?;
-    open_scheduler(&context, Vec::new())?.authorize_commit(
-        &request.manifest.node_id,
-        &request.submission.lease_token,
-        request.now_ms,
-    )?;
-    verify_submission_artifacts(&context, &request.submission)?;
-    validate_submission(&request.manifest, &request.submission)
+    scheduler.authorize_commit(&request.node_id, &submission.lease_token, now_ms)?;
+    verify_submission_artifacts(&context, &submission)?;
+    validate_submission(&manifest, &submission)
 }
 
-#[tauri::command]
 pub fn orchestrator_reconcile(
     request: ReconcileApiRequest,
 ) -> Result<ReconciliationResult, String> {
@@ -1091,7 +1591,6 @@ pub fn orchestrator_reconcile(
     Ok(result)
 }
 
-#[tauri::command]
 pub fn orchestrator_evaluate_release(
     request: ReleaseApiRequest,
 ) -> Result<ReleaseGateResult, String> {
@@ -1109,7 +1608,6 @@ pub fn orchestrator_run_catalog(
     build_run_catalog(&repository_root)
 }
 
-#[tauri::command]
 pub fn orchestrator_deliver(request: DeliveryApiRequest) -> Result<DeliveryOutcome, String> {
     let context = open_context(&request.scope)?;
     if request.delivery.run_id != request.scope.run_id {
@@ -1215,7 +1713,10 @@ fn load_optional_scoped_json<T: DeserializeOwned>(
 fn validate_state_file_name(file_name: &str) -> Result<(), String> {
     if !matches!(
         file_name,
-        PREFLIGHT_RESULT_FILE | RECONCILIATION_RESULT_FILE | RELEASE_RESULT_FILE
+        PREFLIGHT_RESULT_FILE
+            | RUN_APPROVAL_FILE
+            | RECONCILIATION_RESULT_FILE
+            | RELEASE_RESULT_FILE
     ) {
         return Err("unsupported persisted result file".to_string());
     }
@@ -1371,20 +1872,24 @@ fn build_run_catalog(repository_root: &Path) -> Result<RunCatalogResponse, Strin
         &mut scanned_entries,
         &mut truncated,
     )?;
-    let mut active_runs = active_paths
+    let active_entries = active_paths
         .iter()
         .map(|path| load_catalog_entry(repository_root, &scratch, path, false))
         .collect::<Result<Vec<_>, _>>()?;
+    let (mut active_runs, mut archived_runs): (Vec<_>, Vec<_>) = active_entries
+        .into_iter()
+        .partition(|entry| entry.status != "completed");
 
-    let mut archived_runs = Vec::new();
     if !truncated {
         if let Some(archive) = archive {
             let archived_paths =
                 bounded_catalog_paths(&archive, None, &mut scanned_entries, &mut truncated)?;
-            archived_runs = archived_paths
-                .iter()
-                .map(|path| load_catalog_entry(repository_root, &archive, path, true))
-                .collect::<Result<Vec<_>, _>>()?;
+            archived_runs.extend(
+                archived_paths
+                    .iter()
+                    .map(|path| load_catalog_entry(repository_root, &archive, path, true))
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
         }
     }
 
@@ -1499,6 +2004,7 @@ fn load_catalog_entry(
         .collect::<Result<Vec<_>, _>>()?;
     for file_name in [
         PREFLIGHT_RESULT_FILE,
+        RUN_APPROVAL_FILE,
         RECONCILIATION_RESULT_FILE,
         RELEASE_RESULT_FILE,
     ] {
@@ -1511,6 +2017,8 @@ fn load_catalog_entry(
         run_id,
         repository_root: repository_root.to_path_buf(),
         branch: manifest.branch,
+        plan_id: manifest.plan_id,
+        plan_path: manifest.plan_path,
         status: if archived {
             "completed".to_string()
         } else {
@@ -1698,6 +2206,350 @@ fn append_event(
         .map_err(|error| format!("state changed but audit event append failed: {error}"))
 }
 
+fn live_authority_lease(
+    authority: &SchedulerAuthorityRuntime,
+    scheduler: &SchedulerStore,
+    node_id: &str,
+) -> Result<NodeLease, String> {
+    validate_text("nodeId", node_id)?;
+    let lease = scheduler
+        .snapshot()?
+        .nodes
+        .get(node_id)
+        .and_then(|node| node.lease.clone())
+        .ok_or_else(|| format!("node {node_id} has no live lease"))?;
+    if lease.authority_epoch != Some(authority.epoch())
+        || lease.authorization_id.is_none()
+        || lease.git_baseline.is_none()
+        || lease.expires_at_ms <= unix_ms()
+    {
+        return Err("worker lease belongs to a stale or legacy authority epoch".to_string());
+    }
+    Ok(lease)
+}
+
+fn native_worker_submission(
+    authority: &SchedulerAuthorityRuntime,
+    context: &ScopedContext,
+    scheduler: &SchedulerStore,
+    node_id: &str,
+    supplied_artifacts: Vec<SupplementalArtifactRequest>,
+) -> Result<(WorkerManifest, WorkerSubmission, NodeLease, u64), String> {
+    const COMPLETION_VERIFICATION_LEASE_MS: u64 = 330_000;
+    let current = live_authority_lease(authority, scheduler, node_id)?;
+    let lease = scheduler.renew(
+        node_id,
+        &current.token,
+        unix_ms(),
+        COMPLETION_VERIFICATION_LEASE_MS,
+    )?;
+    append_event(
+        context,
+        Some(node_id.to_string()),
+        &lease.worker_id,
+        EventType::Heartbeat,
+        "native completion verification window opened",
+        json!({
+            "fence": lease.fence,
+            "expiresAtMs": lease.expires_at_ms,
+            "authorityEpoch": lease.authority_epoch,
+        }),
+    )?;
+    if supplied_artifacts.iter().any(|artifact| {
+        matches!(
+            artifact.kind,
+            EvidenceKind::CommandOutput
+                | EvidenceKind::ExitCode
+                | EvidenceKind::GitDiff
+                | EvidenceKind::DocumentDiff
+        )
+    }) {
+        return Err(
+            "command, exit-code and diff evidence are native-only completion artifacts".to_string(),
+        );
+    }
+    let node = context
+        .scope
+        .manifest
+        .nodes
+        .iter()
+        .find(|node| node.node_id == node_id)
+        .ok_or_else(|| format!("node {node_id} is absent from the immutable run manifest"))?;
+    let allowed_files = node
+        .allowed_files
+        .iter()
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .collect::<Vec<_>>();
+    let baseline = lease
+        .git_baseline
+        .as_ref()
+        .ok_or_else(|| "worker lease has no native Git baseline".to_string())?;
+    let changed_files = native_node_changes(context, &allowed_files, baseline)?;
+    if changed_files.is_empty() {
+        return Err("completion has no native Git change for the node manifest".to_string());
+    }
+
+    let evidence_root = context.run_dir.join("evidence");
+    let native_root = evidence_root.join(node_id).join("native");
+    fs::create_dir_all(&native_root)
+        .map_err(|error| format!("cannot create native evidence directory: {error}"))?;
+    let mut artifacts = supplied_artifacts
+        .into_iter()
+        .map(|artifact| capture_artifact(&evidence_root, &artifact.path, artifact.kind))
+        .collect::<Result<Vec<_>, String>>()?;
+    artifacts.push(capture_native_diff(
+        context,
+        &changed_files,
+        &native_root,
+        matches!(
+            node.evidence_profile,
+            super::evidence::EvidenceProfile::Docs
+        ),
+    )?);
+    let (mut command_artifacts, verification) = run_native_verifications(
+        &context.repository_root,
+        &native_root,
+        &node.verification_commands,
+    )?;
+    artifacts.append(&mut command_artifacts);
+    let manifest = WorkerManifest {
+        run_id: context.scope.manifest.run_id.clone(),
+        plan_id: context.scope.manifest.plan_id.clone(),
+        node_id: node_id.to_string(),
+        allowed_files,
+        profile: node.evidence_profile.clone(),
+        verification_commands: node.verification_commands.clone(),
+    };
+    let submission = WorkerSubmission {
+        lease_token: lease.token.clone(),
+        changed_files,
+        artifacts,
+        verification,
+    };
+    Ok((manifest, submission, lease, unix_ms()))
+}
+
+fn native_node_changes(
+    context: &ScopedContext,
+    allowed_files: &[String],
+    baseline: &AdmissionGitBaseline,
+) -> Result<Vec<String>, String> {
+    if git_head(&context.repository_root)? != baseline.head_commit {
+        return Err("Git HEAD changed after worker admission".to_string());
+    }
+    if outside_manifest_digest(&context.repository_root, allowed_files)?
+        != baseline.outside_manifest_digest
+    {
+        return Err("completion refused an out-of-manifest Git state change".to_string());
+    }
+    let changed = git_dirty_paths(&context.repository_root)?
+        .into_iter()
+        .filter(|path| {
+            allowed_files
+                .iter()
+                .any(|claim| path_matches_claim(path, claim))
+        })
+        .collect::<Vec<_>>();
+    Ok(changed)
+}
+
+fn capture_native_diff(
+    context: &ScopedContext,
+    changed_files: &[String],
+    native_root: &Path,
+    document_diff: bool,
+) -> Result<EvidenceArtifact, String> {
+    let mut command = Command::new("git");
+    command
+        .arg("-C")
+        .arg(&context.repository_root)
+        .args(["diff", "--binary", "HEAD", "--"])
+        .args(changed_files)
+        .env("GIT_OPTIONAL_LOCKS", "0");
+    let output = command
+        .output()
+        .map_err(|error| format!("cannot capture native Git diff: {error}"))?;
+    if !output.status.success() {
+        return Err("native Git diff is unavailable".to_string());
+    }
+    let mut evidence = format!(
+        "PERFECT PLANNER NATIVE DIFF\nHEAD {}\nFILES\n{}\n\n",
+        git_head(&context.repository_root)?,
+        changed_files.join("\n")
+    )
+    .into_bytes();
+    evidence.extend_from_slice(&output.stdout);
+    for changed in changed_files {
+        let path = context.repository_root.join(changed);
+        let tracked = Command::new("git")
+            .arg("-C")
+            .arg(&context.repository_root)
+            .args(["ls-files", "--error-unmatch", "--", changed])
+            .output()
+            .map_err(|error| format!("cannot classify changed file {changed}: {error}"))?
+            .status
+            .success();
+        if !tracked && path.is_file() {
+            let bytes = fs::read(&path)
+                .map_err(|error| format!("cannot capture untracked evidence {changed}: {error}"))?;
+            if bytes.len() > 32 * 1024 * 1024 {
+                return Err(format!(
+                    "untracked evidence {changed} exceeds the size limit"
+                ));
+            }
+            evidence.extend_from_slice(
+                format!(
+                    "\nUNTRACKED {changed} {} bytes sha256 {:x}\n",
+                    bytes.len(),
+                    Sha256::digest(&bytes)
+                )
+                .as_bytes(),
+            );
+        }
+    }
+    let path = native_root.join(if document_diff {
+        "document.diff"
+    } else {
+        "git.diff"
+    });
+    atomic_replace(&path, &evidence)
+        .map_err(|error| format!("cannot persist native Git diff: {error}"))?;
+    capture_artifact(
+        &context.run_dir.join("evidence"),
+        &path,
+        if document_diff {
+            EvidenceKind::DocumentDiff
+        } else {
+            EvidenceKind::GitDiff
+        },
+    )
+}
+
+fn run_native_verifications(
+    repository_root: &Path,
+    native_root: &Path,
+    commands: &[String],
+) -> Result<(Vec<EvidenceArtifact>, Vec<VerificationResult>), String> {
+    if commands.is_empty() {
+        return Err("node has no machine-verifiable completion command".to_string());
+    }
+    let executable = PathBuf::from(PWSH_7);
+    if !executable.is_file() {
+        return Err("PowerShell 7 is unavailable for native verification".to_string());
+    }
+    let evidence_root = native_root
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| "native evidence directory is malformed".to_string())?;
+    let mut artifacts = Vec::new();
+    let mut verification = Vec::new();
+    for (index, verification_command) in commands.iter().enumerate() {
+        validate_native_verification_command(verification_command)?;
+        let mut command = Command::new(&executable);
+        command
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"])
+            .arg(verification_command)
+            .current_dir(repository_root)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x0800_0000);
+        }
+        let output = run_bounded_capture(command, Duration::from_secs(300), MAX_PWSH_OUTPUT_BYTES)?;
+        let mut log = Vec::new();
+        log.extend_from_slice(b"COMMAND OUTPUT\n");
+        log.extend_from_slice(&output.stdout);
+        log.extend_from_slice(b"\nSTANDARD ERROR\n");
+        log.extend_from_slice(&output.stderr);
+        if log.len() <= 31 {
+            log.extend_from_slice(b"(no textual output)\n");
+        }
+        let log_path = native_root.join(format!("verify-{index:03}.log"));
+        atomic_replace(&log_path, &log)
+            .map_err(|error| format!("cannot persist verification log: {error}"))?;
+        let exit_code = output.status.code().unwrap_or(-1);
+        let exit_path = native_root.join(format!("verify-{index:03}.exit.txt"));
+        atomic_replace(&exit_path, format!("{exit_code}\n").as_bytes())
+            .map_err(|error| format!("cannot persist verification exit code: {error}"))?;
+        artifacts.push(capture_artifact(
+            evidence_root,
+            &log_path,
+            EvidenceKind::CommandOutput,
+        )?);
+        artifacts.push(capture_artifact(
+            evidence_root,
+            &exit_path,
+            EvidenceKind::ExitCode,
+        )?);
+        verification.push(VerificationResult {
+            command_id: verification_command.clone(),
+            exit_code,
+            output_artifact: log_path.to_string_lossy().into_owned(),
+        });
+    }
+    Ok((artifacts, verification))
+}
+
+fn validate_native_verification_command(command: &str) -> Result<(), String> {
+    let trimmed = command.trim();
+    if trimmed.is_empty()
+        || trimmed.len() > 4096
+        || trimmed
+            .chars()
+            .any(|character| matches!(character, '\r' | '\n' | '&' | '|' | '>' | '<' | '`'))
+    {
+        return Err("verification command contains an unsafe shell construct".to_string());
+    }
+    let executable = trimmed
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .trim_matches('"')
+        .to_ascii_lowercase();
+    let executable = executable
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(executable.as_str())
+        .trim_end_matches(".exe");
+    if !matches!(
+        executable,
+        "cargo"
+            | "npm"
+            | "npx"
+            | "node"
+            | "pnpm"
+            | "yarn"
+            | "python"
+            | "python3"
+            | "py"
+            | "pwsh"
+            | "powershell"
+            | "git"
+    ) {
+        return Err(format!(
+            "verification executable {executable} is not on the native allowlist"
+        ));
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if matches!(executable, "pwsh" | "powershell")
+        && (!lower.contains("-file") || lower.contains("-command"))
+    {
+        return Err("nested PowerShell verification must use -File, not -Command".to_string());
+    }
+    if executable == "git"
+        && !matches!(
+            lower.split_whitespace().nth(1).unwrap_or_default(),
+            "diff" | "status" | "rev-parse" | "show"
+        )
+    {
+        return Err("native Git verification is restricted to read-only subcommands".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
 fn validate_worker_identity(
     context: &ScopedContext,
     node_id: &str,
@@ -1892,7 +2744,7 @@ impl Pwsh7SystemProbe {
             .arg("-CommandWithArgs")
             .arg(script);
         for argument in arguments {
-            command.arg(argument);
+            command.arg(external_windows_path(argument));
         }
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
         #[cfg(windows)]
@@ -1902,6 +2754,118 @@ impl Pwsh7SystemProbe {
         }
         run_bounded(command, PWSH_TIMEOUT, MAX_PWSH_OUTPUT_BYTES)
     }
+}
+
+fn external_windows_path(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let value = path.to_string_lossy();
+        if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = value.strip_prefix(r"\\?\") {
+            return PathBuf::from(rest);
+        }
+    }
+    path.to_path_buf()
+}
+
+#[cfg(windows)]
+fn native_resource_snapshot(repository_root: &Path) -> Result<ResourceSnapshot, String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    use windows_sys::Win32::System::Threading::GetSystemTimes;
+
+    fn filetime_value(value: FILETIME) -> u64 {
+        ((value.dwHighDateTime as u64) << 32) | value.dwLowDateTime as u64
+    }
+
+    fn sample_cpu_times() -> Result<(u64, u64, u64), String> {
+        let mut idle = FILETIME::default();
+        let mut kernel = FILETIME::default();
+        let mut user = FILETIME::default();
+        // SAFETY: all pointers refer to initialized writable FILETIME values for the
+        // duration of this synchronous Windows API call.
+        if unsafe { GetSystemTimes(&mut idle, &mut kernel, &mut user) } == 0 {
+            return Err(format!(
+                "cannot sample native CPU times: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok((
+            filetime_value(idle),
+            filetime_value(kernel),
+            filetime_value(user),
+        ))
+    }
+
+    let first = sample_cpu_times()?;
+    thread::sleep(Duration::from_millis(100));
+    let second = sample_cpu_times()?;
+    let idle_delta = second.0.saturating_sub(first.0);
+    let total_delta = second
+        .1
+        .saturating_sub(first.1)
+        .saturating_add(second.2.saturating_sub(first.2));
+    let cpu_usage_percent = if total_delta == 0 {
+        0.0
+    } else {
+        100.0 * total_delta.saturating_sub(idle_delta) as f64 / total_delta as f64
+    };
+
+    // SAFETY: MEMORYSTATUSEX is a plain C data structure; zero initialization followed by
+    // setting dwLength is the contract required by GlobalMemoryStatusEx.
+    let mut memory: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+    memory.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+    // SAFETY: `memory` remains valid and uniquely borrowed for the duration of the call.
+    if unsafe { GlobalMemoryStatusEx(&mut memory) } == 0 {
+        return Err(format!(
+            "cannot sample native memory state: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+
+    let external_root = external_windows_path(repository_root);
+    let disk_root = external_root
+        .ancestors()
+        .last()
+        .ok_or_else(|| "cannot resolve repository disk root".to_string())?;
+    let mut disk_root_wide = disk_root.as_os_str().encode_wide().collect::<Vec<_>>();
+    disk_root_wide.push(0);
+    let mut available = 0u64;
+    // SAFETY: `disk_root_wide` is a NUL-terminated UTF-16 string and `available` is a valid
+    // output pointer. The unused total outputs are intentionally null.
+    if unsafe {
+        GetDiskFreeSpaceExW(
+            disk_root_wide.as_ptr(),
+            &mut available,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    } == 0
+    {
+        return Err(format!(
+            "cannot sample repository disk capacity: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+
+    Ok(ResourceSnapshot {
+        logical_cpu_count: std::thread::available_parallelism()
+            .map(|count| count.get())
+            .unwrap_or(1),
+        cpu_usage_percent: cpu_usage_percent.clamp(0.0, 100.0) as f32,
+        total_memory_bytes: memory.ullTotalPhys,
+        available_memory_bytes: memory.ullAvailPhys,
+        repository_disk_available_bytes: available,
+    })
+}
+
+#[cfg(not(windows))]
+fn native_resource_snapshot(_repository_root: &Path) -> Result<ResourceSnapshot, String> {
+    Err("native resource probe is available only on Windows".to_string())
 }
 
 impl SystemProbe for Pwsh7SystemProbe {
@@ -1932,9 +2896,7 @@ impl SystemProbe for Pwsh7SystemProbe {
     }
 
     fn resources(&self, repository_root: &Path) -> Result<ResourceSnapshot, String> {
-        const SCRIPT: &str = r#"$ErrorActionPreference='Stop'; $os=Get-CimInstance Win32_OperatingSystem; $cpu=@(Get-CimInstance Win32_Processor | ForEach-Object { [double]$_.LoadPercentage }); $drive=(Get-Item -LiteralPath $args[0]).PSDrive; [pscustomobject]@{ logicalCpuCount=[int][Environment]::ProcessorCount; cpuUsagePercent=[double](($cpu | Measure-Object -Average).Average); totalMemoryBytes=[uint64]$os.TotalVisibleMemorySize*1024; availableMemoryBytes=[uint64]$os.FreePhysicalMemory*1024; repositoryDiskAvailableBytes=[uint64]$drive.Free } | ConvertTo-Json -Compress"#;
-        serde_json::from_slice(&self.invoke(SCRIPT, &[repository_root])?)
-            .map_err(|error| format!("cannot decode PowerShell resource probe: {error}"))
+        native_resource_snapshot(repository_root)
     }
 }
 
@@ -1945,11 +2907,22 @@ struct BoundedOutput {
     overflowed: bool,
 }
 
-fn run_bounded(
+fn run_bounded(command: Command, timeout: Duration, max_bytes: usize) -> Result<Vec<u8>, String> {
+    let output = run_bounded_capture(command, timeout, max_bytes)?;
+    if !output.status.success() {
+        return Err(format!(
+            "fixed PowerShell probe failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(output.stdout)
+}
+
+fn run_bounded_capture(
     mut command: Command,
     timeout: Duration,
     max_bytes: usize,
-) -> Result<Vec<u8>, String> {
+) -> Result<BoundedOutput, String> {
     let mut child = command
         .spawn()
         .map_err(|error| format!("cannot start fixed PowerShell probe: {error}"))?;
@@ -1995,13 +2968,7 @@ fn run_bounded(
     if output.overflowed {
         return Err("fixed PowerShell probe exceeded its output limit".to_string());
     }
-    if !output.status.success() {
-        return Err(format!(
-            "fixed PowerShell probe failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    Ok(output.stdout)
+    Ok(output)
 }
 
 fn read_limited(reader: impl Read, max_bytes: usize) -> Result<(Vec<u8>, bool), String> {
@@ -2063,7 +3030,7 @@ mod tests {
                         "text": "API passes",
                         "built": false,
                         "tested": false,
-                        "verify": "cargo test"
+                        "verify": "git status --short"
                     }]
                 }]
             });
@@ -2117,6 +3084,96 @@ mod tests {
             args.join(" "),
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    fn admitted_fixture(
+        repository: &TempRepo,
+        run_id: &str,
+    ) -> (
+        ScopedRunRequest,
+        SchedulerAuthorityRuntime,
+        PlannerRegistryStore,
+    ) {
+        let scope = repository.create_scope(run_id);
+        repository.initialize_scheduler(&scope, false);
+        let request_scope = ScopedRunRequest {
+            repository_root: repository.0.clone(),
+            run_id: run_id.to_string(),
+        };
+        let context = open_context(&request_scope).unwrap();
+        persist_scoped_json(
+            &context,
+            PREFLIGHT_RESULT_FILE,
+            &PreflightReport {
+                disposition: PreflightDisposition::Ready,
+                baseline: super::super::preflight::SystemBaseline {
+                    repository_root: repository.0.canonicalize().unwrap(),
+                    git_status_porcelain_v2: String::new(),
+                    port_bindings: Vec::new(),
+                    resources: ResourceSnapshot {
+                        logical_cpu_count: 4,
+                        cpu_usage_percent: 1.0,
+                        total_memory_bytes: 8_000,
+                        available_memory_bytes: 4_000,
+                        repository_disk_available_bytes: 100_000,
+                    },
+                },
+                conflicts: Vec::new(),
+                unknown_conflicts: Vec::new(),
+                stopped_processes: Vec::new(),
+                reasons: Vec::new(),
+            },
+        )
+        .unwrap();
+        let app_data_name = format!("{run_id}-app-data");
+        fs::write(
+            repository.0.join(".git/info/exclude"),
+            format!("{app_data_name}/\n"),
+        )
+        .unwrap();
+        let app_data = repository.0.join(app_data_name);
+        fs::create_dir_all(&app_data).unwrap();
+        let authority = SchedulerAuthorityRuntime::open(&app_data).unwrap();
+        let registry = PlannerRegistryStore::for_app_data(&app_data).unwrap();
+        approve_run(&registry, request_scope.clone()).unwrap();
+        admit_worker(
+            &authority,
+            &registry,
+            AdmitWorkerApiRequest {
+                scope: request_scope.clone(),
+                node_id: "A01".to_string(),
+            },
+        )
+        .unwrap();
+        (request_scope, authority, registry)
+    }
+
+    fn record_ready_preflight(request_scope: &ScopedRunRequest) {
+        let context = open_context(request_scope).unwrap();
+        persist_scoped_json(
+            &context,
+            PREFLIGHT_RESULT_FILE,
+            &PreflightReport {
+                disposition: PreflightDisposition::Ready,
+                baseline: super::super::preflight::SystemBaseline {
+                    repository_root: request_scope.repository_root.canonicalize().unwrap(),
+                    git_status_porcelain_v2: String::new(),
+                    port_bindings: Vec::new(),
+                    resources: ResourceSnapshot {
+                        logical_cpu_count: 4,
+                        cpu_usage_percent: 1.0,
+                        total_memory_bytes: 8_000,
+                        available_memory_bytes: 4_000,
+                        repository_disk_available_bytes: 100_000,
+                    },
+                },
+                conflicts: Vec::new(),
+                unknown_conflicts: Vec::new(),
+                stopped_processes: Vec::new(),
+                reasons: Vec::new(),
+            },
+        )
+        .unwrap();
     }
 
     impl Drop for TempRepo {
@@ -2236,7 +3293,8 @@ mod tests {
         let repository_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("src-tauri must have a repository parent")
-            .to_path_buf();
+            .canonicalize()
+            .expect("repository root must canonicalize to its native Windows identity");
         let probe = Pwsh7SystemProbe::fixed().expect("PowerShell 7 probe must be installed");
 
         probe
@@ -2249,6 +3307,24 @@ mod tests {
         assert!(resources.logical_cpu_count > 0);
         assert!(resources.total_memory_bytes > 0);
         assert!(resources.repository_disk_available_bytes > 0);
+
+        let command_result =
+            orchestrator_resource_probe(ResourceProbeApiRequest { repository_root })
+                .expect("the canonical Tauri command path must preserve disk telemetry");
+        assert!(command_result.resources.repository_disk_available_bytes > 0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn external_probe_paths_strip_verbatim_prefixes_without_changing_identity() {
+        assert_eq!(
+            external_windows_path(Path::new(r"\\?\C:\repos\perfect-planner")),
+            PathBuf::from(r"C:\repos\perfect-planner")
+        );
+        assert_eq!(
+            external_windows_path(Path::new(r"\\?\UNC\server\share\repo")),
+            PathBuf::from(r"\\server\share\repo")
+        );
     }
 
     #[test]
@@ -2308,9 +3384,22 @@ mod tests {
         )
         .unwrap();
         let app_data = repository.0.join("app-data");
+        fs::write(repository.0.join(".git/info/exclude"), "app-data/\n").unwrap();
         fs::create_dir_all(&app_data).unwrap();
         let authority = SchedulerAuthorityRuntime::open(&app_data).unwrap();
         let registry = PlannerRegistryStore::for_app_data(&app_data).unwrap();
+        let unapproved = admit_worker(
+            &authority,
+            &registry,
+            AdmitWorkerApiRequest {
+                scope: request_scope.clone(),
+                node_id: "A01".to_string(),
+            },
+        )
+        .unwrap_err();
+        assert!(unapproved.contains("explicit native run approval"));
+        let approval = approve_run(&registry, request_scope.clone()).unwrap();
+        assert_eq!(approval.collision_assessments.len(), 1);
 
         let lease = admit_worker(
             &authority,
@@ -2355,6 +3444,115 @@ mod tests {
     }
 
     #[test]
+    fn brokered_admission_rejects_a_tampered_persisted_approval() {
+        let repository = TempRepo::new();
+        let scope = repository.create_scope("run-tampered-approval");
+        repository.initialize_scheduler(&scope, false);
+        let request_scope = ScopedRunRequest {
+            repository_root: repository.0.clone(),
+            run_id: "run-tampered-approval".to_string(),
+        };
+        record_ready_preflight(&request_scope);
+        let app_data = repository.0.join("tampered-approval-app-data");
+        fs::write(
+            repository.0.join(".git/info/exclude"),
+            "tampered-approval-app-data/\n",
+        )
+        .unwrap();
+        fs::create_dir_all(&app_data).unwrap();
+        let authority = SchedulerAuthorityRuntime::open(&app_data).unwrap();
+        let registry = PlannerRegistryStore::for_app_data(&app_data).unwrap();
+        approve_run(&registry, request_scope.clone()).unwrap();
+
+        let approval_path = scope.root.join(RUN_APPROVAL_FILE);
+        let mut persisted: Value =
+            serde_json::from_slice(&fs::read(&approval_path).unwrap()).unwrap();
+        persisted["result"]["approvalDigest"] = Value::String("0".repeat(64));
+        fs::write(
+            &approval_path,
+            serde_json::to_vec_pretty(&persisted).unwrap(),
+        )
+        .unwrap();
+
+        let error = admit_worker(
+            &authority,
+            &registry,
+            AdmitWorkerApiRequest {
+                scope: request_scope,
+                node_id: "A01".to_string(),
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("approval digest is invalid"), "{error}");
+        assert!(open_scheduler(
+            &open_context(&ScopedRunRequest {
+                repository_root: repository.0.clone(),
+                run_id: "run-tampered-approval".to_string(),
+            })
+            .unwrap(),
+            Vec::new()
+        )
+        .unwrap()
+        .snapshot()
+        .unwrap()
+        .nodes["A01"]
+            .lease
+            .is_none());
+    }
+
+    #[test]
+    fn brokered_admission_rejects_collision_registry_change_after_approval() {
+        let repository = TempRepo::new();
+        let scope = repository.create_scope("run-stale-approval");
+        repository.initialize_scheduler(&scope, false);
+        let request_scope = ScopedRunRequest {
+            repository_root: repository.0.clone(),
+            run_id: "run-stale-approval".to_string(),
+        };
+        record_ready_preflight(&request_scope);
+        let app_data = repository.0.join("stale-approval-app-data");
+        fs::write(
+            repository.0.join(".git/info/exclude"),
+            "stale-approval-app-data/\n",
+        )
+        .unwrap();
+        fs::create_dir_all(&app_data).unwrap();
+        let authority = SchedulerAuthorityRuntime::open(&app_data).unwrap();
+        let registry = PlannerRegistryStore::for_app_data(&app_data).unwrap();
+        approve_run(&registry, request_scope.clone()).unwrap();
+
+        let other_repository = TempRepo::new();
+        let other_scope = other_repository.create_scope("run-other-participant");
+        let other_context = open_context(&ScopedRunRequest {
+            repository_root: other_repository.0.clone(),
+            run_id: other_scope.manifest.run_id.clone(),
+        })
+        .unwrap();
+        registry
+            .prepare_manifest_collision_snapshot(
+                planner_registration_seed(&other_context).unwrap(),
+                "A01",
+                unix_ms(),
+                300_000,
+            )
+            .unwrap();
+
+        let error = admit_worker(
+            &authority,
+            &registry,
+            AdmitWorkerApiRequest {
+                scope: request_scope,
+                node_id: "A01".to_string(),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("collision state changed after explicit approval"),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn brokered_admission_refuses_preexisting_dirty_target_ownership() {
         let repository = TempRepo::new();
         let scope = repository.create_scope("run-dirty-target");
@@ -2392,10 +3590,46 @@ mod tests {
         .unwrap();
         let app_data = repository.0.join("dirty-app-data");
         fs::create_dir_all(&app_data).unwrap();
-        let authority = SchedulerAuthorityRuntime::open(&app_data).unwrap();
         let registry = PlannerRegistryStore::for_app_data(&app_data).unwrap();
 
-        let error = admit_worker(
+        let error = approve_run(&registry, request_scope).unwrap_err();
+        assert!(error.contains("dirty target ownership"), "{error}");
+        assert!(
+            !registry.path().exists(),
+            "collision state must not mutate after a dirty refusal"
+        );
+    }
+
+    #[test]
+    fn recovered_attempt_can_reclaim_partial_work_in_its_immutable_manifest() {
+        let repository = TempRepo::new();
+        let (request_scope, authority, registry) =
+            admitted_fixture(&repository, "run-reclaim-partial");
+        let context = open_context(&request_scope).unwrap();
+        let scheduler = open_scheduler(&context, Vec::new()).unwrap();
+        let first_lease = scheduler.snapshot().unwrap().nodes["A01"]
+            .lease
+            .clone()
+            .expect("first authorized attempt must hold a lease");
+
+        fs::create_dir_all(repository.0.join("src")).unwrap();
+        fs::write(
+            repository.0.join("src/lib.rs"),
+            "pub fn partial_bounded_work() {}\n",
+        )
+        .unwrap();
+        let recovered = scheduler
+            .recover_stale_authority(authority.epoch(), u64::MAX)
+            .unwrap();
+        assert!(matches!(
+            recovered.as_slice(),
+            [ReapAction::Reassigned { .. }]
+        ));
+
+        record_ready_preflight(&request_scope);
+        approve_run(&registry, request_scope.clone())
+            .expect("fresh approval may retain partial work from an earlier bounded attempt");
+        let second_lease = admit_worker(
             &authority,
             &registry,
             AdmitWorkerApiRequest {
@@ -2403,12 +3637,87 @@ mod tests {
                 node_id: "A01".to_string(),
             },
         )
-        .unwrap_err();
-        assert!(error.contains("dirty target ownership"), "{error}");
-        assert!(
-            !registry.path().exists(),
-            "collision state must not mutate after a dirty refusal"
+        .expect("the same immutable node manifest must be recoverable");
+
+        assert!(second_lease.fence > first_lease.fence);
+        assert_eq!(
+            open_scheduler(&context, Vec::new())
+                .unwrap()
+                .snapshot()
+                .unwrap()
+                .nodes["A01"]
+                .attempts,
+            2
         );
+    }
+
+    #[test]
+    fn completion_preserves_unrelated_preexisting_dirty_work() {
+        let repository = TempRepo::new();
+        fs::create_dir_all(repository.0.join("notes")).unwrap();
+        fs::write(repository.0.join("notes/user.txt"), "user-owned\n").unwrap();
+        let (scope, authority, _registry) = admitted_fixture(&repository, "run-preserve-unrelated");
+        fs::create_dir_all(repository.0.join("src")).unwrap();
+        fs::write(repository.0.join("src/lib.rs"), "pub fn bounded() {}\n").unwrap();
+
+        let gate = authorize_fenced_completion(
+            &authority,
+            FencedCompletionApiRequest {
+                scope,
+                node_id: "A01".to_string(),
+                artifacts: Vec::new(),
+            },
+        )
+        .unwrap();
+        assert!(gate.passed);
+        assert_eq!(
+            fs::read_to_string(repository.0.join("notes/user.txt")).unwrap(),
+            "user-owned\n"
+        );
+    }
+
+    #[test]
+    fn completion_refuses_out_of_manifest_mutation_after_admission() {
+        let repository = TempRepo::new();
+        fs::create_dir_all(repository.0.join("notes")).unwrap();
+        fs::write(repository.0.join("notes/user.txt"), "before\n").unwrap();
+        let (scope, authority, _registry) = admitted_fixture(&repository, "run-outside-mutation");
+        fs::write(repository.0.join("notes/user.txt"), "after\n").unwrap();
+        fs::create_dir_all(repository.0.join("src")).unwrap();
+        fs::write(repository.0.join("src/lib.rs"), "pub fn bounded() {}\n").unwrap();
+
+        let error = authorize_fenced_completion(
+            &authority,
+            FencedCompletionApiRequest {
+                scope,
+                node_id: "A01".to_string(),
+                artifacts: Vec::new(),
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("out-of-manifest"), "{error}");
+    }
+
+    #[test]
+    fn completion_refuses_head_change_after_admission() {
+        let repository = TempRepo::new();
+        let (scope, authority, _registry) = admitted_fixture(&repository, "run-head-change");
+        fs::write(repository.0.join("seed.txt"), "new committed head\n").unwrap();
+        run_git(&repository.0, &["add", "seed.txt"]);
+        run_git(&repository.0, &["commit", "-q", "-m", "advance head"]);
+        fs::create_dir_all(repository.0.join("src")).unwrap();
+        fs::write(repository.0.join("src/lib.rs"), "pub fn bounded() {}\n").unwrap();
+
+        let error = authorize_fenced_completion(
+            &authority,
+            FencedCompletionApiRequest {
+                scope,
+                node_id: "A01".to_string(),
+                artifacts: Vec::new(),
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("HEAD changed"), "{error}");
     }
 
     #[test]
@@ -2449,6 +3758,76 @@ mod tests {
             first_scope.manifest.worktree_id,
             second_scope.manifest.worktree_id
         );
+    }
+
+    #[test]
+    fn native_manifest_census_revives_only_its_exact_expired_registration() {
+        let repository = TempRepo::new();
+        let scope = repository.create_scope("run-expired-self-registration");
+        let context = open_context(&ScopedRunRequest {
+            repository_root: repository.0.clone(),
+            run_id: scope.manifest.run_id.clone(),
+        })
+        .unwrap();
+        let seed = planner_registration_seed(&context).unwrap();
+        let app_data = repository.0.join("expired-self-census-app-data");
+        fs::create_dir_all(&app_data).unwrap();
+        let registry = PlannerRegistryStore::for_app_data(&app_data).unwrap();
+        let now_ms = unix_ms();
+
+        registry
+            .prepare_manifest_collision_snapshot(seed.clone(), "A01", now_ms, 1_000)
+            .unwrap();
+        let recovered = registry
+            .prepare_manifest_collision_snapshot(seed, "A01", now_ms + 1_001, 300_000)
+            .unwrap();
+
+        assert!(recovered.conflict_ids.is_empty());
+        assert_eq!(recovered.planner_lease_generation, 2);
+    }
+
+    #[test]
+    fn native_manifest_census_refuses_a_foreign_expired_registration() {
+        let first = TempRepo::new();
+        let second = TempRepo::new();
+        let first_scope = first.create_scope("run-expired-foreign-first");
+        let second_scope = second.create_scope("run-expired-foreign-second");
+        let first_context = open_context(&ScopedRunRequest {
+            repository_root: first.0.clone(),
+            run_id: first_scope.manifest.run_id.clone(),
+        })
+        .unwrap();
+        let second_context = open_context(&ScopedRunRequest {
+            repository_root: second.0.clone(),
+            run_id: second_scope.manifest.run_id.clone(),
+        })
+        .unwrap();
+        let app_data = first.0.join("expired-foreign-census-app-data");
+        fs::create_dir_all(&app_data).unwrap();
+        let registry = PlannerRegistryStore::for_app_data(&app_data).unwrap();
+        let now_ms = unix_ms();
+
+        registry
+            .prepare_manifest_collision_snapshot(
+                planner_registration_seed(&first_context).unwrap(),
+                "A01",
+                now_ms,
+                1_000,
+            )
+            .unwrap();
+        let error = registry
+            .prepare_manifest_collision_snapshot(
+                planner_registration_seed(&second_context).unwrap(),
+                "A01",
+                now_ms + 1_001,
+                300_000,
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            crate::collision_assessor::registry::RegistryError::UnknownState(_)
+        ));
     }
 
     #[test]
@@ -2508,12 +3887,17 @@ mod tests {
         persist_scoped_json(&context, RELEASE_RESULT_FILE, &release).unwrap();
         drop(context);
 
-        let snapshot = orchestrator_pipeline_snapshot(SnapshotApiRequest {
-            scope: request_scope,
-            event_offset: None,
-            max_event_bytes: None,
-            max_events: None,
-        })
+        let authority =
+            SchedulerAuthorityRuntime::open(&repository.0.join("snapshot-app-data")).unwrap();
+        let snapshot = pipeline_snapshot(
+            &authority,
+            SnapshotApiRequest {
+                scope: request_scope,
+                event_offset: None,
+                max_event_bytes: None,
+                max_events: None,
+            },
+        )
         .unwrap();
         assert_eq!(snapshot.preflight, Some(preflight));
         assert_eq!(snapshot.reconciliation, Some(reconciliation));
@@ -2530,15 +3914,20 @@ mod tests {
         repository.initialize_scheduler(&scope, false);
         fs::write(scope.root.join(RELEASE_RESULT_FILE), b"{\"recordedAtMs\":").unwrap();
 
-        let error = orchestrator_pipeline_snapshot(SnapshotApiRequest {
-            scope: ScopedRunRequest {
-                repository_root: repository.0.clone(),
-                run_id: "run-corrupt".to_string(),
+        let authority =
+            SchedulerAuthorityRuntime::open(&repository.0.join("snapshot-app-data")).unwrap();
+        let error = pipeline_snapshot(
+            &authority,
+            SnapshotApiRequest {
+                scope: ScopedRunRequest {
+                    repository_root: repository.0.clone(),
+                    run_id: "run-corrupt".to_string(),
+                },
+                event_offset: None,
+                max_event_bytes: None,
+                max_events: None,
             },
-            event_offset: None,
-            max_event_bytes: None,
-            max_events: None,
-        })
+        )
         .unwrap_err();
         assert!(error.contains("corrupt or incomplete"));
     }
@@ -2609,12 +3998,7 @@ mod tests {
     }
 
     #[test]
-    fn public_commands_complete_archive_and_catalog_a_toy_run() {
-        use super::super::delivery::DeliveryChange;
-        use super::super::evidence::{EvidenceKind, EvidenceProfile, VerificationResult};
-        use super::super::reconcile::{CommitHunk, CommitRecord, PlanNode};
-        use super::super::release::{CiState, PullRequestState};
-
+    fn native_lifecycle_completes_idempotently_with_audit_resume_and_catalog_proof() {
         let repository = TempRepo::new();
         let repository_root = repository.0.canonicalize().unwrap();
         let scope_request = ScopedRunRequest {
@@ -2630,136 +4014,114 @@ mod tests {
         .unwrap();
         assert!(create.run_dir.starts_with(&repository_root));
 
-        let lease = orchestrator_claim_node(ClaimNodeApiRequest {
-            scope: scope_request.clone(),
-            node_id: "A01".to_string(),
-            worker_id: "worker-1".to_string(),
-            now_ms: 1_000,
-            lease_ms: 60_000,
-        })
+        let context = open_context(&scope_request).unwrap();
+        persist_scoped_json(
+            &context,
+            PREFLIGHT_RESULT_FILE,
+            &PreflightReport {
+                disposition: PreflightDisposition::Ready,
+                baseline: super::super::preflight::SystemBaseline {
+                    repository_root: repository_root.clone(),
+                    git_status_porcelain_v2: String::new(),
+                    port_bindings: Vec::new(),
+                    resources: ResourceSnapshot {
+                        logical_cpu_count: 4,
+                        cpu_usage_percent: 1.0,
+                        total_memory_bytes: 8_000,
+                        available_memory_bytes: 4_000,
+                        repository_disk_available_bytes: 100_000,
+                    },
+                },
+                conflicts: Vec::new(),
+                unknown_conflicts: Vec::new(),
+                stopped_processes: Vec::new(),
+                reasons: Vec::new(),
+            },
+        )
         .unwrap();
-
-        let evidence_root = create.run_dir.join("evidence/A01/worker-1");
-        fs::create_dir_all(&evidence_root).unwrap();
-        let evidence_specs = [
-            (
-                EvidenceKind::CommandOutput,
-                "command-output.txt",
-                b"cargo test: ok".as_slice(),
-            ),
-            (EvidenceKind::ExitCode, "exit-code.txt", b"0".as_slice()),
-            (
-                EvidenceKind::GitDiff,
-                "git-diff.patch",
-                b"diff --git a/src/lib.rs b/src/lib.rs",
-            ),
-        ];
-        let artifacts = evidence_specs
-            .into_iter()
-            .map(|(kind, name, bytes)| {
-                let path = evidence_root.join(name);
-                fs::write(&path, bytes).unwrap();
-                capture_artifact(&evidence_root, &path, kind).unwrap()
-            })
-            .collect::<Vec<_>>();
-        let manifest = WorkerManifest {
-            run_id: scope_request.run_id.clone(),
-            plan_id: "PP-001".to_string(),
-            node_id: "A01".to_string(),
-            allowed_files: vec!["src/lib.rs".to_string()],
-            profile: EvidenceProfile::Headless,
-            verification_commands: vec!["cargo-test".to_string()],
-        };
-        let submission = WorkerSubmission {
-            lease_token: lease.token.clone(),
-            changed_files: vec!["src/lib.rs".to_string()],
-            artifacts,
-            verification: vec![VerificationResult {
-                command_id: "cargo-test".to_string(),
-                exit_code: 0,
-                output_artifact: "command-output.txt".to_string(),
-            }],
-        };
-        let gate = orchestrator_authorize_fenced_completion(FencedCompletionApiRequest {
-            scope: scope_request.clone(),
-            node_id: "A01".to_string(),
-            token: lease.token,
-            now_ms: 2_000,
-            manifest,
-            submission,
-        })
+        let app_data = repository.0.join("public-proof-app-data");
+        fs::write(
+            repository.0.join(".git/info/exclude"),
+            "public-proof-app-data/\n",
+        )
+        .unwrap();
+        fs::create_dir_all(&app_data).unwrap();
+        let authority = SchedulerAuthorityRuntime::open(&app_data).unwrap();
+        let registry = PlannerRegistryStore::for_app_data(&app_data).unwrap();
+        approve_run(&registry, scope_request.clone()).unwrap();
+        admit_worker(
+            &authority,
+            &registry,
+            AdmitWorkerApiRequest {
+                scope: scope_request.clone(),
+                node_id: "A01".to_string(),
+            },
+        )
+        .unwrap();
+        fs::create_dir_all(repository_root.join("src")).unwrap();
+        fs::write(repository_root.join("src/lib.rs"), "pub fn proven() {}\n").unwrap();
+        let gate = authorize_fenced_completion(
+            &authority,
+            FencedCompletionApiRequest {
+                scope: scope_request.clone(),
+                node_id: "A01".to_string(),
+                artifacts: Vec::new(),
+            },
+        )
         .unwrap();
         assert!(gate.passed);
-
-        let reconciliation = orchestrator_reconcile(ReconcileApiRequest {
-            scope: scope_request.clone(),
-            input: ReconciliationInput {
-                plan_id: "PP-001".to_string(),
-                nodes: vec![PlanNode {
-                    node_id: "A01".to_string(),
-                    manifest_files: vec!["src/lib.rs".to_string()],
-                    declared_outputs: vec!["src/lib.rs".to_string()],
-                }],
-                commits: vec![CommitRecord {
-                    commit_id: "abc123".to_string(),
-                    message: "[PP-001/A01] complete toy run".to_string(),
-                    hunks: vec![CommitHunk {
-                        file: "src/lib.rs".to_string(),
-                    }],
-                }],
-                final_tree_files: vec!["src/lib.rs".to_string()],
-                actual_tree_clean: true,
-                uncommitted_files: Vec::new(),
-                waivers: Vec::new(),
+        let duplicate_gate = authorize_fenced_completion(
+            &authority,
+            FencedCompletionApiRequest {
+                scope: scope_request.clone(),
+                node_id: "A01".to_string(),
+                artifacts: Vec::new(),
             },
-        })
+        )
         .unwrap();
-        assert!(reconciliation.passed, "{reconciliation:#?}");
+        assert_eq!(duplicate_gate, gate);
 
-        let merged_release = ReleaseGateInput {
-            dirty_worktree: false,
-            merge_conflicts: Vec::new(),
-            missing_evidence: Vec::new(),
-            unplanned: Vec::new(),
-            unproven: Vec::new(),
-            orphaned: Vec::new(),
-            ci: CiState::Passed,
-            pushed: true,
-            pull_request: PullRequestState::Merged,
-        };
-        let release = orchestrator_evaluate_release(ReleaseApiRequest {
-            scope: scope_request.clone(),
-            input: merged_release.clone(),
-        })
-        .unwrap();
-        assert!(release.merged);
-        assert!(release.issues.is_empty());
-
-        let delivery = orchestrator_deliver(DeliveryApiRequest {
-            scope: scope_request.clone(),
-            release: merged_release,
-            delivery: DeliveryRequest {
-                run_id: scope_request.run_id.clone(),
-                plan_id: "PP-001".to_string(),
-                title: "Public command proof".to_string(),
-                branch: "feature/api".to_string(),
-                commit_sha: "abc123".to_string(),
-                pull_request_url: Some("https://example.test/pull/1".to_string()),
-                merge_sha: Some("def456".to_string()),
-                finished_at: "2026-08-22T00:00:00Z".to_string(),
-                changes: vec![DeliveryChange {
-                    desired: "complete toy run".to_string(),
-                    actual_commit: Some("abc123".to_string()),
-                    status: "SUCCEEDED".to_string(),
-                }],
-                leftovers: Vec::new(),
+        let snapshot = pipeline_snapshot(
+            &authority,
+            SnapshotApiRequest {
+                scope: scope_request.clone(),
+                event_offset: None,
+                max_event_bytes: None,
+                max_events: None,
             },
-        })
+        )
         .unwrap();
-        assert!(delivery.archive_dir.join("COMPLETION-REPORT.md").is_file());
-        assert!(delivery.handover_dir.join("changes.md").is_file());
-        assert!(repository_root.join("COMPLETE-CHECKLIST.md").is_file());
-        assert!(!create.run_dir.exists());
+        assert_eq!(snapshot.hot_resume.status, "completed");
+        assert_eq!(
+            snapshot.hot_resume.last_completed_step.as_deref(),
+            Some("A01")
+        );
+        assert!(snapshot.hot_resume.locked_files.is_empty());
+        assert!(snapshot.hot_resume.next_actions.is_empty());
+        assert_eq!(snapshot.scheduler.completions.len(), 1);
+        let completion = &snapshot.scheduler.completions["A01"];
+        assert!(completion.gate.passed);
+        assert_eq!(completion.changed_files, vec!["src/lib.rs"]);
+        assert!(!completion.artifacts.is_empty());
+        assert!(!completion.verification.is_empty());
+        let public_json = serde_json::to_string(&snapshot.scheduler).unwrap();
+        assert!(!public_json.contains("token"));
+        assert!(!public_json.contains("gitBaseline"));
+
+        let audit = fs::read_to_string(&context.scope.audit_path).unwrap();
+        let audit_records = audit
+            .lines()
+            .map(|line| {
+                serde_json::from_str::<super::super::run_scope::RunAuditRecord>(line).unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(audit_records.len(), 2);
+        assert_eq!(audit_records[0].event.kind, "NODE_COMPLETION_PREPARED");
+        assert_eq!(audit_records[1].event.kind, "NODE_COMPLETION_COMMITTED");
+        assert_eq!(audit_records[0].sequence, 1);
+        assert_eq!(audit_records[1].sequence, 2);
+        assert_eq!(audit_records[1].previous_hash, audit_records[0].record_hash);
+        assert!(create.run_dir.exists());
 
         let catalog = orchestrator_run_catalog(RunCatalogApiRequest {
             repository_root: repository_root.clone(),
@@ -2767,11 +4129,76 @@ mod tests {
         .unwrap();
         assert!(catalog.active_runs.is_empty());
         assert_eq!(catalog.archived_runs.len(), 1);
-        let archived = &catalog.archived_runs[0];
-        assert_eq!(archived.run_id, "run-public-proof");
-        assert_eq!(archived.status, "completed");
-        assert_eq!(archived.completed_nodes, 1);
-        assert_eq!(archived.total_nodes, 1);
-        assert_eq!(archived.repository_root, repository_root);
+        let completed = &catalog.archived_runs[0];
+        assert_eq!(completed.run_id, "run-public-proof");
+        assert_eq!(completed.status, "completed");
+        assert_eq!(completed.completed_nodes, 1);
+        assert_eq!(completed.total_nodes, 1);
+        assert_eq!(completed.repository_root, repository_root);
+    }
+
+    #[test]
+    fn snapshot_withholds_an_approval_detached_by_a_newer_preflight() {
+        let repository = TempRepo::new();
+        let repository_root = repository.0.canonicalize().unwrap();
+        let scope_request = ScopedRunRequest {
+            repository_root: repository_root.clone(),
+            run_id: "run-stale-approval-projection".to_string(),
+        };
+        orchestrator_create_run(CreateRunApiRequest {
+            repository_root: repository_root.clone(),
+            run_id: scope_request.run_id.clone(),
+            plan_path: PathBuf::from(".claude/scratch/perfect-plan/api-plan.json"),
+            next_actions: vec!["preflight".to_string()],
+        })
+        .unwrap();
+        let context = open_context(&scope_request).unwrap();
+        let ready = PreflightReport {
+            disposition: PreflightDisposition::Ready,
+            baseline: super::super::preflight::SystemBaseline {
+                repository_root: repository_root.clone(),
+                git_status_porcelain_v2: String::new(),
+                port_bindings: Vec::new(),
+                resources: ResourceSnapshot {
+                    logical_cpu_count: 4,
+                    cpu_usage_percent: 1.0,
+                    total_memory_bytes: 8_000,
+                    available_memory_bytes: 4_000,
+                    repository_disk_available_bytes: 100_000,
+                },
+            },
+            conflicts: Vec::new(),
+            unknown_conflicts: Vec::new(),
+            stopped_processes: Vec::new(),
+            reasons: Vec::new(),
+        };
+        persist_scoped_json(&context, PREFLIGHT_RESULT_FILE, &ready).unwrap();
+        let app_data = repository.0.join("stale-approval-app-data");
+        fs::write(
+            repository.0.join(".git/info/exclude"),
+            "stale-approval-app-data/\n",
+        )
+        .unwrap();
+        fs::create_dir_all(&app_data).unwrap();
+        let authority = SchedulerAuthorityRuntime::open(&app_data).unwrap();
+        let registry = PlannerRegistryStore::for_app_data(&app_data).unwrap();
+        approve_run(&registry, scope_request.clone()).unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        persist_scoped_json(&context, PREFLIGHT_RESULT_FILE, &ready).unwrap();
+        let snapshot = pipeline_snapshot(
+            &authority,
+            SnapshotApiRequest {
+                scope: scope_request,
+                event_offset: None,
+                max_event_bytes: None,
+                max_events: None,
+            },
+        )
+        .unwrap();
+
+        assert!(snapshot.preflight.is_some());
+        assert!(snapshot.run_approval.is_none());
+        assert!(snapshot.run_approval_recorded_at_ms.is_none());
     }
 }

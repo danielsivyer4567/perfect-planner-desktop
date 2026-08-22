@@ -37,6 +37,20 @@ fn renderer_can_only_use_brokered_admission_and_heartbeat_after_b20() {
 }
 
 #[test]
+fn resource_guard_is_exposed_through_the_same_bounded_pipeline_capability() {
+    let lib = source("src/lib.rs");
+    let build = source("build.rs");
+    let permission = source("permissions/orchestrator-pipeline.toml");
+    let renderer = source("../src/services/resourceGuard.ts");
+    let command = "orchestrator_resource_probe";
+
+    assert!(lib.contains(&format!("            {command},")));
+    assert!(build.contains(&format!("\"{command}\"")));
+    assert!(permission.contains(&format!("\"{command}\"")));
+    assert!(renderer.contains(&format!("\"{command}\"")));
+}
+
+#[test]
 fn authority_issuance_is_native_only_and_aggregate_scoped() {
     let registry = source("src/collision_assessor/registry.rs");
     assert!(registry.contains("struct MachineAuthoritySetReceipt"));

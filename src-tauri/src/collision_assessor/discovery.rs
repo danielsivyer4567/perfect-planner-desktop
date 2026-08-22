@@ -7,11 +7,15 @@ use super::identity::{
     native_git_authority, physical_path_identity, PhysicalPathIdentity, PhysicalPathKind,
     RestrictedAuthorityHandle,
 };
-use super::model::{CanonicalClaimSnapshot, ClaimSnapshotFailure};
+use super::model::CanonicalClaimSnapshot;
+#[cfg(test)]
+use super::model::ClaimSnapshotFailure;
+#[cfg(test)]
+use super::registry::unknown_claim_snapshot;
 use super::registry::{
     authority_scope_projection_digest, derive_canonical_claim_snapshot_guarded,
     inventory_attestation, opaque_identity_from_parts, planner_manifest_digest,
-    unknown_claim_snapshot, validate_canonical_claim_snapshot, verify_authority_set_receipt,
+    validate_canonical_claim_snapshot, verify_authority_set_receipt,
     AuthorityScopePlannerProjection, AuthorityScopeRootProjection, CensusInputSnapshot,
     DiscoveryCensus, DiscoveryRootCensus, MachineAuthoritySetReceipt, MachineClaimAuthority,
     PlannerCensusMetadata, PlannerNodeManifest, PlannerRegistration, RootInventoryAttestation,
@@ -786,11 +790,7 @@ fn enumerate_root_plans(
         .collect::<Result<BTreeSet<_>, _>>()?;
 
     if !plan_directory.exists() {
-        return if expected.is_empty() {
-            Err(DiscoveryError::IdentityChanged)
-        } else {
-            Err(DiscoveryError::IdentityChanged)
-        };
+        return Err(DiscoveryError::IdentityChanged);
     }
     validate_local_path(&plan_directory, PhysicalPathKind::Directory)?;
     let plan_directory_identity =

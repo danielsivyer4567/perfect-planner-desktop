@@ -203,6 +203,8 @@ impl SchedulerAuthorityIssuer {
 
     /// Rotate to the immediately following process epoch and invalidate every outstanding
     /// reservation. Assignment drops (and therefore zeroizes) the previous dalek signing key.
+    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn rotate_process_epoch(
         &mut self,
         next_epoch: u64,
@@ -314,6 +316,7 @@ impl SchedulerAuthorityIssuer {
 
     /// Retire only an authority issued by this live owner. A stale epoch, altered receipt, or
     /// binding mismatch fails closed and cannot release another reservation.
+    #[cfg(test)]
     pub(crate) fn retire_reservation(
         &mut self,
         envelope: &SignedAuthorityEnvelope,
@@ -378,7 +381,9 @@ pub(crate) enum AuthorityError {
     ExpiryOverflow,
     CapacityExceeded,
     DuplicateReservation,
+    #[cfg(test)]
     UnknownReservation,
+    #[cfg(test)]
     ReservationMismatch,
     ReservationExpired,
     StaleEpoch,
@@ -400,7 +405,9 @@ impl fmt::Display for AuthorityError {
             Self::ExpiryOverflow => "reservation authority expiry overflowed",
             Self::CapacityExceeded => "scheduler authority reservation capacity is exhausted",
             Self::DuplicateReservation => "the exact native reservation binding is already active",
+            #[cfg(test)]
             Self::UnknownReservation => "reservation authority is unknown to this process owner",
+            #[cfg(test)]
             Self::ReservationMismatch => "reservation authority does not match the active binding",
             Self::ReservationExpired => "reservation authority expired",
             Self::StaleEpoch => "reservation authority belongs to another process epoch",

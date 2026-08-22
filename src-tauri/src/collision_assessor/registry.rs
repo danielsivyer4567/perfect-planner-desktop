@@ -16,7 +16,9 @@ use super::model::{
     CanonicalClaimSnapshot, ClaimDispositionRule, ClaimSnapshotFailure, ClaimSnapshotStatus,
     ConflictDisposition,
 };
-use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
+#[cfg(test)]
+use ed25519_dalek::Signer;
+use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -195,6 +197,9 @@ pub struct RegistryDocument {
     pub census: Option<DiscoveryCensus>,
 }
 
+// Decode every legacy field so malformed state cannot be laundered; migration intentionally
+// consumes only the safe v2 carry-forward subset.
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct LegacyRegistryDocumentV1 {
@@ -209,6 +214,7 @@ struct LegacyRegistryDocumentV1 {
     census: Option<LegacyDiscoveryCensusV1>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct LegacyDiscoveryCensusV1 {
@@ -221,6 +227,7 @@ struct LegacyDiscoveryCensusV1 {
     planners: Vec<LegacyPlannerCensusMetadataV1>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct LegacyPlannerCensusMetadataV1 {
@@ -439,6 +446,7 @@ impl std::ops::DerefMut for CompleteRegistryRead {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RegistryRead {
     Complete(CompleteRegistryRead),
@@ -455,10 +463,12 @@ impl RegistryRead {
         Self::complete(document)
     }
 
+    #[cfg(test)]
     pub fn is_complete(&self) -> bool {
         matches!(self, Self::Complete(_))
     }
 
+    #[cfg(test)]
     pub fn issues(&self) -> &[RegistryIssue] {
         match self {
             Self::Complete(_) => &[],
@@ -615,6 +625,7 @@ impl PlannerRegistryStore {
         Ok(document)
     }
 
+    #[cfg(test)]
     pub(crate) fn inspect(&self, now_ms: u64) -> RegistryRead {
         inspect_registry_file(self.path.as_path(), now_ms, self.trusted_issuer.as_deref())
     }
@@ -920,6 +931,7 @@ impl PlannerRegistryStore {
         lease_ms: u64,
     ) -> Result<ManifestCollisionSnapshot, RegistryError> {
         validate_seed(&seed)?;
+        eprintln!("collision trace: seed validated {}", seed.planner_id);
         validate_id("target node id", target_node_id)?;
         let plan_parent = Path::new(&seed.plan_path)
             .parent()
@@ -928,6 +940,7 @@ impl PlannerRegistryStore {
             .map_err(|error| {
                 RegistryError::Io(format!("cannot resolve plan directory: {error}"))
             })?;
+        eprintln!("collision trace: plan parent resolved");
         let root = ConfiguredDiscoveryRoot {
             root_id: format!(
                 "root-{:x}",
@@ -939,7 +952,15 @@ impl PlannerRegistryStore {
         if !self.path.exists() {
             self.initialize(vec![root.clone()], now_ms)?;
         } else {
-            let document = load_document_for_mutation(self.path.as_path(), now_ms)?;
+            eprintln!("collision trace: loading existing registry");
+            let document = match load_document_for_mutation(self.path.as_path(), now_ms) {
+                Ok(document) => document,
+                Err(RegistryError::UnknownState(_)) => {
+                    self.recover_expired_registration(seed.clone(), now_ms, lease_ms)?;
+                    load_document_for_mutation(self.path.as_path(), now_ms)?
+                }
+                Err(error) => return Err(error),
+            };
             if !document
                 .configured_roots
                 .iter()
@@ -951,8 +972,10 @@ impl PlannerRegistryStore {
             }
         }
 
+        eprintln!("collision trace: loading current registration state");
         let current = load_document_for_mutation(self.path.as_path(), now_ms)?;
         let planner_id = seed.planner_id.clone();
+        eprintln!("collision trace: registering or heartbeating planner");
         let registration = match current
             .registrations
             .iter()
@@ -976,8 +999,10 @@ impl PlannerRegistryStore {
             )?,
             None => self.register(seed, now_ms, lease_ms)?,
         };
+        eprintln!("collision trace: planner registration ready");
 
         let _lock = RegistryLock::acquire(self.path.as_path(), self.lock_timeout)?;
+        eprintln!("collision trace: final registry lock acquired");
         let document = load_document_for_mutation(self.path.as_path(), now_ms)?;
         let candidate = document
             .registrations
@@ -994,6 +1019,7 @@ impl PlannerRegistryStore {
             })?;
         let candidate_git = native_git_authority(Path::new(&candidate.identity.worktree_root))
             .map_err(|_| RegistryError::Conflict("candidate Git authority is ambiguous".into()))?;
+        eprintln!("collision trace: candidate git authority ready");
 
         let configured_roots = document
             .configured_roots
@@ -1009,6 +1035,10 @@ impl PlannerRegistryStore {
         let mut conflict_ids = Vec::new();
         let mut census_entries = Vec::new();
         for other in &document.registrations {
+            eprintln!(
+                "collision trace: assessing registered planner {}",
+                other.identity.planner_id
+            );
             if other.lease_expires_at_ms <= now_ms || other.heartbeat_at_ms > now_ms {
                 return Err(RegistryError::Conflict(format!(
                     "planner {} has stale or future ownership state",
@@ -1074,6 +1104,7 @@ impl PlannerRegistryStore {
                 .revalidate()
                 .map_err(|_| RegistryError::Conflict("registered Git authority changed".into()))?;
         }
+        eprintln!("collision trace: all registered planners assessed");
         candidate_git
             .revalidate()
             .map_err(|_| RegistryError::Conflict("candidate Git authority changed".into()))?;
@@ -1101,6 +1132,54 @@ impl PlannerRegistryStore {
             digest,
             conflict_ids,
         })
+    }
+
+    /// Recover only this native caller's exact expired registration. The ordinary mutation path
+    /// continues to reject stale state; this path filters one expected stale-lease issue under the
+    /// registry lock and then revalidates every structural and owner-pin invariant.
+    fn recover_expired_registration(
+        &self,
+        replacement: PlannerRegistrationSeed,
+        now_ms: u64,
+        lease_ms: u64,
+    ) -> Result<PlannerRegistration, RegistryError> {
+        validate_seed(&replacement)?;
+        let expires_at_ms = lease_expiry(now_ms, lease_ms)?;
+        let recoverable_planner_id = replacement.planner_id.clone();
+        let target_planner_id = recoverable_planner_id.clone();
+        self.mutate_with_recoverable_stale(
+            now_ms,
+            true,
+            Some(&recoverable_planner_id),
+            move |document| {
+                if document
+                    .claim_authorities
+                    .iter()
+                    .any(|authority| authority.planner_id == target_planner_id)
+                {
+                    return Err(RegistryError::Conflict(
+                        "expired planner with signed collision authority cannot be revived".into(),
+                    ));
+                }
+                let registration = registration_mut(document, &target_planner_id)?;
+                if registration.lease_expires_at_ms > now_ms {
+                    return Err(RegistryError::Conflict(
+                        "planner registration is not expired".into(),
+                    ));
+                }
+                registration.identity = replacement;
+                registration.lease_generation = registration
+                    .lease_generation
+                    .checked_add(1)
+                    .ok_or_else(|| {
+                        RegistryError::Conflict("planner lease generation overflowed".into())
+                    })?;
+                registration.updated_at_ms = now_ms;
+                registration.heartbeat_at_ms = now_ms;
+                registration.lease_expires_at_ms = expires_at_ms;
+                Ok(registration.clone())
+            },
+        )
     }
 
     /// Test-only issuer harness for the B19 verifier boundary. It is deliberately crate-private
@@ -1268,6 +1347,7 @@ impl PlannerRegistryStore {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn publish_machine_claim_authority_for_test(
         &self,
         mut authority: MachineClaimAuthority,
@@ -1375,6 +1455,7 @@ impl PlannerRegistryStore {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn revoke_machine_claim_authority_for_test(
         &self,
         planner_id: &str,
@@ -1548,6 +1629,16 @@ impl PlannerRegistryStore {
         advance_generation: bool,
         operation: impl FnOnce(&mut RegistryDocument) -> Result<T, RegistryError>,
     ) -> Result<T, RegistryError> {
+        self.mutate_with_recoverable_stale(now_ms, advance_generation, None, operation)
+    }
+
+    fn mutate_with_recoverable_stale<T>(
+        &self,
+        now_ms: u64,
+        advance_generation: bool,
+        recoverable_stale_planner_id: Option<&str>,
+        operation: impl FnOnce(&mut RegistryDocument) -> Result<T, RegistryError>,
+    ) -> Result<T, RegistryError> {
         validate_timestamp("mutation time", now_ms)?;
         let parent = self.path.parent().ok_or_else(|| {
             RegistryError::InvalidInput("registry path has no parent directory".into())
@@ -1559,7 +1650,14 @@ impl PlannerRegistryStore {
             ))
         })?;
         let _lock = RegistryLock::acquire(self.path.as_path(), self.lock_timeout)?;
-        let mut document = load_document_for_mutation(self.path.as_path(), now_ms)?;
+        let mut document = match recoverable_stale_planner_id {
+            Some(planner_id) => load_document_for_mutation_allowing_stale_planner(
+                self.path.as_path(),
+                now_ms,
+                planner_id,
+            )?,
+            None => load_document_for_mutation(self.path.as_path(), now_ms)?,
+        };
         if self.trusted_issuer.is_none()
             && (!document.claim_authorities.is_empty() || document.authority_set_receipt.is_some())
         {
@@ -1884,6 +1982,29 @@ fn load_document_for_mutation(path: &Path, now_ms: u64) -> Result<RegistryDocume
     }
 }
 
+fn load_document_for_mutation_allowing_stale_planner(
+    path: &Path,
+    now_ms: u64,
+    recoverable_planner_id: &str,
+) -> Result<RegistryDocument, RegistryError> {
+    let document = load_document(path).map_err(RegistryError::UnknownState)?;
+    let mut issues = validate_document_static(&document);
+    issues.extend(validate_authority_time(&document, now_ms));
+    let only_expected_stale = !issues.is_empty()
+        && issues.iter().all(|issue| {
+            matches!(
+                issue,
+                RegistryIssue::StaleRegistration { planner_id, .. }
+                    if planner_id == recoverable_planner_id
+            )
+        });
+    if issues.is_empty() || only_expected_stale {
+        Ok(document)
+    } else {
+        Err(RegistryError::UnknownState(issues))
+    }
+}
+
 fn load_document(path: &Path) -> Result<RegistryDocument, Vec<RegistryIssue>> {
     let value = load_registry_value(path)?;
     let version = value
@@ -2014,7 +2135,7 @@ fn validate_document_static(document: &RegistryDocument) -> Vec<RegistryIssue> {
                 "claim authorities must be sorted and unique by planner/plan".into(),
             ));
         }
-        let Some(registration) = document
+        let Some(_registration) = document
             .registrations
             .iter()
             .find(|entry| entry.identity.planner_id == authority.planner_id)
@@ -2170,7 +2291,7 @@ fn validate_completeness(
         if !root.reachable {
             issues.push(RegistryIssue::UnreachableRoot {
                 root_id: root.root_id.clone(),
-                failure: root.failure.clone(),
+                failure: root.failure,
             });
         }
         for planner_id in &root.planner_ids {
@@ -3018,6 +3139,7 @@ fn authority_set_message(receipt: &MachineAuthoritySetReceipt) -> [u8; 32] {
     encoder.finish()
 }
 
+#[cfg(test)]
 fn sign_authority_set_receipt(receipt: &mut MachineAuthoritySetReceipt, signer: &SigningKey) {
     receipt.issuer_fingerprint = authority_key_fingerprint(&signer.verifying_key().to_bytes());
     receipt.signature = hex_slice(&signer.sign(&authority_set_message(receipt)).to_bytes());
@@ -3223,6 +3345,7 @@ pub(crate) fn authority_scope_projection_digest(
     Ok(hex_digest(&encoder.finish()))
 }
 
+#[cfg(test)]
 fn sign_machine_claim_authority(authority: &mut MachineClaimAuthority, signer: &SigningKey) {
     authority.authority_digest = machine_claim_authority_digest(authority);
     authority.issuer_fingerprint = authority_key_fingerprint(&signer.verifying_key().to_bytes());
@@ -3673,6 +3796,8 @@ fn derive_complete_claim_snapshot(
     ))
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn contract_string<'a>(
     object: &'a serde_json::Map<String, Value>,
     key: &str,
@@ -3687,6 +3812,8 @@ fn contract_string<'a>(
     Ok(value)
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn contract_u64(
     object: &serde_json::Map<String, Value>,
     key: &str,
@@ -3697,6 +3824,8 @@ fn contract_u64(
         .ok_or(ClaimSnapshotFailure::InvalidActiveContract)
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn contract_digest(
     object: &serde_json::Map<String, Value>,
     key: &str,
@@ -4252,6 +4381,7 @@ fn validate_registration(registration: &PlannerRegistration) -> Result<(), Regis
     Ok(())
 }
 
+#[cfg(test)]
 fn validate_machine_claim_authority(
     authority: &MachineClaimAuthority,
     registration: &PlannerRegistration,

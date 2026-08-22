@@ -1,17 +1,15 @@
 export const ORCHESTRATOR_COMMANDS = {
   createRun: "orchestrator_create_run",
   preflight: "orchestrator_preflight_inspect",
+  approveRun: "orchestrator_approve_run",
   snapshot: "orchestrator_pipeline_snapshot",
   catalog: "orchestrator_run_catalog",
   admit: "orchestrator_admit_worker",
   workerHeartbeat: "orchestrator_worker_heartbeat",
-  complete: "orchestrator_authorize_fenced_completion",
-  fail: "orchestrator_record_failure",
-  reap: "orchestrator_reap_expired",
-  validateSubmission: "orchestrator_validate_worker_submission",
-  reconcile: "orchestrator_reconcile",
-  release: "orchestrator_evaluate_release",
-  deliver: "orchestrator_deliver",
+  complete: "orchestrator_complete_worker",
+  fail: "orchestrator_fail_worker",
+  reap: "orchestrator_recover_workers",
+  validateSubmission: "orchestrator_validate_worker",
 } as const;
 
 export type OrchestratorCommand =
@@ -105,6 +103,11 @@ export interface EvidenceArtifact {
   bytes: number;
 }
 
+export interface SupplementalArtifactRequest {
+  kind: EvidenceKind;
+  path: string;
+}
+
 export interface VerificationResult {
   commandId: string;
   exitCode: number;
@@ -163,10 +166,33 @@ export interface ScheduledNode {
   profile?: EvidenceProfile;
   evidence?: EvidenceArtifact[];
   allowedFiles?: string[];
+  verificationCommands?: string[];
   verification?: VerificationResult[];
 }
 
+export interface NodeCompletion {
+  receiptId: string;
+  nodeId: string;
+  workerId: string;
+  fence: number;
+  authorityEpoch: number;
+  authorizationId: string;
+  completedAtMs: number;
+  changedFiles: string[];
+  artifacts: EvidenceArtifact[];
+  verification: VerificationResult[];
+  gate: WorkerGateResult;
+}
+
 export interface SchedulerState {
+  authoritySchemaVersion: number;
+  pendingLegacyRevocations: Array<{
+    nodeId: string;
+    workerId: string;
+    fence: number;
+    previousExpiresAtMs: number;
+  }>;
+  completions: Record<string, NodeCompletion>;
   nextFence: number;
   nodes: Record<string, ScheduledNode>;
 }
@@ -184,7 +210,15 @@ export interface AllowedFileManifest {
   schemaVersion: number;
   runId: string;
   repositoryRoot: string;
+  worktreeGitDir: string;
+  gitCommonDir: string;
+  worktreeId: string;
   branch: string;
+  baselineCommit: string;
+  planId: string;
+  planPath: string;
+  planContractDigest: string;
+  approvalReceiptDigest: string;
   allowedFiles: string[];
   allowedResources: string[];
   nodes: Array<{
@@ -193,14 +227,32 @@ export interface AllowedFileManifest {
     dependsOn: string[];
     allowedFiles: string[];
     allowedResources: string[];
+    evidenceProfile: EvidenceProfile;
+    verificationCommands: string[];
   }>;
+  manifestDigest: string;
+}
+
+export interface RunApprovalReceipt {
+  manifestDigest: string;
+  planContractDigest: string;
+  preflightRecordedAtMs: number;
+  registryGeneration: number;
+  collisionAssessments: Array<{
+    nodeId: string;
+    censusDigest: string;
+  }>;
+  approvalDigest: string;
 }
 
 export interface HotResumeState {
   schemaVersion: number;
   runId: string;
   repositoryRoot: string;
+  worktreeId: string;
   branch: string;
+  planId: string;
+  manifestDigest: string;
   status: string;
   lastCompletedStep: string | null;
   lockedFiles: string[];
@@ -223,6 +275,8 @@ export interface PipelineSnapshotResponse {
   eventTail: EventTailResponse;
   preflight?: PreflightReport | null;
   preflightRecordedAtMs?: number | null;
+  runApproval?: RunApprovalReceipt | null;
+  runApprovalRecordedAtMs?: number | null;
   reconciliation?: ReconciliationResult | null;
   reconciliationRecordedAtMs?: number | null;
   release?: ReleaseGateResult | null;
@@ -237,6 +291,8 @@ export interface RunCatalogEntry {
   runId: string;
   repositoryRoot: string;
   branch: string;
+  planId: string;
+  planPath: string;
   status: string;
   completedNodes: number;
   totalNodes: number;
@@ -459,9 +515,11 @@ export interface PipelineStage {
 
 export interface OrchestratorSnapshot {
   nowMs: number;
+  preflightFresh: boolean;
   run: PipelineRunSummary;
   stages: PipelineStage[];
   preflight: PreflightReport | null;
+  runApproval: RunApprovalReceipt | null;
   scheduler: SchedulerState;
   reconciliation: ReconciliationResult | null;
   changes: ChangeComparison[];
@@ -482,8 +540,16 @@ export interface PipelineSnapshotSeed {
   title?: string;
 }
 
+export function normalizedLocalPath(value: string): string {
+  let normalized = value.trim().replace(/\\/g, "/");
+  const lower = normalized.toLocaleLowerCase();
+  if (lower.startsWith("//?/unc/")) normalized = `//${normalized.slice(8)}`;
+  else if (lower.startsWith("//?/")) normalized = normalized.slice(4);
+  return normalized.replace(/\/+$/, "").toLocaleLowerCase();
+}
+
 function normalizedRepositoryRoot(value: string): string {
-  return value.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLocaleLowerCase();
+  return normalizedLocalPath(value);
 }
 
 function pipelineRunStatus(value: string): PipelineRunStatus | null {
@@ -589,7 +655,26 @@ export function consoleSnapshotFromPipelineResponse(
   seed: PipelineSnapshotSeed = {},
   catalog: RunCatalogResponse | null = null
 ): OrchestratorSnapshot {
-  const nodes = Object.values(response.scheduler.nodes);
+  const nowMs = Date.now();
+  const manifestByNode = new Map(
+    response.manifest.nodes.map((node) => [node.nodeId, node] as const)
+  );
+  const nodes = Object.values(response.scheduler.nodes).map((node) => {
+    const manifest = manifestByNode.get(node.id);
+    const completion = response.scheduler.completions[node.id];
+    return {
+      ...node,
+      profile: manifest?.evidenceProfile,
+      allowedFiles: manifest?.allowedFiles,
+      verificationCommands: manifest?.verificationCommands,
+      evidence: completion?.artifacts,
+      verification: completion?.verification,
+    };
+  });
+  const scheduler: SchedulerState = {
+    ...response.scheduler,
+    nodes: Object.fromEntries(nodes.map((node) => [node.id, node])),
+  };
   const completedNodes = nodes.filter((node) => node.status === "DONE").length;
   const blockedNodes = nodes.filter((node) => node.status === "BLOCKED").length;
   const runningNodes = nodes.filter((node) => node.status === "RUNNING").length;
@@ -630,6 +715,19 @@ export function consoleSnapshotFromPipelineResponse(
       createdAt: event.ts,
     }));
   const preflight = response.preflight ?? null;
+  const preflightRecordedAtMs = response.preflightRecordedAtMs ?? null;
+  const preflightFresh = Boolean(
+    preflight &&
+    preflightRecordedAtMs &&
+    preflightRecordedAtMs <= nowMs &&
+    nowMs - preflightRecordedAtMs <= 60_000
+  );
+  const approvalAttached = Boolean(
+    response.runApproval &&
+    response.preflight &&
+    response.preflightRecordedAtMs === response.runApproval.preflightRecordedAtMs
+  );
+  const runApproval = approvalAttached ? response.runApproval ?? null : null;
   const reconciliation = response.reconciliation ?? null;
   const release = response.release ?? null;
   if (preflight?.disposition === "decisionRequired") {
@@ -642,6 +740,28 @@ export function consoleSnapshotFromPipelineResponse(
         nodeId: null,
         createdAt: updatedAt,
       });
+    });
+  }
+  if (response.runApproval && !approvalAttached) {
+    warnings.push({
+      id: "persisted-stale-run-approval",
+      severity: "critical",
+      message:
+        "Persisted run approval no longer matches the current preflight. Re-approve before admission.",
+      decisionRequired: false,
+      nodeId: null,
+      createdAt: updatedAt,
+    });
+  }
+  if (preflight && !preflightFresh) {
+    warnings.push({
+      id: "persisted-stale-preflight",
+      severity: "critical",
+      message:
+        "Native preflight has expired. Refresh preflight and re-approve before admission.",
+      decisionRequired: false,
+      nodeId: null,
+      createdAt: updatedAt,
     });
   }
   release?.issues.forEach((issue, index) => {
@@ -660,12 +780,14 @@ export function consoleSnapshotFromPipelineResponse(
       id: "preflight",
       label: "System preflight",
       status: preflight
-        ? preflight.disposition === "decisionRequired"
+        ? !preflightFresh || preflight.disposition === "decisionRequired"
           ? "blocked"
           : "passed"
         : "waiting",
       summary: preflight
-        ? preflight.reasons.join(" · ") || `Preflight ${preflight.disposition}.`
+        ? !preflightFresh
+          ? "Native preflight expired; refresh it before admission."
+          : preflight.reasons.join(" · ") || `Preflight ${preflight.disposition}.`
         : "No persisted preflight report is present.",
     },
     {
@@ -677,9 +799,11 @@ export function consoleSnapshotFromPipelineResponse(
     {
       id: "plan",
       label: "Perfect Plan",
-      status: nodes.length ? "passed" : "blocked",
-      summary: nodes.length
-        ? `${nodes.length} scheduler nodes are persisted.`
+      status: nodes.length && runApproval && preflightFresh ? "passed" : "blocked",
+      summary: nodes.length && runApproval && preflightFresh
+        ? `${nodes.length} scheduler nodes are explicitly approved and persisted.`
+        : nodes.length
+          ? "The immutable plan is loaded but has not been explicitly approved."
         : "No scheduler nodes are persisted.",
     },
     {
@@ -728,13 +852,26 @@ export function consoleSnapshotFromPipelineResponse(
           : "No completed delivery is recorded.",
     },
   ];
-  const shelves = mergedCatalogShelves(run, catalog, seed);
+  const planCatalog = catalog
+    ? {
+        ...catalog,
+        activeRuns: catalog.activeRuns.filter(
+          (entry) => normalizedLocalPath(entry.planPath) === normalizedLocalPath(response.manifest.planPath)
+        ),
+        archivedRuns: catalog.archivedRuns.filter(
+          (entry) => normalizedLocalPath(entry.planPath) === normalizedLocalPath(response.manifest.planPath)
+        ),
+      }
+    : null;
+  const shelves = mergedCatalogShelves(run, planCatalog, seed);
   return {
-    nowMs: Date.now(),
+    nowMs,
+    preflightFresh,
     run,
     stages,
     preflight,
-    scheduler: response.scheduler,
+    runApproval,
+    scheduler,
     reconciliation,
     changes: reconciliationChanges(reconciliation),
     release,
@@ -768,6 +905,8 @@ export interface OrchestratorPreflightRequest extends ScopedRunRequest {
   requiredPorts: number[];
 }
 
+export interface ApproveRunRequest extends ScopedRunRequest {}
+
 export interface SnapshotRequest extends ScopedRunRequest {
   eventOffset?: number | null;
   maxEventBytes?: number | null;
@@ -784,25 +923,18 @@ export interface HeartbeatRequest extends ScopedRunRequest {
 
 export interface CompleteNodeRequest extends ScopedRunRequest {
   nodeId: string;
-  token: string;
-  nowMs: number;
-  manifest: WorkerManifest;
-  submission: WorkerSubmission;
+  artifacts: SupplementalArtifactRequest[];
 }
 
 export interface FailNodeRequest extends ScopedRunRequest {
   nodeId: string;
-  token: string;
 }
 
-export interface ReapRequest extends ScopedRunRequest {
-  nowMs: number;
-}
+export interface ReapRequest extends ScopedRunRequest {}
 
 export interface ValidateSubmissionRequest extends ScopedRunRequest {
-  nowMs: number;
-  manifest: WorkerManifest;
-  submission: WorkerSubmission;
+  nodeId: string;
+  artifacts: SupplementalArtifactRequest[];
 }
 
 export interface ReconcileRequest extends ScopedRunRequest {
@@ -898,7 +1030,9 @@ function textArray(value: unknown, label: string): string[] {
 function validateProcessIdentityShape(value: unknown, label: string): void {
   const process = recordValue(value, label);
   integerValue(process.pid, `${label}.pid`);
-  textValue(process.executablePath, `${label}.executablePath`);
+  if (typeof process.executablePath !== "string") {
+    throw new Error(`${label}.executablePath must be text`);
+  }
   integerValue(process.startedAtEpochMs, `${label}.startedAtEpochMs`);
   if (typeof process.commandLine !== "string") {
     throw new Error(`${label}.commandLine must be text`);
@@ -1011,8 +1145,55 @@ function validateReleaseShape(value: unknown, label: string): void {
   });
 }
 
+function validateEvidenceArtifact(value: unknown, label: string): void {
+  const artifact = recordValue(value, label);
+  if (![
+    "before-screenshot",
+    "after-screenshot",
+    "command-output",
+    "exit-code",
+    "git-diff",
+    "ocr-report",
+    "migration-status",
+    "document-diff",
+  ].includes(textValue(artifact.kind, `${label}.kind`))) {
+    throw new Error(`${label}.kind is unknown`);
+  }
+  textValue(artifact.path, `${label}.path`);
+  textValue(artifact.sha256, `${label}.sha256`);
+  integerValue(artifact.bytes, `${label}.bytes`);
+}
+
+function validateVerificationResult(value: unknown, label: string): void {
+  const result = recordValue(value, label);
+  textValue(result.commandId, `${label}.commandId`);
+  if (typeof result.exitCode !== "number" || !Number.isSafeInteger(result.exitCode)) {
+    throw new Error(`${label}.exitCode must be an integer`);
+  }
+  textValue(result.outputArtifact, `${label}.outputArtifact`);
+}
+
+function validateWorkerGate(value: unknown, label: string): void {
+  const gate = recordValue(value, label);
+  booleanValue(gate.passed, `${label}.passed`);
+  textArray(gate.manifestEscapes, `${label}.manifestEscapes`);
+  const evidence = recordValue(gate.evidence, `${label}.evidence`);
+  booleanValue(evidence.passed, `${label}.evidence.passed`);
+  textArray(evidence.missing, `${label}.evidence.missing`);
+  textArray(evidence.failedCommands, `${label}.evidence.failedCommands`);
+  textArray(evidence.hashes, `${label}.evidence.hashes`);
+}
+
 function validateSchedulerShape(value: unknown): void {
   const scheduler = recordValue(value, "pipeline snapshot scheduler");
+  integerValue(
+    scheduler.authoritySchemaVersion,
+    "pipeline snapshot scheduler.authoritySchemaVersion"
+  );
+  arrayValue(
+    scheduler.pendingLegacyRevocations,
+    "pipeline snapshot scheduler.pendingLegacyRevocations"
+  );
   integerValue(scheduler.nextFence, "pipeline snapshot scheduler.nextFence");
   const nodes = recordValue(scheduler.nodes, "pipeline snapshot scheduler.nodes");
   Object.entries(nodes).forEach(([key, item]) => {
@@ -1045,45 +1226,18 @@ function validateSchedulerShape(value: unknown): void {
     }
     if (node.evidence !== undefined) {
       arrayValue(node.evidence, `pipeline snapshot scheduler.nodes.${key}.evidence`).forEach(
-        (item, index) => {
-          const artifact = recordValue(
-            item,
-            `pipeline snapshot scheduler.nodes.${key}.evidence[${index}]`
-          );
-          if (![
-            "before-screenshot",
-            "after-screenshot",
-            "command-output",
-            "exit-code",
-            "git-diff",
-            "ocr-report",
-            "migration-status",
-            "document-diff",
-          ].includes(textValue(
-            artifact.kind,
-            `pipeline snapshot scheduler.nodes.${key}.evidence[${index}].kind`
-          ))) {
-            throw new Error(`pipeline snapshot scheduler node ${key} has unknown evidence`);
-          }
-          textValue(artifact.path, `pipeline snapshot scheduler.nodes.${key}.evidence[${index}].path`);
-          textValue(artifact.sha256, `pipeline snapshot scheduler.nodes.${key}.evidence[${index}].sha256`);
-          integerValue(artifact.bytes, `pipeline snapshot scheduler.nodes.${key}.evidence[${index}].bytes`);
-        }
+        (item, index) => validateEvidenceArtifact(
+          item,
+          `pipeline snapshot scheduler.nodes.${key}.evidence[${index}]`
+        )
       );
     }
     if (node.verification !== undefined) {
       arrayValue(node.verification, `pipeline snapshot scheduler.nodes.${key}.verification`).forEach(
-        (item, index) => {
-          const result = recordValue(
-            item,
-            `pipeline snapshot scheduler.nodes.${key}.verification[${index}]`
-          );
-          textValue(result.commandId, `pipeline snapshot scheduler.nodes.${key}.verification[${index}].commandId`);
-          if (typeof result.exitCode !== "number" || !Number.isSafeInteger(result.exitCode)) {
-            throw new Error(`pipeline snapshot scheduler node ${key} has an invalid exit code`);
-          }
-          textValue(result.outputArtifact, `pipeline snapshot scheduler.nodes.${key}.verification[${index}].outputArtifact`);
-        }
+        (item, index) => validateVerificationResult(
+          item,
+          `pipeline snapshot scheduler.nodes.${key}.verification[${index}]`
+        )
       );
     }
     if (node.lease !== null && node.lease !== undefined) {
@@ -1099,6 +1253,39 @@ function validateSchedulerShape(value: unknown): void {
         textValue(lease.authorizationId, `pipeline snapshot scheduler.nodes.${key}.lease.authorizationId`);
       }
     }
+  });
+  const completions = recordValue(
+    scheduler.completions,
+    "pipeline snapshot scheduler.completions"
+  );
+  Object.entries(completions).forEach(([key, value]) => {
+    const completion = recordValue(value, `pipeline snapshot scheduler.completions.${key}`);
+    if (textValue(completion.nodeId, `pipeline snapshot scheduler.completions.${key}.nodeId`) !== key) {
+      throw new Error(`pipeline snapshot completion ${key} has a mismatched node ID`);
+    }
+    textValue(completion.receiptId, `pipeline snapshot scheduler.completions.${key}.receiptId`);
+    textValue(completion.workerId, `pipeline snapshot scheduler.completions.${key}.workerId`);
+    textValue(
+      completion.authorizationId,
+      `pipeline snapshot scheduler.completions.${key}.authorizationId`
+    );
+    ["fence", "authorityEpoch", "completedAtMs"].forEach((field) =>
+      integerValue(completion[field], `pipeline snapshot scheduler.completions.${key}.${field}`)
+    );
+    textArray(completion.changedFiles, `pipeline snapshot scheduler.completions.${key}.changedFiles`);
+    arrayValue(completion.artifacts, `pipeline snapshot scheduler.completions.${key}.artifacts`)
+      .forEach((item, index) => validateEvidenceArtifact(
+        item,
+        `pipeline snapshot scheduler.completions.${key}.artifacts[${index}]`
+      ));
+    arrayValue(
+      completion.verification,
+      `pipeline snapshot scheduler.completions.${key}.verification`
+    ).forEach((item, index) => validateVerificationResult(
+      item,
+      `pipeline snapshot scheduler.completions.${key}.verification[${index}]`
+    ));
+    validateWorkerGate(completion.gate, `pipeline snapshot scheduler.completions.${key}.gate`);
   });
 }
 
@@ -1119,7 +1306,30 @@ function validatedPipelineSnapshot(
     throw new Error("pipeline snapshot belongs to a different repository");
   }
   textValue(manifest.branch, "pipeline snapshot manifest.branch");
+  textValue(manifest.worktreeGitDir, "pipeline snapshot manifest.worktreeGitDir");
+  textValue(manifest.gitCommonDir, "pipeline snapshot manifest.gitCommonDir");
+  textValue(manifest.worktreeId, "pipeline snapshot manifest.worktreeId");
+  textValue(manifest.baselineCommit, "pipeline snapshot manifest.baselineCommit");
+  textValue(manifest.planId, "pipeline snapshot manifest.planId");
+  textValue(manifest.planPath, "pipeline snapshot manifest.planPath");
+  textValue(manifest.planContractDigest, "pipeline snapshot manifest.planContractDigest");
+  textValue(manifest.approvalReceiptDigest, "pipeline snapshot manifest.approvalReceiptDigest");
+  textValue(manifest.manifestDigest, "pipeline snapshot manifest.manifestDigest");
   textArray(manifest.allowedFiles, "pipeline snapshot manifest.allowedFiles");
+  textArray(manifest.allowedResources, "pipeline snapshot manifest.allowedResources");
+  if (!Array.isArray(manifest.nodes)) {
+    throw new Error("pipeline snapshot manifest.nodes must be an array");
+  }
+  manifest.nodes.forEach((entry, index) => {
+    const node = recordValue(entry, `pipeline snapshot manifest.nodes[${index}]`);
+    textValue(node.nodeId, `pipeline snapshot manifest.nodes[${index}].nodeId`);
+    integerValue(node.wave, `pipeline snapshot manifest.nodes[${index}].wave`);
+    textArray(node.dependsOn, `pipeline snapshot manifest.nodes[${index}].dependsOn`);
+    textArray(node.allowedFiles, `pipeline snapshot manifest.nodes[${index}].allowedFiles`);
+    textArray(node.allowedResources, `pipeline snapshot manifest.nodes[${index}].allowedResources`);
+    textValue(node.evidenceProfile, `pipeline snapshot manifest.nodes[${index}].evidenceProfile`);
+    textArray(node.verificationCommands, `pipeline snapshot manifest.nodes[${index}].verificationCommands`);
+  });
   numberValue(manifest.schemaVersion, "pipeline snapshot manifest.schemaVersion");
 
   const hotResume = recordValue(response.hotResume, "pipeline snapshot hotResume");
@@ -1134,6 +1344,15 @@ function validatedPipelineSnapshot(
     throw new Error("pipeline hot-resume state belongs to a different repository");
   }
   textValue(hotResume.status, "pipeline snapshot hotResume.status");
+  if (textValue(hotResume.worktreeId, "pipeline snapshot hotResume.worktreeId") !== manifest.worktreeId) {
+    throw new Error("pipeline manifest and hot-resume worktree identities do not match");
+  }
+  if (textValue(hotResume.planId, "pipeline snapshot hotResume.planId") !== manifest.planId) {
+    throw new Error("pipeline manifest and hot-resume plan identities do not match");
+  }
+  if (textValue(hotResume.manifestDigest, "pipeline snapshot hotResume.manifestDigest") !== manifest.manifestDigest) {
+    throw new Error("pipeline hot-resume state is not bound to the immutable manifest");
+  }
   if (textValue(hotResume.branch, "pipeline snapshot hotResume.branch") !== manifest.branch) {
     throw new Error("pipeline manifest and hot-resume branches do not match");
   }
@@ -1192,6 +1411,63 @@ function validatedPipelineSnapshot(
       throw new Error("pipeline preflight belongs to a different repository");
     }
   }
+  if (response.runApproval !== undefined && response.runApproval !== null) {
+    const approval = recordValue(response.runApproval, "pipeline snapshot runApproval");
+    if (
+      textValue(approval.manifestDigest, "pipeline snapshot runApproval.manifestDigest") !==
+      manifest.manifestDigest
+    ) {
+      throw new Error("pipeline run approval belongs to a different manifest");
+    }
+    if (
+      textValue(
+        approval.planContractDigest,
+        "pipeline snapshot runApproval.planContractDigest"
+      ) !== manifest.planContractDigest
+    ) {
+      throw new Error("pipeline run approval belongs to a different plan contract");
+    }
+    textValue(approval.approvalDigest, "pipeline snapshot runApproval.approvalDigest");
+    integerValue(
+      approval.preflightRecordedAtMs,
+      "pipeline snapshot runApproval.preflightRecordedAtMs"
+    );
+    integerValue(
+      approval.registryGeneration,
+      "pipeline snapshot runApproval.registryGeneration"
+    );
+    const assessedNodeIds = new Set<string>();
+    arrayValue(
+      approval.collisionAssessments,
+      "pipeline snapshot runApproval.collisionAssessments"
+    ).forEach((item, index) => {
+      const assessment = recordValue(
+        item,
+        `pipeline snapshot runApproval.collisionAssessments[${index}]`
+      );
+      const nodeId = textValue(
+        assessment.nodeId,
+        `pipeline snapshot runApproval.collisionAssessments[${index}].nodeId`
+      );
+      if (assessedNodeIds.has(nodeId)) {
+        throw new Error("pipeline run approval repeats a collision assessment");
+      }
+      assessedNodeIds.add(nodeId);
+      textValue(
+        assessment.censusDigest,
+        `pipeline snapshot runApproval.collisionAssessments[${index}].censusDigest`
+      );
+    });
+    const manifestNodeIds = new Set(
+      (manifest.nodes as Array<{ nodeId: string }>).map((node) => node.nodeId)
+    );
+    if (
+      assessedNodeIds.size !== manifestNodeIds.size ||
+      [...manifestNodeIds].some((nodeId) => !assessedNodeIds.has(nodeId))
+    ) {
+      throw new Error("pipeline run approval does not cover the immutable node set");
+    }
+  }
   if (response.reconciliation !== undefined && response.reconciliation !== null) {
     validateReconciliationShape(response.reconciliation, "pipeline snapshot reconciliation");
   }
@@ -1200,6 +1476,7 @@ function validatedPipelineSnapshot(
   }
   ([
     ["preflight", "preflightRecordedAtMs"],
+    ["runApproval", "runApprovalRecordedAtMs"],
     ["reconciliation", "reconciliationRecordedAtMs"],
     ["release", "releaseRecordedAtMs"],
   ] as const).forEach(([resultField, recordedAtField]) => {
@@ -1236,6 +1513,8 @@ function validatedRunCatalog(value: unknown, request: RunCatalogRequest): RunCat
         throw new Error(`run catalog.${field}[${index}] crosses the repository scope`);
       }
       textValue(entry.branch, `run catalog.${field}[${index}].branch`);
+      textValue(entry.planId, `run catalog.${field}[${index}].planId`);
+      textValue(entry.planPath, `run catalog.${field}[${index}].planPath`);
       const status = pipelineRunStatus(textValue(entry.status, `run catalog.${field}[${index}].status`));
       if (!status) throw new Error(`run catalog.${field}[${index}] has an unknown status`);
       if (field === "activeRuns" && status === "completed") {
@@ -1414,6 +1693,12 @@ export async function orchestratorPreflight(
   return invokePipeline(ORCHESTRATOR_COMMANDS.preflight, requireScope(request));
 }
 
+export async function orchestratorApproveRun(
+  request: ScopedRunRequest
+): Promise<RunApprovalReceipt> {
+  return invokePipeline(ORCHESTRATOR_COMMANDS.approveRun, requireScope(request));
+}
+
 export async function orchestratorSnapshot(
   request: SnapshotRequest
 ): Promise<PipelineSnapshotResponse> {
@@ -1473,14 +1758,6 @@ export async function orchestratorComplete(
 ): Promise<WorkerGateResult> {
   requireScope(request);
   requireText(request.nodeId, "nodeId");
-  requireText(request.token, "token");
-  if (
-    request.manifest.runId !== request.runId ||
-    request.manifest.nodeId !== request.nodeId ||
-    request.submission.leaseToken !== request.token
-  ) {
-    throw new Error("completion manifest, submission, and lease belong to different scopes");
-  }
   return invokePipeline(ORCHESTRATOR_COMMANDS.complete, request);
 }
 
@@ -1489,7 +1766,6 @@ export async function orchestratorFail(
 ): Promise<ScheduledNodeStatus> {
   requireScope(request);
   requireText(request.nodeId, "nodeId");
-  requireText(request.token, "token");
   return invokePipeline(ORCHESTRATOR_COMMANDS.fail, request);
 }
 
@@ -1501,38 +1777,14 @@ export async function orchestratorValidateSubmission(
   request: ValidateSubmissionRequest
 ): Promise<WorkerGateResult> {
   requireScope(request);
-  if (request.manifest.runId !== request.runId) {
-    throw new Error("worker manifest belongs to a different run");
-  }
+  requireText(request.nodeId, "nodeId");
   return invokePipeline(ORCHESTRATOR_COMMANDS.validateSubmission, request);
-}
-
-export async function orchestratorReconcile(
-  request: ReconcileRequest
-): Promise<ReconciliationResult> {
-  requireText(request.input.planId, "input.planId");
-  return invokePipeline(ORCHESTRATOR_COMMANDS.reconcile, requireScope(request));
-}
-
-export async function orchestratorRelease(
-  request: ReleaseRequest
-): Promise<ReleaseGateResult> {
-  return invokePipeline(ORCHESTRATOR_COMMANDS.release, requireScope(request));
-}
-
-export async function orchestratorDeliver(
-  request: DeliverRequest
-): Promise<DeliveryOutcome> {
-  requireScope(request);
-  if (request.delivery.runId !== request.runId) {
-    throw new Error("delivery request belongs to a different run");
-  }
-  return invokePipeline(ORCHESTRATOR_COMMANDS.deliver, request);
 }
 
 export const orchestratorPipelineClient = Object.freeze({
   createRun: orchestratorCreateRun,
   preflight: orchestratorPreflight,
+  approveRun: orchestratorApproveRun,
   snapshot: orchestratorSnapshot,
   runCatalog: orchestratorRunCatalog,
   consoleSnapshot: orchestratorConsoleSnapshot,
@@ -1542,7 +1794,4 @@ export const orchestratorPipelineClient = Object.freeze({
   fail: orchestratorFail,
   reap: orchestratorReap,
   validateSubmission: orchestratorValidateSubmission,
-  reconcile: orchestratorReconcile,
-  release: orchestratorRelease,
-  deliver: orchestratorDeliver,
 });

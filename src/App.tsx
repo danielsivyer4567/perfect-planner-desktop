@@ -187,6 +187,12 @@ function isPlanComplete(plan: PlanSnapshot | undefined): boolean {
   });
 }
 
+function pipelineNodeDomToken(value: string): string {
+  return value.replace(/[^A-Za-z0-9_-]/g, (character) =>
+    `-${character.codePointAt(0)?.toString(16) || "x"}-`
+  );
+}
+
 /**
  * The real skill board remains the main app surface. The shell adds repository coordination
  * and a compact left-rail witness for captured localhost output.
@@ -196,6 +202,7 @@ export const App: React.FC = () => {
   const [activePort, setActivePort] = useState<number | null>(null);
   const [scanning, setScanning] = useState(true);
   const [scannedOnce, setScannedOnce] = useState(false);
+  const [scanGeneration, setScanGeneration] = useState(0);
   const [nonce, setNonce] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(storedSoundEnabled);
   const [volume, setVolume] = useState(storedVolume);
@@ -213,6 +220,7 @@ export const App: React.FC = () => {
   const [selectedPipelineScope, setSelectedPipelineScope] = useState<{
     runId: string;
     repositoryRoot: string;
+    planPath: string;
   } | null>(null);
   const [pipelineSnapshot, setPipelineSnapshot] = useState<OrchestratorSnapshot | null>(null);
   const [dismissedPlans, setDismissedPlans] = useState<Set<string>>(storedDismissedPlans);
@@ -233,6 +241,14 @@ export const App: React.FC = () => {
   const dismissedPlansRef = useRef(dismissedPlans);
   const diagnosticSequenceRef = useRef(0);
   const lastResourceDiagnosticRef = useRef("");
+  const activePortRef = useRef<number | null>(null);
+  const activePortMissesRef = useRef(0);
+
+  const activateBoardPort = useCallback((port: number | null) => {
+    activePortRef.current = port;
+    activePortMissesRef.current = 0;
+    setActivePort(port);
+  }, []);
 
   const recordDiagnostic = useCallback((entry: Omit<DiagnosticEntry, "id" | "at">) => {
     diagnosticSequenceRef.current += 1;
@@ -265,23 +281,44 @@ export const App: React.FC = () => {
     setScanning(true);
     try {
       const found = await discoverBoards();
-      setActivePort((current) => {
-        const visible = found.filter((board) => !dismissedPlansRef.current.has(board.planPath));
-        if (current !== null && visible.some((b) => b.port === current)) return current;
-        return visible.length ? visible[0].port : null;
-      });
+      const visible = found.filter((board) => !dismissedPlansRef.current.has(board.planPath));
+      const currentPort = activePortRef.current;
+      let nextPort = currentPort;
+      if (currentPort !== null && visible.some((board) => board.port === currentPort)) {
+        activePortMissesRef.current = 0;
+      } else if (currentPort !== null && activePortMissesRef.current < 3) {
+        // Board discovery is a network census and one endpoint can miss a single poll while
+        // its sibling boards remain visible. Do not silently switch plans during that gap:
+        // retain the explicit user selection and its last trusted metadata for three scans.
+        activePortMissesRef.current += 1;
+      } else {
+        activePortMissesRef.current = 0;
+        nextPort = visible.length ? visible[0].port : null;
+      }
+      activePortRef.current = nextPort;
+      setActivePort(nextPort);
 
       const [snapshots, manifests, approvalBridges] = await Promise.all([
         Promise.all(found.map(readBoardWorkers)),
         Promise.all(found.map(readBoardPlan)),
         Promise.all(found.map(observeBoardApproval)),
       ]);
-      setBoards(
-        found.map((board, index) => ({
+      const observedBoards = found.map((board, index) => ({
           ...board,
           approvalBridge: approvalBridges[index],
-        }))
-      );
+        }));
+      setBoards((currentBoards) => {
+        const selectedPort = activePortRef.current;
+        if (
+          selectedPort === null ||
+          observedBoards.some((board) => board.port === selectedPort) ||
+          activePortMissesRef.current === 0
+        ) {
+          return observedBoards;
+        }
+        const retained = currentBoards.find((board) => board.port === selectedPort);
+        return retained ? [...observedBoards, retained] : observedBoards;
+      });
       setPlanSnapshots(
         Object.fromEntries(
           found.flatMap((board, index) => manifests[index] ? [[board.planPath, manifests[index]]] : [])
@@ -431,6 +468,7 @@ export const App: React.FC = () => {
     } finally {
       setScanning(false);
       setScannedOnce(true);
+      setScanGeneration((generation) => generation + 1);
       scanRunningRef.current = false;
     }
   }, [ring]);
@@ -488,24 +526,56 @@ export const App: React.FC = () => {
   const visibleWorkerReports = scopedWorkerReports.filter(
     (report) => report.disposition !== "CLEARED"
   );
-  const activeWorkers = visibleWorkerReports.filter(
+  const legacyActiveWorkers = visibleWorkerReports.filter(
     (report) => report.worker.state === "ACTIVE"
   ).length;
-  const scopedStalled = visibleWorkerReports.filter(
+  const legacyScopedStalled = visibleWorkerReports.filter(
     (report) => report.worker.state !== "ACTIVE"
   ).length;
-  const scopedCleared = supervisor?.leases.filter(
+  const legacyScopedCleared = supervisor?.leases.filter(
     (lease) =>
       lease.disposition === "CLEARED" &&
       (!activeRepository || lease.organizationId === activeRepository.id)
   ).length || 0;
-  const headActorState: HeadOrchestratorActorState = identityError || supervisorError
-    ? "stopped"
-    : decisionBoards.length || scopedStalled
-      ? "holding"
-      : activeWorkers
-        ? "working"
-        : "standby";
+  const boundPipelineSnapshot = pipelineSnapshot && (
+    !isNativeTauri || (
+      selectedPipelineScope?.planPath === active?.planPath &&
+      selectedPipelineScope?.runId === pipelineSnapshot.run.runId
+    )
+  ) ? pipelineSnapshot : null;
+  const pipelineNodes = boundPipelineSnapshot
+    ? Object.values(boundPipelineSnapshot.scheduler.nodes).sort(
+      (left, right) => left.wave - right.wave || left.id.localeCompare(right.id)
+    )
+    : [];
+  const pipelineRunningNodes = pipelineNodes.filter(
+    (node) => node.status === "RUNNING" && node.lease
+  );
+  const pipelineBlockedNodes = pipelineNodes.filter((node) => node.status === "BLOCKED");
+  const pipelineCompletedNodes = pipelineNodes.filter((node) => node.status === "DONE");
+  const pipelineReadyNodes = pipelineNodes.filter((node) => node.status === "READY");
+  const workerReportCount = boundPipelineSnapshot ? pipelineNodes.length : visibleWorkerReports.length;
+  const activeWorkers = boundPipelineSnapshot ? pipelineRunningNodes.length : legacyActiveWorkers;
+  const scopedStalled = boundPipelineSnapshot ? pipelineBlockedNodes.length : legacyScopedStalled;
+  const scopedCleared = boundPipelineSnapshot ? pipelineCompletedNodes.length : legacyScopedCleared;
+  const pipelineAdmissionBlocked = Boolean(
+    boundPipelineSnapshot &&
+    pipelineReadyNodes.length &&
+    (!boundPipelineSnapshot.runApproval || !boundPipelineSnapshot.preflightFresh)
+  );
+  const headActorState: HeadOrchestratorActorState = boundPipelineSnapshot
+    ? pipelineRunningNodes.length
+      ? "working"
+      : pipelineBlockedNodes.length || pipelineAdmissionBlocked
+        ? "holding"
+        : "standby"
+    : identityError || supervisorError
+      ? "stopped"
+      : decisionBoards.length || scopedStalled
+        ? "holding"
+        : activeWorkers
+          ? "working"
+          : "standby";
   const firstDecisionEntry = decisionBoards[0];
   const firstDecision = firstDecisionEntry?.decision;
   const firstProblemWorker = visibleWorkerReports.find(
@@ -514,57 +584,108 @@ export const App: React.FC = () => {
   const selectedScope = [activeRepository?.label, active?.number, active?.branch]
     .filter((part): part is string => Boolean(part))
     .join(" / ") || "No repository or plan selected";
-  const headActorGuidance: HeadOrchestratorGuidance = identityError
-    ? {
+  const headActorGuidance: HeadOrchestratorGuidance = (() => {
+    if (boundPipelineSnapshot) {
+      const runScope = `${selectedScope} / ${boundPipelineSnapshot.run.runId}`;
+      const running = pipelineRunningNodes[0];
+      if (running?.lease) {
+        return {
+          problem: "No blocking issue detected in the bound native run.",
+          where: `${runScope} / ${running.id} / worker ${running.lease.workerId}`,
+          remedy: "Monitor the native heartbeat, keep edits inside the immutable manifest, then validate evidence before completion.",
+        };
+      }
+      if (pipelineNodes.length > 0 && pipelineCompletedNodes.length === pipelineNodes.length) {
+        return {
+          problem: "Native run completed with durable evidence.",
+          where: runScope,
+          remedy: `${pipelineCompletedNodes.length} node${pipelineCompletedNodes.length === 1 ? "" : "s"} passed fenced completion; controls remain disabled and hot-resume state is compact.`,
+        };
+      }
+      if (pipelineBlockedNodes.length) {
+        return {
+          problem: `${pipelineBlockedNodes[0].id} is blocked by the native scheduler.`,
+          where: `${runScope} / ${pipelineBlockedNodes[0].id}`,
+          remedy: "Inspect the recorded failure and audit trail; do not issue new authority until the node is explicitly recovered or re-planned.",
+        };
+      }
+      if (!boundPipelineSnapshot.preflightFresh) {
+        return {
+          problem: "Native preflight has expired; admission is blocked.",
+          where: `${runScope} / preflight gate`,
+          remedy: "Refresh the native preflight and explicitly approve this exact run before admitting a dependency-ready node.",
+        };
+      }
+      if (!boundPipelineSnapshot.runApproval) {
+        return {
+          problem: "The exact native run has not been explicitly approved.",
+          where: `${runScope} / approval gate`,
+          remedy: "Review the collision census and record explicit approval; renderer state alone cannot release admission.",
+        };
+      }
+      return {
+        problem: "A dependency-ready node is waiting for native admission.",
+        where: `${runScope} / ${pipelineReadyNodes[0]?.id || "scheduler"}`,
+        remedy: "Admit only through the native control; worker identity, fence, lease, clock, and manifest remain native-owned.",
+      };
+    }
+    if (identityError) {
+      return {
         problem: "Orchestrator identity could not be reserved; workers remain blocked.",
         where: `${selectedScope} / identity registry`,
         remedy: "Release the conflicting lease or allocate a new unique ID, then rescan before admitting workers.",
-      }
-    : supervisorError
+      };
+    }
+    if (supervisorError) {
+      return {
+        problem: "Worker supervision could not be loaded; legacy board claim state is untrusted.",
+        where: `${selectedScope} / board lease supervisor`,
+        remedy: "Keep legacy board claims blocked, restore the supervisor, inspect its log, and rescan before retrying.",
+      };
+    }
+    if (firstDecisionEntry && firstDecision) {
+      return {
+        problem: firstDecision.problem || `Decision required: ${firstDecision.kind}.`,
+        where: firstDecision.where || [
+          firstDecisionEntry.board.repoName,
+          firstDecisionEntry.board.number,
+          firstDecision.item,
+          firstDecisionEntry.board.branch,
+        ].filter((part): part is string => Boolean(part)).join(" / "),
+        remedy: firstDecision.remedy || "Keep the affected route on hold, review the decision request, then approve or re-plan it.",
+      };
+    }
+    if (firstProblemWorker) {
+      return {
+        problem: `${firstProblemWorker.worker.state} worker heartbeat; its claim cannot progress safely.`,
+        where: [
+          firstProblemWorker.organization.label,
+          active?.number,
+          firstProblemWorker.worker.vertebra,
+          `worker ${firstProblemWorker.worker.session}`,
+        ].filter((part): part is string => Boolean(part)).join(" / "),
+        remedy: "Pause new claims, check the worker heartbeat, then recover or release its claim and re-plan before restarting.",
+      };
+    }
+    if (activeWorkers) {
+      return {
+        problem: "No blocking issue detected.",
+        where: `${selectedScope} / clockwise worker route`,
+        remedy: `Continue ${activeWorkers} active worker${activeWorkers === 1 ? "" : "s"} and require a report after each node.`,
+      };
+    }
+    return scannedOnce
       ? {
-          problem: "Worker supervision could not be loaded; claim state is untrusted.",
-          where: `${selectedScope} / lease supervisor`,
-          remedy: "Keep claims blocked, restore the supervisor, inspect its log, and rescan before retrying.",
+          problem: "No worker claims are currently reporting.",
+          where: `${selectedScope} / worker route`,
+          remedy: "No recovery is required; keep the orchestrator standing by until a validated claim arrives.",
         }
-      : firstDecisionEntry && firstDecision
-        ? {
-            problem: firstDecision.problem || `Decision required: ${firstDecision.kind}.`,
-            where: firstDecision.where || [
-              firstDecisionEntry.board.repoName,
-              firstDecisionEntry.board.number,
-              firstDecision.item,
-              firstDecisionEntry.board.branch,
-            ].filter((part): part is string => Boolean(part)).join(" / "),
-            remedy: firstDecision.remedy || "Keep the affected route on hold, review the decision request, then approve or re-plan it.",
-          }
-        : firstProblemWorker
-          ? {
-              problem: `${firstProblemWorker.worker.state} worker heartbeat; its claim cannot progress safely.`,
-              where: [
-                firstProblemWorker.organization.label,
-                active?.number,
-                firstProblemWorker.worker.vertebra,
-                `worker ${firstProblemWorker.worker.session}`,
-              ].filter((part): part is string => Boolean(part)).join(" / "),
-              remedy: "Pause new claims, check the worker heartbeat, then recover or release its claim and re-plan before restarting.",
-            }
-          : activeWorkers
-            ? {
-                problem: "No blocking issue detected.",
-                where: `${selectedScope} / clockwise worker route`,
-                remedy: `Continue ${activeWorkers} active worker${activeWorkers === 1 ? "" : "s"} and require a report after each node.`,
-              }
-            : scannedOnce
-              ? {
-                  problem: "No worker claims are currently reporting.",
-                  where: `${selectedScope} / worker route`,
-                  remedy: "No recovery is required; keep the orchestrator standing by until a validated claim arrives.",
-                }
-              : {
-                  problem: "Fleet assessment has not completed yet.",
-                  where: `${selectedScope} / initial census`,
-                  remedy: "Keep workers blocked until the first read-only census and collision assessment finish.",
-                };
+      : {
+          problem: "Fleet assessment has not completed yet.",
+          where: `${selectedScope} / initial census`,
+          remedy: "Keep workers blocked until the first read-only census and collision assessment finish.",
+        };
+  })();
   const controlPlaneScope = useMemo<ControlPlaneScope | null>(() => {
     if (!active || !activeRepository || !orchestratorId) return null;
     const normalizedPlanPath = active.planPath.replace(/\\/g, "/");
@@ -590,29 +711,41 @@ export const App: React.FC = () => {
   const browserPipelineScope = useMemo(() => browserOrchestratorScope(), []);
   const pipelineScope = useMemo(() => {
     if (browserPipelineScope) return browserPipelineScope;
-    if (selectedPipelineScope) return selectedPipelineScope;
+    if (selectedPipelineScope?.planPath === active?.planPath) return selectedPipelineScope;
     return null;
-  }, [browserPipelineScope, selectedPipelineScope]);
+  }, [active?.planPath, browserPipelineScope, selectedPipelineScope]);
   useEffect(() => {
     if (
       selectedPipelineScope &&
       active?.repoRoot &&
-      selectedPipelineScope.repositoryRoot.toLocaleLowerCase() !==
-        active.repoRoot.toLocaleLowerCase()
+      (selectedPipelineScope.repositoryRoot.toLocaleLowerCase() !==
+        active.repoRoot.toLocaleLowerCase() ||
+        selectedPipelineScope.planPath !== active.planPath)
     ) {
       setSelectedPipelineScope(null);
     }
-  }, [active?.repoRoot, selectedPipelineScope]);
+  }, [active?.planPath, active?.repoRoot, selectedPipelineScope]);
   useEffect(() => {
     setSelectedPipelineScope(null);
     setPipelineSnapshot(null);
   }, [active?.planPath]);
   const selectPipelineRun = useCallback((run: PipelineRunSummary) => {
+    if (!active?.planPath) return;
     setSelectedPipelineScope({
       runId: run.runId,
       repositoryRoot: run.repositoryRoot,
+      planPath: active.planPath,
     });
-  }, []);
+  }, [active?.planPath]);
+  const selectCreatedPipelineRun = useCallback((scope: { runId: string; repositoryRoot: string }) => {
+    if (!active?.planPath) return;
+    setSelectedPipelineScope({ ...scope, planPath: active.planPath });
+  }, [active?.planPath]);
+  const recordPipelineDiagnostic = useCallback(
+    (level: "info" | "warning" | "error", message: string) =>
+      recordDiagnostic({ level, source: "pipeline", message }),
+    [recordDiagnostic]
+  );
   const pipelineRepositoryLabel =
     activeRepository?.label || pipelineSnapshot?.run.repositoryId || "UNSCOPED";
   const pipelineRepositoryId =
@@ -722,10 +855,10 @@ export const App: React.FC = () => {
       // Dismissal remains reversible for this session when storage is unavailable.
     }
     const replacement = boards.find((board) => !next.has(board.planPath));
-    setActivePort(replacement?.port ?? null);
+    activateBoardPort(replacement?.port ?? null);
     recordDiagnostic({ level: "info", source: "plan", message: `Removed ${planPath} from the live rail; the plan file was not changed.` });
     void scan();
-  }, [boards, recordDiagnostic, scan]);
+  }, [activateBoardPort, boards, recordDiagnostic, scan]);
 
   const restoreDismissedPlans = () => {
     const next = new Set<string>();
@@ -736,7 +869,7 @@ export const App: React.FC = () => {
     } catch {
       // The in-memory restore still takes effect.
     }
-    setActivePort(boards[0]?.port ?? null);
+    activateBoardPort(boards[0]?.port ?? null);
     void scan();
   };
 
@@ -746,10 +879,10 @@ export const App: React.FC = () => {
       recordDiagnostic({ level: "warning", source: "context-menu", message: `Plan action refused because ${planPath} is no longer in the current board census.` });
       return;
     }
-    if (action === "select") setActivePort(board.port);
+    if (action === "select") activateBoardPort(board.port);
     if (action === "remove") dismissPlan(planPath);
     if (action === "open") window.open(board.url, "_blank", "noopener,noreferrer");
-  }, [boards, dismissPlan, recordDiagnostic]);
+  }, [activateBoardPort, boards, dismissPlan, recordDiagnostic]);
 
   const recordContextAction = useCallback((entry: ContextActionLog) => {
     recordDiagnostic({ level: entry.level, source: entry.source, message: entry.message });
@@ -856,7 +989,7 @@ export const App: React.FC = () => {
                               data-context-label={`${b.number || "Unnumbered plan"} · ${b.topic || "untitled plan"}`}
                               data-plan-path={b.planPath}
                               className={`rail-item${b.port === activePort ? " on" : ""}${boardStalls ? " stalled" : ""}${isComplete ? " complete" : ""}`}
-                              onClick={() => setActivePort(b.port)}
+                              onClick={() => activateBoardPort(b.port)}
                               title={`Repository ${repository.callSign} · ${repository.scope.label}${hasDistinctProject ? ` · Project ${projectLabel}` : ""} · ${branch.name}\n${b.planPath}`}
                               aria-label={`${b.number || "Unnumbered plan"} Repository ${repository.callSign} ${repository.scope.label}${hasDistinctProject ? ` Project ${projectLabel}` : ""} ${branch.name} ${b.topic || "untitled plan"}`}
                               aria-pressed={b.port === activePort}
@@ -948,7 +1081,7 @@ export const App: React.FC = () => {
                   id="pp-btn-show-stalled"
                   type="button"
                   className="alarm-jump"
-                  onClick={() => setActivePort(firstStalledBoard.port)}
+                  onClick={() => activateBoardPort(firstStalledBoard.port)}
                   title="Show the first stalled board"
                 >
                   {stalledCount} stalled
@@ -1003,6 +1136,7 @@ export const App: React.FC = () => {
             className="chip"
             onClick={scan}
             disabled={scanning}
+            data-scan-generation={scanGeneration}
           >
             {scanning ? "scanning…" : "rescan"}
           </button>
@@ -1026,7 +1160,7 @@ export const App: React.FC = () => {
           data-repository-call-sign={activeRepositoryCallSign}
           data-project-name={pipelineProjectLabel}
           data-branch-name={pipelineBranchLabel}
-          className={`orchestrator${decisionBoards.length ? " decision" : ""}${identityError || supervisorError ? " identity-error" : ""}`}
+          className={`orchestrator${decisionBoards.length ? " decision" : ""}${!boundPipelineSnapshot && (identityError || supervisorError) ? " identity-error" : ""}`}
           aria-label="Head orchestrator"
         >
           <div className="orchestrator-head">
@@ -1046,25 +1180,66 @@ export const App: React.FC = () => {
                 {identityError ? "ID RESERVATION FAILED" : shortEntityId(orchestratorId)}
               </strong>
             </span>
-            <span className="head-lease">
-              {supervisorError
-                ? "REAPER STOPPED"
-                : orchestratorId
-                  ? "LEASE + REAPER ACTIVE"
-                  : identityError
-                    ? "STOPPED"
-                    : "INSPECTING SETUP"}
+            <span className="head-lease" id="pp-status-head-lease">
+              {boundPipelineSnapshot
+                ? pipelineNodes.length > 0 && pipelineCompletedNodes.length === pipelineNodes.length
+                  ? "PIPELINE COMPLETE"
+                  : pipelineRunningNodes.length
+                    ? "NATIVE LEASE ACTIVE"
+                    : pipelineBlockedNodes.length
+                      ? "NATIVE RUN BLOCKED"
+                      : pipelineAdmissionBlocked
+                        ? "NATIVE GATE BLOCKED"
+                        : "NATIVE GATE READY"
+                : supervisorError
+                  ? "LEGACY REAPER STOPPED"
+                  : orchestratorId
+                    ? "LEGACY LEASE + REAPER ACTIVE"
+                    : identityError
+                      ? "STOPPED"
+                      : "INSPECTING SETUP"}
             </span>
-            <span className="head-stat"><b>{visibleWorkerReports.length}</b> reports</span>
-            <span className="head-stat"><b>{activeWorkers}</b> active</span>
-            <span className={`head-stat${scopedStalled ? " bad" : ""}`}><b>{scopedStalled}</b> grace</span>
-            <span className="head-stat"><b>{scopedCleared}</b> cleared</span>
+            <span className="head-stat" id="pp-stat-worker-reports"><b>{workerReportCount}</b> {boundPipelineSnapshot ? "nodes" : "reports"}</span>
+            <span className="head-stat" id="pp-stat-active"><b>{activeWorkers}</b> active</span>
+            <span className={`head-stat${scopedStalled ? " bad" : ""}`} id="pp-stat-held"><b>{scopedStalled}</b> {boundPipelineSnapshot ? "blocked" : "grace"}</span>
+            <span className="head-stat" id="pp-stat-completed"><b>{scopedCleared}</b> {boundPipelineSnapshot ? "done" : "cleared"}</span>
             <span className={`head-stat${decisionBoards.length ? " needs" : ""}`}><b>{decisionBoards.length}</b> decisions</span>
             <ResourceGuard state={resourceGuard} onRefresh={refreshResourceGuard} />
           </div>
 
           <div className="worker-wire" id="pp-list-worker-reports" role="list" aria-label="Worker reports">
-            {visibleWorkerReports.length ? visibleWorkerReports.map((report) => {
+            {boundPipelineSnapshot ? pipelineNodes.length ? pipelineNodes.map((node) => {
+              const completion = boundPipelineSnapshot.scheduler.completions?.[node.id];
+              const workerId = node.lease?.workerId || completion?.workerId || "unclaimed";
+              const fence = node.lease?.fence || completion?.fence || 0;
+              const state = node.lease
+                ? "LIVE"
+                : node.status === "READY" && node.attempts > 0
+                  ? "RECOVERED"
+                  : node.status;
+              return (
+                <button
+                  id={`pp-btn-open-pipeline-${stableEntityId("assignment", `${boundPipelineSnapshot.run.runId}\u0000${node.id}`)}`}
+                  type="button"
+                  key={node.id}
+                  role="listitem"
+                  className={`worker-report ${state.toLowerCase()}`}
+                  data-pipeline-node-id={node.id}
+                  data-worker-id={workerId}
+                  data-fence={fence || "none"}
+                  onClick={() => document
+                    .getElementById(`pp-orch-node-${pipelineNodeDomToken(node.id)}`)
+                    ?.scrollIntoView({ block: "center" })}
+                  title={`${boundPipelineSnapshot.run.runId} · ${node.id} · ${workerId} · fence ${fence || "none"}`}
+                >
+                  <span className="worker-id">{workerId}</span>
+                  <span>{node.id}</span>
+                  <em>{state}</em>
+                </button>
+              );
+            }) : (
+              <span className="worker-empty">The verified native run has no scheduler nodes.</span>
+            ) : visibleWorkerReports.length ? visibleWorkerReports.map((report) => {
               const assignmentSource = `${report.organization.id}\u0000${report.planPath}\u0000${report.worker.vertebra}\u0000${report.worker.session}`;
               const assignmentId = stableEntityId("assignment", assignmentSource);
               return (
@@ -1077,7 +1252,7 @@ export const App: React.FC = () => {
                   data-entity-id={assignmentId}
                   data-worker-id={report.worker.session}
                   data-fence={report.fence}
-                  onClick={() => setActivePort(report.boardPort)}
+                  onClick={() => activateBoardPort(report.boardPort)}
                   title={`${report.boardLabel} · ${report.worker.session} · fence ${report.fence}`}
                 >
                   <span className="worker-id">{report.worker.session}</span>
@@ -1104,7 +1279,7 @@ export const App: React.FC = () => {
                   key={decisionId}
                   className="decision-report"
                   data-entity-id={decisionId}
-                  onClick={() => setActivePort(board.port)}
+                  onClick={() => activateBoardPort(board.port)}
                   title={`Decision requested by ${boardLabel(board)}`}
                 >
                   DECISION · {decision?.item || decision?.kind}
@@ -1122,10 +1297,12 @@ export const App: React.FC = () => {
         <PipelineConsole
           runId={pipelineScope?.runId}
           repositoryRoot={pipelineScope?.repositoryRoot || active?.repoRoot}
+          planPath={active?.planPath}
           snapshotSeed={pipelineSnapshotSeed}
           onSelectRun={selectPipelineRun}
+          onRunCreated={selectCreatedPipelineRun}
           onSnapshotChange={setPipelineSnapshot}
-          onDiagnostic={(level, message) => recordDiagnostic({ level, source: "pipeline", message })}
+          onDiagnostic={recordPipelineDiagnostic}
         />
 
         {active ? (
@@ -1210,7 +1387,7 @@ export const App: React.FC = () => {
         activeBoard={active}
         activePlan={activePlan}
         resourceGuard={resourceGuard}
-        pipelineReady={Boolean(pipelineSnapshot)}
+        pipelineSnapshot={boundPipelineSnapshot}
         entries={diagnosticEntries}
         onClear={() => setDiagnosticEntries([])}
       />

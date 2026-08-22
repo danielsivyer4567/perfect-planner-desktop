@@ -7,10 +7,11 @@ use std::path::{Path, PathBuf};
 
 const MAX_ARTIFACT_BYTES: u64 = 32 * 1024 * 1024;
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum EvidenceProfile {
     Ui,
+    #[default]
     Headless,
     Migration,
     Docs,
@@ -163,6 +164,10 @@ pub fn capture_artifact(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static EVIDENCE_TEMP_ID: AtomicU64 = AtomicU64::new(1);
 
     fn artifact(kind: EvidenceKind) -> EvidenceArtifact {
         EvidenceArtifact {
@@ -211,5 +216,25 @@ mod tests {
         let mut taxed = artifacts;
         taxed.push(artifact(EvidenceKind::OcrReport));
         assert!(!validate_evidence(&EvidenceProfile::Headless, &taxed, &verification).passed);
+    }
+
+    #[test]
+    fn capture_refuses_an_artifact_outside_the_exact_evidence_root() {
+        let base = std::env::temp_dir().join(format!(
+            "pp-evidence-boundary-{}-{}",
+            std::process::id(),
+            EVIDENCE_TEMP_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let root = base.join("run-evidence");
+        fs::create_dir_all(&root).unwrap();
+        let outside = base.join("forged.log");
+        fs::write(&outside, b"forged evidence").unwrap();
+
+        let error = capture_artifact(&root, &outside, EvidenceKind::CommandOutput).unwrap_err();
+        assert!(
+            error.contains("escapes the run evidence directory"),
+            "{error}"
+        );
+        fs::remove_dir_all(base).unwrap();
     }
 }

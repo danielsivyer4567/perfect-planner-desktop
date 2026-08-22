@@ -162,6 +162,7 @@ pub(crate) struct MachineTicketAcknowledgementReceipt {
     acknowledgement_digest: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) enum TicketError {
     ProductionDisabled,
@@ -498,7 +499,7 @@ impl TicketBroker {
         let next = signals
             .iter()
             .take(limit)
-            .last()
+            .next_back()
             .map(|(sequence, _)| *sequence);
         Ok(TicketSignalPage {
             signals: page,

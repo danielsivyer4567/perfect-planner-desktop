@@ -209,6 +209,7 @@ impl fmt::Debug for IssuedClearance {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) struct ClearancePermit {
     clearance_id_hash: String,
     binding: ClearanceBinding,
@@ -231,6 +232,7 @@ impl fmt::Debug for ClearancePermit {
     }
 }
 
+#[allow(dead_code)]
 impl ClearancePermit {
     pub(crate) fn snapshot_hash(&self) -> &str {
         &self.binding.snapshot_hash
@@ -250,6 +252,7 @@ impl ClearancePermit {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 enum ClearanceLifecycle {
     Issued,
     Consuming { wall_ms: u64, monotonic_ms: u64 },

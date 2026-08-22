@@ -29,9 +29,7 @@ export function ResourceGuard({ state, onRefresh }: {
       ? "RESOURCE GUARD · WINDOWS NATIVE"
       : "RESOURCE GUARD · UNAVAILABLE";
   const remedy = state.status === "unavailable"
-    ? state.error.includes("PowerShell 7 is unavailable")
-      ? "Install PowerShell 7 at the displayed fixed path, then check again."
-      : state.error.includes("Git worktree") || state.error.includes("repository root")
+    ? state.error.includes("Git worktree") || state.error.includes("repository root")
         ? "Select a discovered plan whose repository path still exists, then rescan."
         : "Open the bottom-right console for the full native error, then check again after correcting that exact cause."
     : null;
@@ -59,15 +57,15 @@ export function ResourceGuard({ state, onRefresh }: {
               <div><dt>CPU</dt><dd>{state.result.resources.cpuUsagePercent.toFixed(1)}% · {state.result.resources.logicalCpuCount} logical</dd></div>
               <div><dt>Available RAM</dt><dd>{formatBytes(state.result.resources.availableMemoryBytes)}</dd></div>
               <div><dt>Repository disk</dt><dd>{formatBytes(state.result.resources.repositoryDiskAvailableBytes)}</dd></div>
-              <div><dt>PowerShell</dt><dd title={state.result.executable}>{state.result.executable}</dd></div>
+              <div><dt>Native executable</dt><dd title={state.result.executable}>{state.result.executable}</dd></div>
             </dl>
           </>
         ) : state.status === "checking" ? (
-          <p>Checking the fixed PowerShell 7 probe…</p>
+          <p>Checking bounded Windows-native telemetry…</p>
         ) : (
           <dl className="resource-guard-failure">
             <div><dt>Problem</dt><dd>{state.error}</dd></div>
-            <div><dt>Where</dt><dd>Windows CIM resource probe for the selected repository</dd></div>
+            <div><dt>Where</dt><dd>Windows-native resource probe for the selected repository</dd></div>
             <div><dt>Remedy</dt><dd>{remedy}</dd></div>
           </dl>
         )}

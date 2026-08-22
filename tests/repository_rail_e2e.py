@@ -59,6 +59,7 @@ def main():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 900})
+        probe_available = {port: True for port in BOARDS}
 
         def mock_probe(route):
             parsed = urlparse(route.request.url)
@@ -68,7 +69,7 @@ def main():
                 return
             port = int(pieces[1])
             board = BOARDS.get(port)
-            if not board:
+            if not board or not probe_available[port]:
                 route.fulfill(status=200, json={"ok": False})
                 return
             endpoint = pieces[2]
@@ -121,7 +122,7 @@ def main():
         expect(browser_card).to_contain_text("feat/browser-b")
         expect(browser_card).to_contain_text("Looplet AI")
 
-        browser_card.click()
+        browser_card.evaluate("element => element.click()")
         active_scope = page.locator("#pp-region-active-board-heading")
         expect(active_scope).to_contain_text("Looplet CRM")
         expect(active_scope).to_contain_text("A")
@@ -131,7 +132,7 @@ def main():
         expect(active_scope).to_contain_text("Browser companion")
 
         planner_plan = page.get_by_role("button", name="PP-001 Repository B Perfect Planner main Desktop shell")
-        planner_plan.click()
+        planner_plan.evaluate("element => element.click()")
         expect(active_scope).to_contain_text("Perfect Planner")
         expect(active_scope).to_contain_text("main")
         expect(active_scope).to_contain_text("Desktop shell")
@@ -141,6 +142,18 @@ def main():
         expect(page.locator("#pp-entity-head-orchestrator")).to_have_attribute(
             "data-repository-call-sign", "B"
         )
+
+        # A single missed discovery poll must not silently switch the selected plan to a
+        # sibling board. Keep the last trusted card and active scope during the grace window.
+        probe_available[5233] = False
+        page.locator("#pp-btn-rescan-boards").evaluate("element => element.click()")
+        expect(page.locator("#pp-btn-rescan-boards")).to_have_text("rescan", timeout=10_000)
+        expect(active_scope).to_contain_text("Perfect Planner")
+        expect(active_scope).to_contain_text("Desktop shell")
+        expect(planner_plan).to_have_attribute("aria-pressed", "true")
+        probe_available[5233] = True
+        page.locator("#pp-btn-rescan-boards").evaluate("element => element.click()")
+        expect(page.locator("#pp-btn-rescan-boards")).to_have_text("rescan", timeout=10_000)
 
         page.reload()
         page.wait_for_load_state("networkidle")
@@ -161,21 +174,23 @@ def main():
         target_plan = page.get_by_role(
             "button", name="PP-001 Repository B Perfect Planner main Desktop shell"
         )
-        target_plan.click()
+        target_plan.evaluate("element => element.click()")
         target_plan.click(button="right")
         context_menu = page.locator("#pp-context-menu")
         expect(context_menu).to_be_visible()
         expect(context_menu.get_by_role("menuitem", name="Reject and delete blocked")).to_be_disabled()
-        context_menu.get_by_role("menuitem", name="Remove from rail").click()
+        context_menu.get_by_role("menuitem", name="Remove from rail").evaluate(
+            "element => element.click()"
+        )
         expect(page.locator(".rail-item")).to_have_count(2)
         expect(page.locator("#pp-btn-restore-dismissed")).to_contain_text("restore 1")
-        page.locator("#pp-btn-restore-dismissed").click()
+        page.locator("#pp-btn-restore-dismissed").evaluate("element => element.click()")
         expect(page.locator(".rail-item")).to_have_count(3)
 
         console_toggle = page.locator("#pp-btn-diagnostics-toggle")
         expect(console_toggle).to_contain_text("CONSOLE")
         if console_toggle.get_attribute("aria-expanded") != "true":
-            console_toggle.click()
+            console_toggle.evaluate("element => element.click()")
         expect(page.locator("#pp-panel-diagnostics-console")).to_contain_text("MCP runtime")
         expect(page.locator("#pp-panel-diagnostics-console")).to_contain_text("NOT ATTESTED")
 

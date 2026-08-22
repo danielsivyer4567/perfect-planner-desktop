@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-orchestrator-validate-worker"
+description = "Enables the orchestrator_validate_worker command without any pre-configured scope."
+commands.allow = ["orchestrator_validate_worker"]
+
+[[permission]]
+identifier = "deny-orchestrator-validate-worker"
+description = "Denies the orchestrator_validate_worker command without any pre-configured scope."
+commands.deny = ["orchestrator_validate_worker"]

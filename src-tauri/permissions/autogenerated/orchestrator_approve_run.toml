@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-orchestrator-approve-run"
+description = "Enables the orchestrator_approve_run command without any pre-configured scope."
+commands.allow = ["orchestrator_approve_run"]
+
+[[permission]]
+identifier = "deny-orchestrator-approve-run"
+description = "Denies the orchestrator_approve_run command without any pre-configured scope."
+commands.deny = ["orchestrator_approve_run"]

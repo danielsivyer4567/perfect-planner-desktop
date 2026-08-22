@@ -642,7 +642,7 @@ fn identity_from_open_handle(
             size: u32,
         ) -> i32;
     }
-    let handle = file.as_raw_handle() as *mut std::ffi::c_void;
+    let handle = file.as_raw_handle();
     let mut basic = std::mem::MaybeUninit::<ByHandleFileInformation>::zeroed();
     if unsafe { GetFileInformationByHandle(handle, basic.as_mut_ptr()) } == 0 {
         return Err(IdentityError::AmbiguousPhysicalIdentity(

@@ -8,6 +8,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::authority_runtime::AuthorizedLeaseGrant;
+use super::evidence::{EvidenceArtifact, VerificationResult};
+use super::worker::WorkerGateResult;
 
 const MAX_ATTEMPTS: u32 = 3;
 const AUTHORITY_SCHEMA_VERSION: u32 = 1;
@@ -25,6 +27,15 @@ pub struct NodeLease {
     pub authority_epoch: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authorization_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) git_baseline: Option<AdmissionGitBaseline>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct AdmissionGitBaseline {
+    pub(crate) head_commit: String,
+    pub(crate) outside_manifest_digest: String,
 }
 
 /// Renderer-safe lease state. The bearer token never crosses the native boundary.
@@ -91,6 +102,8 @@ pub struct SchedulerState {
     pub pending_legacy_revocations: Vec<LegacyLeaseRevocation>,
     #[serde(default)]
     pub consumed_authorization_ids: BTreeSet<String>,
+    #[serde(default)]
+    pub completions: BTreeMap<String, NodeCompletion>,
     pub next_fence: u64,
     pub nodes: BTreeMap<String, ScheduledNode>,
 }
@@ -100,6 +113,7 @@ pub struct SchedulerState {
 pub struct PublicSchedulerState {
     pub authority_schema_version: u32,
     pub pending_legacy_revocations: Vec<LegacyLeaseRevocation>,
+    pub completions: BTreeMap<String, NodeCompletion>,
     pub next_fence: u64,
     pub nodes: BTreeMap<String, PublicScheduledNode>,
 }
@@ -116,11 +130,28 @@ pub struct PublicScheduledNode {
     pub stall_alarm_fence: Option<u64>,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NodeCompletion {
+    pub receipt_id: String,
+    pub node_id: String,
+    pub worker_id: String,
+    pub fence: u64,
+    pub authority_epoch: u64,
+    pub authorization_id: String,
+    pub completed_at_ms: u64,
+    pub changed_files: Vec<String>,
+    pub artifacts: Vec<EvidenceArtifact>,
+    pub verification: Vec<VerificationResult>,
+    pub gate: WorkerGateResult,
+}
+
 impl From<&SchedulerState> for PublicSchedulerState {
     fn from(state: &SchedulerState) -> Self {
         Self {
             authority_schema_version: state.authority_schema_version,
             pending_legacy_revocations: state.pending_legacy_revocations.clone(),
+            completions: state.completions.clone(),
             next_fence: state.next_fence,
             nodes: state
                 .nodes
@@ -180,6 +211,7 @@ impl SchedulerStore {
                 authority_schema_version: AUTHORITY_SCHEMA_VERSION,
                 pending_legacy_revocations: Vec::new(),
                 consumed_authorization_ids: BTreeSet::new(),
+                completions: BTreeMap::new(),
                 next_fence: 1,
                 nodes: nodes
                     .into_iter()
@@ -300,6 +332,7 @@ impl SchedulerStore {
                 expires_at_ms: now_ms.saturating_add(lease_ms),
                 authority_epoch: None,
                 authorization_id: None,
+                git_baseline: None,
             };
             node.status = NodeStatus::Running;
             node.lease = Some(lease.clone());
@@ -314,6 +347,7 @@ impl SchedulerStore {
     pub(crate) fn claim_authorized(
         &self,
         grant: &AuthorizedLeaseGrant,
+        git_baseline: AdmissionGitBaseline,
         now_ms: u64,
     ) -> Result<NodeLease, String> {
         grant.verify(now_ms)?;
@@ -372,6 +406,7 @@ impl SchedulerStore {
                 expires_at_ms: authorization.expires_at_ms,
                 authority_epoch: Some(authorization.binding.epoch),
                 authorization_id: Some(authorization.authorization_id.clone()),
+                git_baseline: Some(git_baseline.clone()),
             };
             node.status = NodeStatus::Running;
             node.lease = Some(lease.clone());
@@ -447,6 +482,59 @@ impl SchedulerStore {
         })
     }
 
+    pub(crate) fn complete_authorized(
+        &self,
+        node_id: &str,
+        token: &str,
+        now_ms: u64,
+        completion: NodeCompletion,
+    ) -> Result<NodeCompletion, String> {
+        if completion.node_id != node_id
+            || completion.receipt_id.trim().is_empty()
+            || completion.worker_id.trim().is_empty()
+            || completion.authorization_id.trim().is_empty()
+            || completion.completed_at_ms != now_ms
+            || completion.changed_files.is_empty()
+            || completion.artifacts.is_empty()
+            || completion.verification.is_empty()
+            || !completion.gate.passed
+        {
+            return Err("authorized completion receipt is incomplete".to_string());
+        }
+        if let Some(existing) = self.snapshot()?.completions.get(node_id).cloned() {
+            return if existing == completion {
+                Ok(existing)
+            } else {
+                Err("node already has a different completion receipt".to_string())
+            };
+        }
+        self.authorize_commit(node_id, token, now_ms)?;
+        self.mutate(|state| {
+            let node = state
+                .nodes
+                .get_mut(node_id)
+                .ok_or_else(|| format!("unknown node {node_id}"))?;
+            let lease = node
+                .lease
+                .as_ref()
+                .ok_or_else(|| format!("node {node_id} has no live lease"))?;
+            if lease.token != token
+                || lease.worker_id != completion.worker_id
+                || lease.fence != completion.fence
+                || lease.authority_epoch != Some(completion.authority_epoch)
+                || lease.authorization_id.as_deref() != Some(completion.authorization_id.as_str())
+            {
+                return Err("completion receipt drifted from the live native lease".to_string());
+            }
+            node.status = NodeStatus::Done;
+            node.lease = None;
+            state
+                .completions
+                .insert(node_id.to_string(), completion.clone());
+            Ok(completion.clone())
+        })
+    }
+
     pub fn fail(&self, node_id: &str, token: &str) -> Result<NodeStatus, String> {
         self.mutate(|state| {
             let node = state
@@ -467,6 +555,32 @@ impl SchedulerStore {
     }
 
     pub fn reap_expired(&self, now_ms: u64) -> Result<Vec<ReapAction>, String> {
+        self.recover_matching_leases(|lease| lease.expires_at_ms <= now_ms)
+    }
+
+    /// Recover leases that cannot be trusted by the current native authority owner. This is
+    /// intentionally broader than expiry: an app restart rotates the issuer epoch immediately,
+    /// so a still-unexpired lease from the previous process must stop appearing RUNNING.
+    pub(crate) fn recover_stale_authority(
+        &self,
+        current_epoch: u64,
+        now_ms: u64,
+    ) -> Result<Vec<ReapAction>, String> {
+        if current_epoch == 0 {
+            return Err("scheduler authority epoch must be non-zero".to_string());
+        }
+        self.recover_matching_leases(|lease| {
+            lease.expires_at_ms <= now_ms
+                || lease.authority_epoch != Some(current_epoch)
+                || lease.authorization_id.is_none()
+                || lease.git_baseline.is_none()
+        })
+    }
+
+    fn recover_matching_leases(
+        &self,
+        should_recover: impl Fn(&NodeLease) -> bool,
+    ) -> Result<Vec<ReapAction>, String> {
         let mut expired = Vec::new();
         {
             let state = self
@@ -475,7 +589,7 @@ impl SchedulerStore {
                 .map_err(|_| "scheduler lock is poisoned".to_string())?;
             for node in state.nodes.values() {
                 if let Some(lease) = &node.lease {
-                    if lease.expires_at_ms <= now_ms {
+                    if should_recover(lease) {
                         expired.push((node.id.clone(), lease.clone(), node.attempts));
                     }
                 }
@@ -546,6 +660,21 @@ impl SchedulerStore {
 }
 
 fn validate_state(state: &SchedulerState) -> Result<(), String> {
+    if state.completions.iter().any(|(node_id, completion)| {
+        completion.node_id != *node_id
+            || !state
+                .nodes
+                .get(node_id)
+                .is_some_and(|node| node.status == NodeStatus::Done && node.lease.is_none())
+            || completion.receipt_id.trim().is_empty()
+            || completion.authorization_id.trim().is_empty()
+            || completion.changed_files.is_empty()
+            || completion.artifacts.is_empty()
+            || completion.verification.is_empty()
+            || !completion.gate.passed
+    }) {
+        return Err("scheduler contains an invalid completion receipt".to_string());
+    }
     for (id, node) in &state.nodes {
         if id != &node.id || id.trim().is_empty() {
             return Err("scheduler node identity mismatch".to_string());
@@ -556,6 +685,23 @@ fn validate_state(state: &SchedulerState) -> Result<(), String> {
         if node.status != NodeStatus::Running && node.lease.is_some() {
             return Err(format!("non-running node {id} retains a lease"));
         }
+        if let Some(lease) = &node.lease {
+            if lease.authority_epoch.is_some()
+                && (lease.authorization_id.is_none()
+                    || lease.git_baseline.as_ref().is_none_or(|baseline| {
+                        !is_hex_digest(&baseline.outside_manifest_digest)
+                            || baseline.head_commit.len() != 40
+                            || !baseline
+                                .head_commit
+                                .bytes()
+                                .all(|byte| byte.is_ascii_hexdigit())
+                    }))
+            {
+                return Err(format!(
+                    "authority-backed lease for node {id} lacks a valid Git baseline"
+                ));
+            }
+        }
         for dependency in &node.depends_on {
             if dependency == id || !state.nodes.contains_key(dependency) {
                 return Err(format!("node {id} has an invalid dependency"));
@@ -563,6 +709,10 @@ fn validate_state(state: &SchedulerState) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn is_hex_digest(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn lease_token() -> Result<String, String> {
@@ -775,6 +925,53 @@ mod tests {
             store.snapshot().expect("snapshot").nodes["B01"].status,
             NodeStatus::Blocked
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn authority_rotation_recovers_an_unexpired_previous_epoch_lease() {
+        let root = temp_dir("authority-recovery");
+        let store = SchedulerStore::open(root.join("leases.json"), root.clone(), vec![node()])
+            .expect("store");
+        let lease = store
+            .claim("B01", "worker-old", 100, 10_000)
+            .expect("claim");
+        store
+            .mutate(|state| {
+                let lease = state
+                    .nodes
+                    .get_mut("B01")
+                    .and_then(|node| node.lease.as_mut())
+                    .expect("lease");
+                lease.authority_epoch = Some(7);
+                lease.authorization_id = Some("authorization-old".to_string());
+                lease.git_baseline = Some(AdmissionGitBaseline {
+                    head_commit: "a".repeat(40),
+                    outside_manifest_digest: "b".repeat(64),
+                });
+                Ok(())
+            })
+            .expect("persist authority-backed lease");
+        let evidence = root.join("evidence/B01/worker-old");
+        fs::create_dir_all(&evidence).expect("evidence dir");
+        fs::write(evidence.join("partial.log"), b"partial proof").expect("partial proof");
+
+        let actions = store
+            .recover_stale_authority(8, 200)
+            .expect("recover stale authority");
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(
+            &actions[0],
+            ReapAction::Reassigned {
+                node_id,
+                worker_id,
+                preserved_evidence: Some(path),
+            } if node_id == "B01" && worker_id == "worker-old" && path.is_dir()
+        ));
+        let snapshot = store.snapshot().expect("snapshot");
+        assert_eq!(snapshot.nodes["B01"].status, NodeStatus::Ready);
+        assert!(snapshot.nodes["B01"].lease.is_none());
+        assert_eq!(snapshot.nodes["B01"].stall_alarm_fence, Some(lease.fence));
         let _ = fs::remove_dir_all(root);
     }
 

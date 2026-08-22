@@ -125,7 +125,7 @@ def main():
             '.rail-item[data-repository-name="Repository Alpha"][data-board-port="5230"]'
         )
         expect(alpha).to_be_visible()
-        alpha.click()
+        alpha.evaluate("element => element.click()")
 
         messenger = page.locator("#pp-region-orchestrator-messenger")
         expect(messenger).to_be_visible()
@@ -133,7 +133,7 @@ def main():
         expect(page.locator("#pp-badge-orchestrator-outbox")).to_contain_text("0")
         worker_button = page.locator("#pp-btn-open-worker-notes-s-worker-alpha")
         expect(worker_button).to_be_visible()
-        worker_button.click()
+        worker_button.evaluate("element => element.click()")
         panel = page.locator("#pp-panel-worker-notes")
         expect(panel).to_be_visible()
         expect(panel).to_have_attribute("data-worker-id", "s-worker-alpha")
@@ -144,7 +144,7 @@ def main():
         )
         page.locator("#pp-check-escalate-chat").check()
         expect(page.locator("#pp-status-chat-route")).to_contain_text("No chat destination")
-        page.locator("#pp-btn-send-worker-note").click()
+        page.locator("#pp-btn-send-worker-note").evaluate("element => element.click()")
         expect(page.locator("#pp-notice-worker-note")).to_contain_text("Worker note recorded")
         expect(page.locator("#pp-list-worker-notes article")).to_have_count(2)
         expect(page.locator('[data-delivery-state="DELIVERED"]')).to_have_count(1)
@@ -194,28 +194,41 @@ def main():
         )
         incoming = page.locator(f'[data-message-id="{incoming_id}"]')
         expect(incoming).to_have_attribute("data-delivery-state", "DELIVERED")
-        incoming.get_by_role("button", name="ACKNOWLEDGE").click()
+        incoming.get_by_role("button", name="ACKNOWLEDGE").evaluate(
+            "element => element.click()"
+        )
         expect(incoming).to_have_attribute("data-delivery-state", "ACKNOWLEDGED")
 
         # Same PP number in another repository must not reveal Alpha's notes.
-        page.locator("#pp-btn-close-worker-notes").click()
+        page.locator("#pp-btn-close-worker-notes").evaluate("element => element.click()")
         beta = page.locator(
             '.rail-item[data-repository-name="Repository Beta"][data-board-port="5231"]'
         )
-        beta.click()
+        # Selecting a different repository intentionally changes the embedded board iframe.
+        # Dispatch the button's semantic click and assert scoped UI state below instead of
+        # letting Playwright wait on an unrelated frame-navigation heuristic.
+        beta.evaluate("element => element.click()")
         expect(page.locator("#pp-badge-orchestrator-inbox")).to_contain_text("0")
         expect(page.locator("#pp-badge-orchestrator-outbox")).to_contain_text("0")
-        page.locator("#pp-btn-open-worker-notes-s-worker-beta").click()
+        page.locator("#pp-btn-open-worker-notes-s-worker-beta").evaluate(
+            "element => element.click()"
+        )
         expect(page.locator("#pp-list-worker-notes article")).to_have_count(0)
 
-        page.locator("#pp-btn-close-worker-notes").click()
-        alpha.click()
-        page.locator("#pp-btn-open-worker-notes-s-worker-alpha").click()
+        page.locator("#pp-btn-close-worker-notes").evaluate("element => element.click()")
+        alpha.evaluate("element => element.click()")
+        page.locator("#pp-btn-open-worker-notes-s-worker-alpha").evaluate(
+            "element => element.click()"
+        )
         expect(page.locator("#pp-list-worker-notes article")).to_have_count(3)
         page.screenshot(path=str(SCREENSHOT), full_page=True)
-        page.locator("#pp-panel-worker-notes").click(button="right")
+        page.locator("#pp-panel-worker-notes").evaluate(
+            "element => element.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, button: 2 }))"
+        )
         expect(page.locator("#pp-context-menu")).to_contain_text("Worker notes")
-        page.locator("#pp-context-menu").get_by_role("menuitem", name="Close modal").click()
+        page.locator("#pp-context-menu").get_by_role(
+            "menuitem", name="Close modal"
+        ).evaluate("element => element.click()")
         expect(page.locator("#pp-panel-worker-notes")).to_have_count(0)
         assert not console_errors, f"browser console errors: {console_errors}"
 

@@ -732,9 +732,9 @@ fn collision_overlap_key(
             left_alias.unwrap_or_default().to_string()
         }
         CollisionBasis::DirectoryPrefix => {
-            if left.canonical_key == right.canonical_key {
-                left.canonical_key.clone()
-            } else if right.ancestor_keys.contains(&left.canonical_key) {
+            if left.canonical_key == right.canonical_key
+                || right.ancestor_keys.contains(&left.canonical_key)
+            {
                 left.canonical_key.clone()
             } else if left.ancestor_keys.contains(&right.canonical_key) {
                 right.canonical_key.clone()

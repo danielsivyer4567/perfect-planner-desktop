@@ -254,6 +254,7 @@ impl fmt::Debug for VerifiedAssessmentSnapshot {
 }
 
 impl VerifiedAssessmentSnapshot {
+    #[allow(dead_code)]
     pub(crate) fn snapshot_hash(&self) -> &str {
         &self.0.snapshot_hash
     }
@@ -340,6 +341,7 @@ impl fmt::Debug for StoredSnapshotReceipt {
 }
 
 impl StoredSnapshotReceipt {
+    #[allow(dead_code)]
     pub(crate) fn snapshot_hash(&self) -> &str {
         &self.snapshot_hash
     }
@@ -396,8 +398,8 @@ impl fmt::Display for SnapshotError {
                 formatter.write_str("snapshot store directory identity changed")
             }
             Self::Journal(error) => write!(formatter, "snapshot journal check failed: {error}"),
-            Self::Io(_) => formatter.write_str("snapshot I/O failed"),
-            Self::Json(_) => formatter.write_str("snapshot serialization failed"),
+            Self::Io(error) => write!(formatter, "snapshot I/O failed: {error}"),
+            Self::Json(error) => write!(formatter, "snapshot serialization failed: {error}"),
         }
     }
 }
@@ -420,6 +422,7 @@ impl From<JournalError> for SnapshotError {
     }
 }
 
+#[allow(dead_code)]
 fn prepare_assessment_snapshot(
     read: &RegistryRead,
     captured_at_ms: u64,
@@ -854,7 +857,7 @@ fn conflict_commitment_root(conflicts: &[SnapshotConflict]) -> String {
 fn merkle_proof_from_levels(levels: &[Vec<String>], mut index: usize) -> Vec<ConflictProofStep> {
     let mut proof = Vec::new();
     for level in levels.iter().take(levels.len().saturating_sub(1)) {
-        let sibling_index = if index % 2 == 0 {
+        let sibling_index = if index.is_multiple_of(2) {
             (index + 1).min(level.len() - 1)
         } else {
             index - 1
@@ -1137,6 +1140,7 @@ impl SnapshotStore {
 
     /// Reopens a snapshot only when the exact store receipt was already committed to the
     /// verified journal and has not subsequently been revoked.
+    #[allow(dead_code)]
     pub(crate) fn read_recorded(
         &self,
         snapshot_hash: &str,

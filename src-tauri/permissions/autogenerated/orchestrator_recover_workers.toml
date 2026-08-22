@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-orchestrator-recover-workers"
+description = "Enables the orchestrator_recover_workers command without any pre-configured scope."
+commands.allow = ["orchestrator_recover_workers"]
+
+[[permission]]
+identifier = "deny-orchestrator-recover-workers"
+description = "Denies the orchestrator_recover_workers command without any pre-configured scope."
+commands.deny = ["orchestrator_recover_workers"]

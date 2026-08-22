@@ -304,6 +304,8 @@ pub struct ControlPlaneEvent {
     rename_all = "SCREAMING_SNAKE_CASE",
     rename_all_fields = "camelCase"
 )]
+// Preserve the stable append-only event schema; payload sizes are explicitly bounded at ingress.
+#[allow(clippy::large_enum_variant)]
 pub enum ControlPlaneEventKind {
     MessageCreated {
         message: ControlMessage,

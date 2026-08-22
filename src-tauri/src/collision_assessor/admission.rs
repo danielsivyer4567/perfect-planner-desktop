@@ -160,6 +160,7 @@ impl AdmissionRegistryStore {
         assess_document(&document, run_id, now_ms)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn heartbeat(
         &self,
         run_id: &str,
@@ -609,6 +610,7 @@ fn open_lock(path: &Path) -> std::io::Result<File> {
     use std::os::windows::fs::OpenOptionsExt;
     OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .share_mode(0)

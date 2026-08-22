@@ -440,8 +440,7 @@ fn wait_child_bounded(child: &mut Child, timeout: Duration) -> bool {
     }
     const WAIT_OBJECT_0: u32 = 0;
     let timeout_ms = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX - 1);
-    let wait =
-        unsafe { WaitForSingleObject(child.as_raw_handle() as *mut std::ffi::c_void, timeout_ms) };
+    let wait = unsafe { WaitForSingleObject(child.as_raw_handle(), timeout_ms) };
     wait == WAIT_OBJECT_0 && child.try_wait().ok().flatten().is_some()
 }
 
@@ -477,10 +476,10 @@ fn open_image_guard(path: &Path) -> std::io::Result<File> {
         use std::os::windows::fs::OpenOptionsExt;
         const GENERIC_READ: u32 = 0x8000_0000;
         const FILE_SHARE_READ: u32 = 0x1;
-        return OpenOptions::new()
+        OpenOptions::new()
             .access_mode(GENERIC_READ)
             .share_mode(FILE_SHARE_READ)
-            .open(path);
+            .open(path)
     }
     #[cfg(not(windows))]
     OpenOptions::new().read(true).open(path)

@@ -34,6 +34,7 @@ const JOURNAL_ANCHOR_VERSION: u32 = 1;
 const JOURNAL_WRITER_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 const MAX_ANCHOR_BYTES: u64 = 4 * 1024;
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct JournalAnchor {
@@ -113,6 +114,7 @@ pub(crate) enum TicketSignalKind {
     ReplanRequired,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 pub(crate) enum JournalPayload {
@@ -992,8 +994,8 @@ impl fmt::Display for JournalError {
             }
             Self::LimitExceeded => formatter.write_str("journal exceeds a hard bound"),
             Self::LockTimeout => formatter.write_str("journal lock timed out"),
-            Self::Io(_) => formatter.write_str("journal I/O failed"),
-            Self::Json(_) => formatter.write_str("journal serialization failed"),
+            Self::Io(error) => write!(formatter, "journal I/O failed: {error}"),
+            Self::Json(error) => write!(formatter, "journal serialization failed: {error}"),
         }
     }
 }
@@ -1132,6 +1134,7 @@ impl AssessmentJournal {
 
         let mut file = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(&path)?;
@@ -1214,6 +1217,7 @@ impl AssessmentJournal {
         verify_writer_anchor(&anchor, writer)?;
         let mut file = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(&self.path)?;
@@ -1376,6 +1380,7 @@ impl AssessmentJournal {
             .any(|event| event.payload == expected))
     }
 
+    #[allow(dead_code)]
     pub(super) fn conflict_ticket_was_recorded(
         &self,
         snapshot: &VerifiedAssessmentSnapshot,
@@ -1411,6 +1416,7 @@ impl AssessmentJournal {
         }))
     }
 
+    #[allow(dead_code)]
     pub(super) fn record_conflict_ticket(
         &self,
         snapshot: &VerifiedAssessmentSnapshot,
@@ -1454,6 +1460,7 @@ impl AssessmentJournal {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn record_conflict_ticket_signal(
         &self,
         recorded_at_ms: u64,
@@ -1504,6 +1511,7 @@ impl AssessmentJournal {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn record_clearance_issued(
         &self,
         recorded_at_ms: u64,
@@ -1576,6 +1584,7 @@ impl AssessmentJournal {
         )
     }
 
+    #[allow(dead_code)]
     pub(crate) fn record_clearance_consumed(
         &self,
         recorded_at_ms: u64,

@@ -5,6 +5,8 @@
 //! the same app-data scope. Every restart advances the durable epoch before creating a new key,
 //! so an in-flight projection from an earlier owner can only recover as UNKNOWN.
 
+#![allow(clippy::items_after_test_module)]
+
 use super::authority_projection::{
     AuthorityProjection, AuthorityProjectionCheckpoint, AuthorityPublicationReceipt,
     CensusClearReceipt, ClaimAuthorization, ClaimRequest, PreclaimReservation, ProjectionPolicy,
@@ -261,7 +263,7 @@ fn advance_epoch(path: &Path) -> Result<u64, String> {
             .write(true)
             .open(&temporary)
             .map_err(|error| format!("cannot create scheduler authority epoch temp: {error}"))?;
-        write!(file, "{next}\n")
+        writeln!(file, "{next}")
             .and_then(|_| file.sync_all())
             .map_err(|error| format!("cannot flush scheduler authority epoch: {error}"))?;
         replace_file(&temporary, path)
@@ -278,6 +280,7 @@ fn open_exclusive_owner_lock(path: &Path) -> std::io::Result<File> {
     use std::os::windows::fs::OpenOptionsExt;
     OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .share_mode(0)
@@ -433,11 +436,27 @@ mod tests {
         )
         .expect("scheduler");
         let lease = scheduler
-            .claim_authorized(&grant, 103)
+            .claim_authorized(
+                &grant,
+                super::super::scheduler::AdmissionGitBaseline {
+                    head_commit: "a".repeat(40),
+                    outside_manifest_digest: "b".repeat(64),
+                },
+                103,
+            )
             .expect("authorized lease");
         assert_eq!(lease.authority_epoch, Some(runtime.epoch()));
         assert_eq!(lease.authorization_id.as_deref(), Some("authorization-1"));
-        assert!(scheduler.claim_authorized(&grant, 103).is_err());
+        assert!(scheduler
+            .claim_authorized(
+                &grant,
+                super::super::scheduler::AdmissionGitBaseline {
+                    head_commit: "a".repeat(40),
+                    outside_manifest_digest: "b".repeat(64),
+                },
+                103,
+            )
+            .is_err());
         let persisted = scheduler.snapshot().expect("snapshot");
         assert!(persisted
             .consumed_authorization_ids

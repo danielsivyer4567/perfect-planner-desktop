@@ -1,14 +1,16 @@
+use super::evidence::EvidenceProfile;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
-const SCHEMA_VERSION: u32 = 3;
+const SCHEMA_VERSION: u32 = 4;
 const MANIFEST_FILE: &str = "manifest.json";
 const AUDIT_FILE: &str = "audit.jsonl";
 const EVENTS_FILE: &str = "events.jsonl";
@@ -53,6 +55,10 @@ pub struct AllowedNodeManifest {
     pub depends_on: Vec<String>,
     pub allowed_files: Vec<PathBuf>,
     pub allowed_resources: Vec<String>,
+    #[serde(default)]
+    pub evidence_profile: EvidenceProfile,
+    #[serde(default)]
+    pub verification_commands: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +75,27 @@ pub struct HotResumeState {
     pub last_completed_step: Option<String>,
     pub locked_files: Vec<PathBuf>,
     pub next_actions: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunAuditEvent {
+    pub event_id: String,
+    pub at_ms: u64,
+    pub kind: String,
+    pub node_id: Option<String>,
+    pub receipt_digest: String,
+    pub details_digest: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunAuditRecord {
+    pub schema_version: u32,
+    pub sequence: u64,
+    pub event: RunAuditEvent,
+    pub previous_hash: String,
+    pub record_hash: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -183,7 +210,15 @@ impl RunScope {
         let stored: AllowedFileManifest = serde_json::from_slice(&bytes)
             .map_err(|error| format!("existing immutable run manifest is invalid: {error}"))?;
         validate_manifest_integrity(&stored)?;
-        let expected = build_manifest(run_id, binding, &stored.baseline_commit)?;
+        let mut expected = build_manifest(run_id, binding, &stored.baseline_commit)?;
+        if stored.schema_version == 3 {
+            expected.schema_version = 3;
+            for node in &mut expected.nodes {
+                node.evidence_profile = EvidenceProfile::Headless;
+                node.verification_commands.clear();
+            }
+            expected.manifest_digest = manifest_digest(&expected)?;
+        }
         if stored != expected {
             return Err(
                 "existing immutable run manifest does not match the requested run scope"
@@ -254,8 +289,80 @@ impl RunScope {
             .map_err(|error| format!("failed to parse hot-resume state: {error}"))
     }
 
+    pub fn append_audit(&self, event: RunAuditEvent) -> Result<RunAuditRecord, String> {
+        validate_id("audit event id", &event.event_id)?;
+        validate_nonempty("audit kind", &event.kind)?;
+        if event.at_ms == 0
+            || !is_digest(&event.receipt_digest)
+            || !is_digest(&event.details_digest)
+        {
+            return Err("audit event has an invalid timestamp or digest".to_string());
+        }
+        if let Some(node_id) = &event.node_id {
+            validate_id("audit node id", node_id)?;
+        }
+        let mut file = open_audit_exclusive(&self.audit_path)?;
+        file.seek(SeekFrom::Start(0))
+            .map_err(|error| format!("cannot seek run audit: {error}"))?;
+        let mut bytes = Vec::new();
+        (&mut file)
+            .take(32 * 1024 * 1024 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("cannot read run audit: {error}"))?;
+        if bytes.len() > 32 * 1024 * 1024 {
+            return Err("run audit exceeds the safety limit".to_string());
+        }
+        let mut records = Vec::new();
+        let mut previous_hash = "0".repeat(64);
+        for (index, line) in bytes.split(|byte| *byte == b'\n').enumerate() {
+            if line.is_empty() {
+                continue;
+            }
+            let record: RunAuditRecord = serde_json::from_slice(line)
+                .map_err(|error| format!("run audit line {} is corrupt: {error}", index + 1))?;
+            if record.schema_version != 1
+                || record.sequence != records.len() as u64 + 1
+                || record.previous_hash != previous_hash
+                || run_audit_hash(&record) != record.record_hash
+            {
+                return Err(format!(
+                    "run audit line {} breaks the hash chain",
+                    index + 1
+                ));
+            }
+            previous_hash = record.record_hash.clone();
+            records.push(record);
+        }
+        if let Some(existing) = records
+            .iter()
+            .find(|record| record.event.event_id == event.event_id)
+        {
+            return if existing.event == event {
+                Ok(existing.clone())
+            } else {
+                Err("audit event ID is already bound to different facts".to_string())
+            };
+        }
+        let mut record = RunAuditRecord {
+            schema_version: 1,
+            sequence: records.len() as u64 + 1,
+            event,
+            previous_hash,
+            record_hash: String::new(),
+        };
+        record.record_hash = run_audit_hash(&record);
+        let mut encoded = serde_json::to_vec(&record)
+            .map_err(|error| format!("cannot encode run audit record: {error}"))?;
+        encoded.push(b'\n');
+        file.seek(SeekFrom::End(0))
+            .and_then(|_| file.write_all(&encoded))
+            .and_then(|_| file.sync_all())
+            .map_err(|error| format!("cannot durably append run audit: {error}"))?;
+        Ok(record)
+    }
+
     fn validate_hot_resume(&self, state: &HotResumeState) -> Result<(), String> {
-        if state.schema_version != SCHEMA_VERSION
+        if state.schema_version != self.manifest.schema_version
             || state.run_id != self.manifest.run_id
             || state.repository_root != self.manifest.repository_root
             || state.worktree_id != self.manifest.worktree_id
@@ -282,6 +389,40 @@ impl RunScope {
             return Err("locked files must be normalized, sorted and unique".to_string());
         }
         Ok(())
+    }
+}
+
+fn run_audit_hash(record: &RunAuditRecord) -> String {
+    let bytes = serde_json::to_vec(&(
+        record.schema_version,
+        record.sequence,
+        &record.event,
+        &record.previous_hash,
+    ))
+    .expect("run audit hash input is serializable");
+    sha256_domain(b"perfect-planner-run-audit-v1\0", &bytes)
+}
+
+fn open_audit_exclusive(path: &Path) -> Result<fs::File, String> {
+    let started = Instant::now();
+    loop {
+        let mut options = OpenOptions::new();
+        options.read(true).append(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options.share_mode(0);
+        }
+        match options.open(path) {
+            Ok(file) => return Ok(file),
+            Err(error)
+                if started.elapsed() < Duration::from_secs(2)
+                    && matches!(error.raw_os_error(), Some(32 | 33)) =>
+            {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(error) => return Err(format!("cannot exclusively open run audit: {error}")),
+        }
     }
 }
 
@@ -377,6 +518,8 @@ fn derive_live_binding(
         depends_on: Vec<String>,
         allowed_files: Vec<PathBuf>,
         allowed_resources: Vec<String>,
+        evidence_profile: EvidenceProfile,
+        verification_commands: Vec<String>,
     }
 
     let mut parsed_nodes = Vec::new();
@@ -427,11 +570,6 @@ fn derive_live_binding(
             node_files.push(PathBuf::from(file));
         }
         let node_files = normalize_allowed_files(&node_files)?;
-        if node_files.is_empty() {
-            return Err(format!(
-                "plan vertebra {id} has an empty allowed-file manifest"
-            ));
-        }
         let resources = item
             .get("resources")
             .and_then(Value::as_array)
@@ -445,6 +583,30 @@ fn derive_live_binding(
             })
             .collect::<Result<Vec<_>, String>>()?;
         let node_resources = normalize_resource_claims(&resources)?;
+        if node_files.is_empty() && node_resources.is_empty() {
+            return Err(format!(
+                "plan vertebra {id} has no bounded file or resource ownership"
+            ));
+        }
+        let checklist = item
+            .get("checklist")
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("plan vertebra {id} has no checklist array"))?;
+        let verification_commands = normalize_verification_commands(
+            &checklist
+                .iter()
+                .filter_map(|entry| entry.get("verify").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect::<Vec<_>>(),
+        )?;
+        let evidence_profile = if checklist
+            .iter()
+            .any(|entry| entry.get("ui").and_then(Value::as_bool) == Some(true))
+        {
+            EvidenceProfile::Ui
+        } else {
+            evidence_profile_for_files(&node_files)
+        };
         allowed_files.extend(node_files.iter().cloned());
         allowed_resources.extend(node_resources.iter().cloned());
         parsed_nodes.push(ParsedNode {
@@ -452,6 +614,8 @@ fn derive_live_binding(
             depends_on,
             allowed_files: node_files,
             allowed_resources: node_resources,
+            evidence_profile,
+            verification_commands,
         });
     }
     let allowed_files = normalize_allowed_files(&allowed_files)?;
@@ -505,6 +669,8 @@ fn derive_live_binding(
             depends_on: node.depends_on,
             allowed_files: node.allowed_files,
             allowed_resources: node.allowed_resources,
+            evidence_profile: node.evidence_profile,
+            verification_commands: node.verification_commands,
         })
         .collect();
 
@@ -574,7 +740,7 @@ fn build_manifest(
 }
 
 fn validate_manifest_integrity(manifest: &AllowedFileManifest) -> Result<(), String> {
-    if manifest.schema_version != SCHEMA_VERSION {
+    if !matches!(manifest.schema_version, 3 | SCHEMA_VERSION) {
         return Err(format!(
             "unsupported immutable run manifest schema {}",
             manifest.schema_version
@@ -613,8 +779,10 @@ fn validate_manifest_integrity(manifest: &AllowedFileManifest) -> Result<(), Str
     for node in &manifest.nodes {
         validate_id("node id", &node.node_id)?;
         if normalize_allowed_files(&node.allowed_files)? != node.allowed_files
-            || node.allowed_files.is_empty()
             || normalize_resource_claims(&node.allowed_resources)? != node.allowed_resources
+            || normalize_verification_commands(&node.verification_commands)?
+                != node.verification_commands
+            || (node.allowed_files.is_empty() && node.allowed_resources.is_empty())
             || node.depends_on.iter().any(|dependency| {
                 dependency == &node.node_id || !node_ids.contains(dependency.as_str())
             })
@@ -631,12 +799,86 @@ fn validate_manifest_integrity(manifest: &AllowedFileManifest) -> Result<(), Str
     Ok(())
 }
 
+fn evidence_profile_for_files(files: &[PathBuf]) -> EvidenceProfile {
+    let normalized = files
+        .iter()
+        .map(|path| {
+            path.to_string_lossy()
+                .replace('\\', "/")
+                .to_ascii_lowercase()
+        })
+        .collect::<Vec<_>>();
+    if normalized.iter().any(|path| {
+        path.ends_with(".tsx")
+            || path.ends_with(".jsx")
+            || path.ends_with(".css")
+            || path.ends_with(".html")
+            || path.contains("/components/")
+    }) {
+        EvidenceProfile::Ui
+    } else if normalized.iter().any(|path| {
+        path.ends_with(".sql") || path.contains("/migrations/") || path.contains("\\migrations\\")
+    }) {
+        EvidenceProfile::Migration
+    } else if !normalized.is_empty()
+        && normalized
+            .iter()
+            .all(|path| path.ends_with(".md") || path.ends_with(".txt"))
+    {
+        EvidenceProfile::Docs
+    } else {
+        EvidenceProfile::Headless
+    }
+}
+
+fn normalize_verification_commands(commands: &[String]) -> Result<Vec<String>, String> {
+    let mut normalized = BTreeSet::new();
+    for command in commands {
+        let value = command.trim();
+        if value.is_empty()
+            || value.len() > 4096
+            || value.chars().any(|character| character.is_control())
+        {
+            return Err(
+                "verification commands must be printable single-line text up to 4096 characters"
+                    .to_string(),
+            );
+        }
+        normalized.insert(value.to_string());
+    }
+    Ok(normalized.into_iter().collect())
+}
+
 fn manifest_digest(manifest: &AllowedFileManifest) -> Result<String, String> {
     let mut unsigned = manifest.clone();
     unsigned.manifest_digest.clear();
-    let bytes = serde_json::to_vec(&unsigned)
-        .map_err(|error| format!("failed to serialize immutable run manifest: {error}"))?;
-    Ok(sha256_domain(b"perfect-planner-run-manifest-v3\0", &bytes))
+    let (domain, bytes) = if manifest.schema_version == 3 {
+        let mut value = serde_json::to_value(&unsigned)
+            .map_err(|error| format!("failed to serialize legacy run manifest: {error}"))?;
+        let nodes = value
+            .get_mut("nodes")
+            .and_then(Value::as_array_mut)
+            .ok_or_else(|| "legacy run manifest has no node array".to_string())?;
+        for node in nodes {
+            let object = node
+                .as_object_mut()
+                .ok_or_else(|| "legacy run manifest contains a non-object node".to_string())?;
+            object.remove("evidenceProfile");
+            object.remove("verificationCommands");
+        }
+        (
+            b"perfect-planner-run-manifest-v3\0".as_slice(),
+            serde_json::to_vec(&value)
+                .map_err(|error| format!("failed to serialize legacy run manifest: {error}"))?,
+        )
+    } else {
+        (
+            b"perfect-planner-run-manifest-v4\0".as_slice(),
+            serde_json::to_vec(&unsigned)
+                .map_err(|error| format!("failed to serialize immutable run manifest: {error}"))?,
+        )
+    };
+    Ok(sha256_domain(domain, &bytes))
 }
 
 fn normalize_resource_claims(resources: &[String]) -> Result<Vec<String>, String> {
@@ -828,6 +1070,22 @@ fn normalize_allowed_files(files: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
         }
         if clean.as_os_str().is_empty() {
             return Err("allowed file must not normalize to an empty path".to_string());
+        }
+        let key = clean
+            .to_string_lossy()
+            .replace('\\', "/")
+            .to_ascii_lowercase();
+        if key == ".git"
+            || key.starts_with(".git/")
+            || key == ".claude/scratch/orchestrator"
+            || key.starts_with(".claude/scratch/orchestrator/")
+            || key == ".claude/scratch/perfect-plan"
+            || key.starts_with(".claude/scratch/perfect-plan/")
+        {
+            return Err(format!(
+                "allowed file {} targets Perfect Planner control state",
+                clean.display()
+            ));
         }
         normalized.insert(clean);
     }
@@ -1035,7 +1293,7 @@ mod tests {
         let manifest: AllowedFileManifest =
             serde_json::from_slice(&fs::read(&scope.manifest_path).unwrap()).unwrap();
         assert_eq!(manifest, scope.manifest);
-        assert_eq!(manifest.schema_version, 3);
+        assert_eq!(manifest.schema_version, 4);
         assert_eq!(manifest.plan_id, "PP-TEST");
         assert!(is_digest(&manifest.worktree_id));
         assert!(is_digest(&manifest.plan_contract_digest));
@@ -1046,6 +1304,11 @@ mod tests {
         assert_eq!(manifest.nodes.len(), 1);
         assert_eq!(manifest.nodes[0].node_id, "B01");
         assert_eq!(manifest.nodes[0].wave, 0);
+        assert_eq!(
+            manifest.nodes[0].evidence_profile,
+            EvidenceProfile::Headless
+        );
+        assert_eq!(manifest.nodes[0].verification_commands, vec!["cargo test"]);
         let resume = scope.read_hot_resume().unwrap();
         assert_eq!(resume.status, "ready");
         assert_eq!(resume.next_actions.len(), 2);
@@ -1115,6 +1378,46 @@ mod tests {
             fs::read_to_string(&scope.audit_path).unwrap(),
             "preserve me"
         );
+    }
+
+    #[test]
+    fn refuses_planner_control_paths_as_worker_owned_files() {
+        let repository = TempRepo::new();
+        for reserved in [
+            ".git/config",
+            ".claude/scratch/orchestrator/run-x/scheduler.json",
+            ".claude/scratch/perfect-plan/other-plan.json",
+        ] {
+            write_plan(&repository.0, "yes @ test", "feature/isolated", reserved);
+            let error = RunScope::create(request(repository.0.clone())).unwrap_err();
+            assert!(error.contains("control state"), "{reserved}: {error}");
+        }
+    }
+
+    #[test]
+    fn safely_reopens_schema_three_runs_without_inventing_verification_evidence() {
+        let repository = TempRepo::new();
+        let scope = RunScope::create(request(repository.0.clone())).unwrap();
+        let mut legacy = scope.manifest.clone();
+        legacy.schema_version = 3;
+        for node in &mut legacy.nodes {
+            node.evidence_profile = EvidenceProfile::Headless;
+            node.verification_commands.clear();
+        }
+        legacy.manifest_digest = manifest_digest(&legacy).unwrap();
+        atomic_write_json(&scope.manifest_path, &legacy).unwrap();
+        let mut resume = scope.read_hot_resume().unwrap();
+        resume.schema_version = 3;
+        resume.manifest_digest = legacy.manifest_digest.clone();
+        atomic_write_json(&scope.hot_resume_path, &resume).unwrap();
+
+        let reopened = RunScope::open(&repository.0, "run-TO-02").unwrap();
+        assert_eq!(reopened.manifest.schema_version, 3);
+        assert_eq!(
+            reopened.manifest.nodes[0].verification_commands,
+            Vec::<String>::new()
+        );
+        assert_eq!(reopened.read_hot_resume().unwrap().schema_version, 3);
     }
 
     #[test]

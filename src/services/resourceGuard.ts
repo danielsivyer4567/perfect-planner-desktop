@@ -17,7 +17,7 @@ const requireFinite = (value: number, field: string): number => {
 
 const validate = (value: ResourceProbeResult): ResourceProbeResult => {
   if (!value || typeof value !== "object") throw new Error("resource probe returned no result");
-  if (value.provider !== "Windows CIM via PowerShell 7") {
+  if (value.provider !== "Windows native system APIs") {
     throw new Error("resource probe returned an unknown provider");
   }
   if (!value.executable?.trim()) throw new Error("resource probe did not identify its executable");

@@ -13,15 +13,22 @@ import {
   OrchestratorEventType,
   OrchestratorSnapshot,
   PipelineRunSummary,
+  PipelineRunStatus,
   PipelineSnapshotSeed,
   PipelineStage,
   PipelineStageId,
   PipelineWarning,
   ScheduledNode,
+  orchestratorApproveRun,
   orchestratorClaim,
+  orchestratorComplete,
   orchestratorConsoleSnapshot,
+  orchestratorCreateRun,
+  orchestratorFail,
   orchestratorHeartbeat,
   orchestratorPreflight,
+  orchestratorReap,
+  orchestratorRunCatalog,
 } from "../services/orchestratorPipeline";
 
 const STAGE_ORDER: Array<{ id: PipelineStageId; label: string }> = [
@@ -46,12 +53,14 @@ type AuditTab = "logs" | "changes";
 export interface PipelineConsoleProps {
   runId?: string;
   repositoryRoot?: string;
+  planPath?: string;
   snapshotSeed?: PipelineSnapshotSeed;
   snapshot?: OrchestratorSnapshot | null;
   pollIntervalMs?: number;
   className?: string;
   onSnapshotChange?: (snapshot: OrchestratorSnapshot) => void;
   onSelectRun?: (run: PipelineRunSummary) => void;
+  onRunCreated?: (scope: { runId: string; repositoryRoot: string }) => void;
   onReviewDecision?: (warning: PipelineWarning) => void;
   onDiagnostic?: (level: "info" | "warning" | "error", message: string) => void;
 }
@@ -109,6 +118,17 @@ function nodeValues(snapshot: OrchestratorSnapshot): ScheduledNode[] {
   return Object.values(snapshot.scheduler.nodes).sort(
     (left, right) => left.wave - right.wave || left.id.localeCompare(right.id)
   );
+}
+
+function comparableWindowsPath(value: string): string {
+  let normalized = value.trim().replace(/\//g, "\\");
+  const lower = normalized.toLocaleLowerCase();
+  if (lower.startsWith("\\\\?\\unc\\")) {
+    normalized = `\\\\${normalized.slice(8)}`;
+  } else if (lower.startsWith("\\\\?\\")) {
+    normalized = normalized.slice(4);
+  }
+  return normalized.replace(/\\/g, "/").replace(/\/+$/, "").toLocaleLowerCase();
 }
 
 function currentAndShelfRuns(
@@ -276,6 +296,7 @@ function PreflightPanel({
   onError?: (message: string) => void;
 }) {
   const report = snapshot.preflight;
+  const approval = snapshot.runApproval;
   const [running, setRunning] = useState(false);
   const inspect = async () => {
     if (!repositoryRoot || !runId || running) return;
@@ -297,7 +318,9 @@ function PreflightPanel({
     >
       <header>
         <h2 id="pp-orch-heading-preflight">Preflight gate</h2>
-        <strong>{report ? labelize(report.disposition) : "Not run"}</strong>
+        <strong>
+          {report ? (snapshot.preflightFresh ? labelize(report.disposition) : "Expired") : "Not run"}
+        </strong>
         <button
           type="button"
           id="pp-orch-btn-run-preflight"
@@ -311,6 +334,20 @@ function PreflightPanel({
         <p id="pp-orch-empty-preflight">Execution remains blocked until preflight is recorded.</p>
       ) : (
         <>
+          {!snapshot.preflightFresh ? (
+            <p id="pp-orch-status-preflight-expired" role="alert">
+              Native preflight has expired. Refresh it and re-approve before admission.
+            </p>
+          ) : approval ? (
+            <p id="pp-orch-status-run-approved">
+              Explicit approval recorded after {approval.collisionAssessments.length} native
+              collision assessment(s). Receipt {approval.approvalDigest.slice(0, 12)}…
+            </p>
+          ) : report.disposition === "ready" ? (
+            <p id="pp-orch-status-run-awaiting-approval">
+              Preflight is ready. Workers remain blocked until you explicitly approve this run.
+            </p>
+          ) : null}
           {report.disposition === "decisionRequired" ? (
             <div id="pp-orch-alert-preflight-decision" role="alert">
               Decision required. Unknown conflicts were not stopped.
@@ -389,6 +426,8 @@ function PreflightPanel({
 
 function NodePanel({
   nodes,
+  approved,
+  preflightFresh,
   repositoryRoot,
   runId,
   busy,
@@ -396,6 +435,8 @@ function NodePanel({
   onError,
 }: {
   nodes: ScheduledNode[];
+  approved: boolean;
+  preflightFresh: boolean;
   repositoryRoot?: string;
   runId?: string;
   busy?: boolean;
@@ -404,14 +445,26 @@ function NodePanel({
 }) {
   const [pending, setPending] = useState<string | null>(null);
   const scoped = Boolean(repositoryRoot && runId);
-  const runNative = async (nodeId: string, kind: "admit" | "heartbeat") => {
+  const runNative = async (
+    node: ScheduledNode,
+    kind: "admit" | "heartbeat" | "complete" | "fail"
+  ) => {
     if (!repositoryRoot || !runId || pending) return;
-    setPending(`${kind}:${nodeId}`);
+    setPending(`${kind}:${node.id}`);
     try {
       if (kind === "admit") {
-        await orchestratorClaim({ repositoryRoot, runId, nodeId });
+        await orchestratorClaim({ repositoryRoot, runId, nodeId: node.id });
+      } else if (kind === "heartbeat") {
+        await orchestratorHeartbeat({ repositoryRoot, runId, nodeId: node.id });
+      } else if (kind === "complete") {
+        await orchestratorComplete({
+          repositoryRoot,
+          runId,
+          nodeId: node.id,
+          artifacts: [],
+        });
       } else {
-        await orchestratorHeartbeat({ repositoryRoot, runId, nodeId });
+        await orchestratorFail({ repositoryRoot, runId, nodeId: node.id });
       }
       onChanged?.();
     } catch (cause) {
@@ -435,6 +488,9 @@ function NodePanel({
           {nodes.map((node) => {
             const token = domToken(node.id);
             const evidence = node.evidence || [];
+            const nativeCompletionSupported =
+              node.profile === "headless" || node.profile === "docs";
+            const verificationConfigured = Boolean(node.verificationCommands?.length);
             return (
       <details
                 className={`pipeline-node pipeline-node-${node.status.toLowerCase()}`}
@@ -487,10 +543,12 @@ function NodePanel({
                         !scoped ||
                         busy ||
                         pending !== null ||
+                        !approved ||
+                        !preflightFresh ||
                         Boolean(node.lease) ||
                         node.status.toLowerCase() !== "ready"
                       }
-                      onClick={() => void runNative(node.id, "admit")}
+                      onClick={() => void runNative(node, "admit")}
                     >
                       {pending === `admit:${node.id}` ? "Admitting…" : "Admit worker"}
                     </button>
@@ -498,14 +556,57 @@ function NodePanel({
                       type="button"
                       id={`pp-orch-btn-heartbeat-${token}`}
                       disabled={!scoped || busy || pending !== null || !node.lease}
-                      onClick={() => void runNative(node.id, "heartbeat")}
+                      onClick={() => void runNative(node, "heartbeat")}
                     >
                       {pending === `heartbeat:${node.id}` ? "Renewing…" : "Heartbeat"}
                     </button>
+                    <button
+                      type="button"
+                      id={`pp-orch-btn-complete-${token}`}
+                      disabled={
+                        !scoped ||
+                        busy ||
+                        pending !== null ||
+                        !node.lease ||
+                        !nativeCompletionSupported ||
+                        !verificationConfigured
+                      }
+                      onClick={() => void runNative(node, "complete")}
+                    >
+                      {pending === `complete:${node.id}` ? "Validating…" : "Validate & complete"}
+                    </button>
+                    <button
+                      type="button"
+                      id={`pp-orch-btn-fail-${token}`}
+                      disabled={!scoped || busy || pending !== null || !node.lease}
+                      onClick={() => void runNative(node, "fail")}
+                    >
+                      {pending === `fail:${node.id}` ? "Recording…" : "Record failure"}
+                    </button>
                     <p>
                       Admission is native-only. The UI names the bound run and node; it cannot
-                      pick a worker id, lease, or clock.
+                      pick a worker id, lease, clock, changed-file list, or verification result.
                     </p>
+                    {!preflightFresh ? (
+                      <p role="status">
+                        Admission is disabled until native preflight is refreshed and this run is
+                        re-approved.
+                      </p>
+                    ) : !approved ? (
+                      <p role="status">Admission is disabled until this exact run is approved.</p>
+                    ) : null}
+                    {!verificationConfigured ? (
+                      <p role="status">
+                        Completion is disabled because this approved node has no verification
+                        command.
+                      </p>
+                    ) : !nativeCompletionSupported ? (
+                      <p role="status">
+                        Completion is disabled for {labelize(node.profile || "unknown")} evidence
+                        until required screenshots or migration proof are attached through a native
+                        evidence picker.
+                      </p>
+                    ) : null}
                   </div>
                   <div>
                     <h3>Allowed files</h3>
@@ -1065,51 +1166,197 @@ function AuditDrawer({ snapshot }: { snapshot: OrchestratorSnapshot }) {
 export function PipelineConsole({
   runId,
   repositoryRoot,
+  planPath,
   snapshotSeed,
   snapshot: suppliedSnapshot,
   pollIntervalMs = 5_000,
   className = "",
   onSnapshotChange,
   onSelectRun,
+  onRunCreated,
   onReviewDecision,
   onDiagnostic,
 }: PipelineConsoleProps) {
   const [loadedSnapshot, setLoadedSnapshot] = useState<OrchestratorSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const refreshRunning = useRef(false);
+  const [creating, setCreating] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [reaping, setReaping] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogRuns, setCatalogRuns] = useState<{
+    active: PipelineRunSummary[];
+    completed: PipelineRunSummary[];
+  }>({ active: [], completed: [] });
+  const catalogGeneration = useRef(0);
+  const catalogRequest = useRef<{ generation: number; key: string } | null>(null);
+  const refreshGeneration = useRef(0);
+  const refreshRequest = useRef<{ generation: number; key: string } | null>(null);
+  const onDiagnosticRef = useRef(onDiagnostic);
+  const onSnapshotChangeRef = useRef(onSnapshotChange);
+  useEffect(() => {
+    onDiagnosticRef.current = onDiagnostic;
+  }, [onDiagnostic]);
+  useEffect(() => {
+    onSnapshotChangeRef.current = onSnapshotChange;
+  }, [onSnapshotChange]);
   const snapshot = suppliedSnapshot === undefined ? loadedSnapshot : suppliedSnapshot;
+  const snapshotOrganizationId = snapshotSeed?.organizationId;
+  const snapshotRepositoryId = snapshotSeed?.repositoryId;
+  const snapshotWorktreePath = snapshotSeed?.worktreePath;
+  const snapshotPlanId = snapshotSeed?.planId;
+  const snapshotTitle = snapshotSeed?.title;
+  const stableSnapshotSeed = useMemo<PipelineSnapshotSeed | undefined>(() => {
+    if (
+      snapshotOrganizationId === undefined &&
+      snapshotRepositoryId === undefined &&
+      snapshotWorktreePath === undefined &&
+      snapshotPlanId === undefined &&
+      snapshotTitle === undefined
+    ) return undefined;
+    return {
+      organizationId: snapshotOrganizationId,
+      repositoryId: snapshotRepositoryId,
+      worktreePath: snapshotWorktreePath,
+      planId: snapshotPlanId,
+      title: snapshotTitle,
+    };
+  }, [
+    snapshotOrganizationId,
+    snapshotPlanId,
+    snapshotRepositoryId,
+    snapshotTitle,
+    snapshotWorktreePath,
+  ]);
+  const catalogScopeKey = `${repositoryRoot ? comparableWindowsPath(repositoryRoot) : ""}\u0000${
+    planPath ? comparableWindowsPath(planPath) : ""
+  }`;
+  const refreshScopeKey = `${catalogScopeKey}\u0000${runId || ""}`;
+  const catalogScopeKeyRef = useRef(catalogScopeKey);
+  const refreshScopeKeyRef = useRef(refreshScopeKey);
+  catalogScopeKeyRef.current = catalogScopeKey;
+  refreshScopeKeyRef.current = refreshScopeKey;
+
+  const loadCatalog = useCallback(async () => {
+    if (!repositoryRoot || catalogRequest.current?.key === catalogScopeKey) return;
+    const generation = ++catalogGeneration.current;
+    catalogRequest.current = { generation, key: catalogScopeKey };
+    setCatalogLoading(true);
+    try {
+      const catalog = await orchestratorRunCatalog({ repositoryRoot });
+      if (
+        catalogScopeKeyRef.current !== catalogScopeKey ||
+        catalogRequest.current?.generation !== generation
+      ) return;
+      const activePlan = planPath ? comparableWindowsPath(planPath) : undefined;
+      const summary = (entry: (typeof catalog.activeRuns)[number]): PipelineRunSummary => {
+        const normalized = entry.status.toLocaleLowerCase();
+        const status: PipelineRunStatus = normalized === "completed"
+          ? "completed"
+          : normalized === "blocked"
+            ? "blocked"
+            : normalized === "running"
+              ? "running"
+              : "pending";
+        return {
+          organizationId: snapshotOrganizationId || "local-machine",
+          repositoryId: snapshotRepositoryId || repositoryRoot,
+          repositoryRoot,
+          worktreePath: repositoryRoot,
+          branch: entry.branch,
+          runId: entry.runId,
+          planId: entry.planId,
+          title: entry.planId || entry.runId,
+          status,
+          completedNodes: entry.completedNodes,
+          totalNodes: entry.totalNodes,
+          updatedAt: new Date(entry.updatedAt).toISOString(),
+        };
+      };
+      const belongsToPlan = (entry: (typeof catalog.activeRuns)[number]) =>
+        !activePlan || comparableWindowsPath(entry.planPath) === activePlan;
+      setCatalogRuns({
+        active: catalog.activeRuns.filter(belongsToPlan).map(summary),
+        completed: catalog.archivedRuns.filter(belongsToPlan).map(summary),
+      });
+    } catch (cause) {
+      if (
+        catalogScopeKeyRef.current !== catalogScopeKey ||
+        catalogRequest.current?.generation !== generation
+      ) return;
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      onDiagnosticRef.current?.("error", message);
+    } finally {
+      if (catalogRequest.current?.generation === generation) {
+        catalogRequest.current = null;
+        setCatalogLoading(false);
+      }
+    }
+  }, [
+    catalogScopeKey,
+    planPath,
+    repositoryRoot,
+    snapshotOrganizationId,
+    snapshotRepositoryId,
+  ]);
+
+  useEffect(() => {
+    catalogGeneration.current += 1;
+    catalogRequest.current = null;
+    setCatalogLoading(false);
+    setCatalogRuns({ active: [], completed: [] });
+  }, [catalogScopeKey]);
+
+  useEffect(() => {
+    if (repositoryRoot && !runId) void loadCatalog();
+  }, [loadCatalog, repositoryRoot, runId]);
 
   const refresh = useCallback(async () => {
-    if (!runId || !repositoryRoot || refreshRunning.current) {
+    if (!runId || !repositoryRoot) {
       if (!repositoryRoot) setError("Select a repository before requesting an orchestrator snapshot.");
       else if (!runId) setError(null);
       return;
     }
-    refreshRunning.current = true;
+    if (refreshRequest.current?.key === refreshScopeKey) return;
+    const generation = ++refreshGeneration.current;
+    refreshRequest.current = { generation, key: refreshScopeKey };
     setLoading(true);
     try {
       const next = await orchestratorConsoleSnapshot(
         { repositoryRoot, runId },
-        snapshotSeed
+        stableSnapshotSeed
       );
+      if (
+        refreshScopeKeyRef.current !== refreshScopeKey ||
+        refreshRequest.current?.generation !== generation
+      ) return;
       setLoadedSnapshot(next);
-      onSnapshotChange?.(next);
+      onSnapshotChangeRef.current?.(next);
       setError(null);
-      onDiagnostic?.("info", `Verified orchestrator snapshot ${next.run.runId}.`);
+      onDiagnosticRef.current?.("info", `Verified orchestrator snapshot ${next.run.runId}.`);
     } catch (cause) {
+      if (
+        refreshScopeKeyRef.current !== refreshScopeKey ||
+        refreshRequest.current?.generation !== generation
+      ) return;
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
-      onDiagnostic?.("error", message);
+      onDiagnosticRef.current?.("error", message);
     } finally {
-      refreshRunning.current = false;
-      setLoading(false);
+      if (refreshRequest.current?.generation === generation) {
+        refreshRequest.current = null;
+        setLoading(false);
+      }
     }
-  }, [onDiagnostic, onSnapshotChange, repositoryRoot, runId, snapshotSeed]);
+  }, [refreshScopeKey, repositoryRoot, runId, stableSnapshotSeed]);
 
   useEffect(() => {
     if (!runId) {
+      refreshGeneration.current += 1;
+      refreshRequest.current = null;
       setLoadedSnapshot(null);
+      setLoading(false);
       setError(null);
       return;
     }
@@ -1130,6 +1377,69 @@ export function PipelineConsole({
     () => (snapshot ? currentAndShelfRuns(snapshot, "completed") : []),
     [snapshot]
   );
+
+  const createRun = useCallback(async () => {
+    if (!repositoryRoot || !planPath || creating) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const runId = `run-${Date.now().toString(36)}`;
+      await orchestratorCreateRun({
+        repositoryRoot,
+        runId,
+        planPath,
+        nextActions: [
+          "Run the native system and collision preflight",
+          "Admit one dependency-ready worker through the native scheduler",
+          "Validate and durably record evidence before completion",
+        ],
+      });
+      onRunCreated?.({ repositoryRoot, runId });
+      onDiagnostic?.("info", `Created native orchestrator run ${runId}.`);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      onDiagnostic?.("error", message);
+    } finally {
+      setCreating(false);
+    }
+  }, [creating, onDiagnostic, onRunCreated, planPath, repositoryRoot]);
+
+  const reapExpired = useCallback(async () => {
+    if (!repositoryRoot || !runId || reaping) return;
+    setReaping(true);
+    try {
+      const actions = await orchestratorReap({ repositoryRoot, runId });
+      onDiagnostic?.("info", `Native lease reaper recorded ${actions.length} action(s).`);
+      await refresh();
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      onDiagnostic?.("error", message);
+    } finally {
+      setReaping(false);
+    }
+  }, [onDiagnostic, reaping, refresh, repositoryRoot, runId]);
+
+  const approveRun = useCallback(async () => {
+    if (!repositoryRoot || !runId || approving) return;
+    setApproving(true);
+    setError(null);
+    try {
+      const receipt = await orchestratorApproveRun({ repositoryRoot, runId });
+      onDiagnostic?.(
+        "info",
+        `Approved ${receipt.collisionAssessments.length} node(s) under native collision census.`
+      );
+      await refresh();
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      onDiagnostic?.("error", message);
+    } finally {
+      setApproving(false);
+    }
+  }, [approving, onDiagnostic, refresh, repositoryRoot, runId]);
 
   return (
     <section
@@ -1152,15 +1462,68 @@ export function PipelineConsole({
               : "No run snapshot loaded"}
           </p>
         </div>
-        <button
-          type="button"
-          id="pp-orch-btn-refresh-pipeline"
-          onClick={() => void refresh()}
-          disabled={!runId || !repositoryRoot || loading}
-          aria-describedby={error ? "pp-orch-error-pipeline" : undefined}
-        >
-          {loading ? "Refreshing…" : "Refresh pipeline"}
-        </button>
+        <div className="pipeline-console-header-actions">
+          {repositoryRoot && planPath && !runId ? (
+            <button
+              type="button"
+              id="pp-orch-btn-create-run"
+              onClick={() => void createRun()}
+              disabled={creating}
+              aria-describedby={error ? "pp-orch-error-pipeline" : undefined}
+            >
+              {creating ? "Creating…" : "Create native run"}
+            </button>
+          ) : null}
+          {repositoryRoot && !runId ? (
+            <button
+              type="button"
+              id="pp-orch-btn-load-runs"
+              onClick={() => void loadCatalog()}
+              disabled={catalogLoading}
+            >
+              {catalogLoading ? "Loading…" : "Load saved runs"}
+            </button>
+          ) : null}
+          {repositoryRoot && runId ? (
+            <button
+              type="button"
+              id="pp-orch-btn-approve-run"
+              onClick={() => void approveRun()}
+              disabled={
+                loading ||
+                approving ||
+                Boolean(snapshot?.runApproval) ||
+                !snapshot?.preflightFresh ||
+                snapshot?.preflight?.disposition !== "ready"
+              }
+            >
+              {snapshot?.runApproval
+                ? "Run approved"
+                : approving
+                  ? "Approving…"
+                  : "Approve run"}
+            </button>
+          ) : null}
+          {repositoryRoot && runId ? (
+            <button
+              type="button"
+              id="pp-orch-btn-reap-expired"
+              onClick={() => void reapExpired()}
+              disabled={loading || reaping}
+            >
+              {reaping ? "Recovering…" : "Recover expired leases"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            id="pp-orch-btn-refresh-pipeline"
+            onClick={() => void refresh()}
+            disabled={!runId || !repositoryRoot || loading}
+            aria-describedby={error ? "pp-orch-error-pipeline" : undefined}
+          >
+            {loading ? "Refreshing…" : "Refresh pipeline"}
+          </button>
+        </div>
       </header>
 
       {error ? (
@@ -1177,10 +1540,26 @@ export function PipelineConsole({
               <span>No verified orchestrator run is bound to the selected Perfect Plan.</span>
               <dl>
                 <div><dt>Where</dt><dd>{repositoryRoot}</dd></div>
-                <div><dt>Remedy</dt><dd>Start an orchestrator run or explicitly select a recorded run. Plan IDs are never guessed as run IDs.</dd></div>
+                <div><dt>Remedy</dt><dd>Create a native run or explicitly select a recorded run. Plan IDs are never guessed as run IDs.</dd></div>
               </dl>
             </>
           ) : "No evidence is displayed because no verified pipeline snapshot is available."}
+          {catalogRuns.active.length || catalogRuns.completed.length ? (
+            <div className="pipeline-shelves" id="pp-orch-region-saved-run-shelves">
+              <RunShelf
+                id="active"
+                title="Saved in progress"
+                runs={catalogRuns.active}
+                onSelectRun={onSelectRun}
+              />
+              <RunShelf
+                id="completed"
+                title="Saved completed"
+                runs={catalogRuns.completed}
+                onSelectRun={onSelectRun}
+              />
+            </div>
+          ) : null}
         </div>
       ) : (
         <>
@@ -1257,6 +1636,8 @@ export function PipelineConsole({
           />
           <NodePanel
             nodes={nodes}
+            approved={Boolean(snapshot.runApproval)}
+            preflightFresh={snapshot.preflightFresh}
             repositoryRoot={repositoryRoot}
             runId={runId}
             busy={loading}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-orchestrator-fail-worker"
+description = "Enables the orchestrator_fail_worker command without any pre-configured scope."
+commands.allow = ["orchestrator_fail_worker"]
+
+[[permission]]
+identifier = "deny-orchestrator-fail-worker"
+description = "Denies the orchestrator_fail_worker command without any pre-configured scope."
+commands.deny = ["orchestrator_fail_worker"]

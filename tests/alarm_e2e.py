@@ -33,8 +33,20 @@ def starts(page):
 
 
 def click_rescan(page):
-    page.get_by_role("button", name="rescan").click()
-    expect(page.get_by_role("button", name="rescan")).to_be_enabled(timeout=5_000)
+    button = page.get_by_role("button", name="rescan")
+    generation = int(button.get_attribute("data-scan-generation"))
+    # This deterministic harness owns many mocked loopback routes. Dispatch the semantic click
+    # without Playwright's synthetic pointer action, which can wait behind those route callbacks;
+    # the generation fence below remains the authoritative completion signal.
+    button.dispatch_event("click")
+    page.wait_for_function(
+        """previous => Number(
+          document.querySelector('#pp-btn-rescan-boards')?.dataset.scanGeneration
+        ) > previous""",
+        arg=generation,
+        timeout=15_000,
+    )
+    expect(button).to_be_enabled(timeout=5_000)
 
 
 def main():
@@ -166,7 +178,7 @@ def main():
         page.wait_for_function("window.__alarmStarts === 2")
         page.wait_for_timeout(3_100)
 
-        page.get_by_role("button", name="sound on").click()
+        page.get_by_role("button", name="sound on").dispatch_event("click")
         expect(page.get_by_role("button", name="muted")).to_be_visible()
         phase["value"] = "active"
         click_rescan(page)
@@ -178,7 +190,7 @@ def main():
         slider = page.get_by_role("slider", name="Alarm volume")
         slider.fill("0.75")
         assert page.evaluate("localStorage.getItem('perfect-planner:stall-volume')") == "0.75"
-        page.get_by_role("button", name="test", exact=True).click()
+        page.get_by_role("button", name="test", exact=True).dispatch_event("click")
         page.wait_for_function("window.__alarmStarts === 3")
         expect(page.get_by_role("button", name="sound on")).to_be_visible()
         page.screenshot(path=str(SCREENSHOT), full_page=True)

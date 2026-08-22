@@ -671,7 +671,7 @@ export function OrchestratorMessenger({
             </div>
           );
         })}
-        {!workers.length ? <p id="pp-empty-orchestrator-workers">No workers are registered in this scope.</p> : null}
+        {!workers.length ? <p id="pp-empty-orchestrator-workers">No messaging destinations are registered in this scope.</p> : null}
       </div>
 
       <div className="orchestrator-delivery-state-legend" id="pp-legend-orchestrator-delivery-states" aria-label="Delivery state legend">

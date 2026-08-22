@@ -1,5 +1,7 @@
 //! Durable, non-writing reservations made before a worker receives edit authority.
 
+#![allow(clippy::items_after_test_module)]
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -340,6 +342,7 @@ fn open_lock(path: &Path) -> std::io::Result<File> {
     use std::os::windows::fs::OpenOptionsExt;
     OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .share_mode(0)

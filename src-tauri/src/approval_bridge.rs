@@ -117,6 +117,8 @@ struct ApprovalOutboxRecord {
     rename_all = "SCREAMING_SNAKE_CASE",
     rename_all_fields = "camelCase"
 )]
+// Boxing would change the durable JSON event model for no safety benefit; records are bounded.
+#[allow(clippy::large_enum_variant)]
 enum ApprovalBridgeEventKind {
     RouteRegistered {
         route: RegisteredApprovalRoute,
