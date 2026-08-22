@@ -1,0 +1,40 @@
+# perfect-planning proof artifact
+item: B22:2 — Keep the actor lightweight, keyboard and screen-reader legible, responsive and motion-reduced, then capture and inspect a high-resolution top-down proof
+command: npm run build
+cwd: C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935
+exit: 0
+duration_ms: 2911
+at: 2026-08-22T05:52:48.971Z
+git: 17c4fd87989a7a71fc1ddf1af20053272dd014bb (feature/tauri-orchestrator-messaging-20260821-223935, dirty)
+shot: PP-002-B22-2-1787377965520.png
+shot_note: Viewed at 3x under reduced-motion: character edges, radio, speech pointer, worker relationship and top-strip spacing are crisp and readable without animation.
+shot_check: ok (4320x2700, blankScore 0.3807)
+before_shot: PP-002-B22-baseline-1787377644364.before.png
+before_shot_note: Viewed at 3x: the current top strip shows only a small circular target mark, no physical ORCH character and no speech cloud; worker reports sit in a disconnected row below.
+before_shot_check: ok (4320x2700, blankScore 0.2538)
+before_ocr: PP-002-B22-baseline-1787377644364.before.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 82, 4100ms)
+before_ocr_alarms: none
+after_ocr: PP-002-B22-2-1787377965520.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 71, 2699ms)
+after_ocr_alarms: none
+diff: PP-002-B22-2-1787377965520.diff
+diff_baseline: 72da40811263969cce1ecd230d36e81c454eaeb6
+
+## stdout
+
+> perfect-planner-desktop@1.0.0 build
+> tsc && vite build
+
+vite v8.2.2 building client environment for production...
+transforming...
+✓ 1588 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.47 kB │ gzip:  0.31 kB
+dist/assets/index-CADCZZdV.css   43.46 kB │ gzip: 10.17 kB
+dist/assets/core-CwxXejkd.js      0.09 kB │ gzip:  0.10 kB
+dist/assets/index-BQ5Ou_f9.js   245.65 kB │ gzip: 75.94 kB
+
+✓ built in 599ms
+
+## stderr
+(empty)

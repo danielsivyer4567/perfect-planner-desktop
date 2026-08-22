@@ -1,0 +1,461 @@
+diff --git a/src/App.tsx b/src/App.tsx
+index e72843c..2a985f1 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -60,6 +60,61 @@ interface WorkerReport {
+   fence: number;
+ }
+ 
++type HeadOrchestratorActorState = "working" | "holding" | "standby" | "stopped";
++
++interface HeadOrchestratorActorProps {
++  entityId: string;
++  state: HeadOrchestratorActorState;
++  speech: string;
++}
++
++const HeadOrchestratorActor: React.FC<HeadOrchestratorActorProps> = ({
++  entityId,
++  state,
++  speech,
++}) => (
++  <div
++    className={`head-orchestrator-command-post ${state}`}
++    data-speaking-to="pp-list-worker-reports"
++    data-delivery="visual-status-only"
++  >
++    <div
++      id="pp-entity-head-orchestrator-character"
++      className="head-orchestrator-character"
++      data-orchestrator-id={entityId || "unassigned"}
++      data-role="head-orchestrator-character"
++      role="img"
++      aria-label={`Head orchestrator character, ${state}`}
++    >
++      <svg viewBox="0 0 68 82" aria-hidden="true" focusable="false">
++        <path className="orch-antenna" d="M34 10V4M28 4h12" />
++        <rect className="orch-head" x="11" y="11" width="46" height="31" rx="5" />
++        <rect className="orch-eye" x="20" y="21" width="7" height="7" rx="1" />
++        <rect className="orch-eye" x="41" y="21" width="7" height="7" rx="1" />
++        <path className="orch-mouth" d="M24 34h20" />
++        <path className="orch-body" d="M20 46h28v21H20z" />
++        <path className="orch-arm" d="M20 50 10 60M48 50l9 7" />
++        <path className="orch-leg" d="M27 67v9h-8M41 67v9h8" />
++        <rect className="orch-radio" x="52" y="50" width="9" height="15" rx="2" />
++        <path className="orch-radio-aerial" d="m57 50 3-7" />
++        <circle className="orch-radio-light" cx="56.5" cy="54.5" r="1.5" />
++      </svg>
++      <span>ORCH</span>
++    </div>
++    <div
++      id="pp-status-head-orchestrator-speech"
++      className="head-orchestrator-speech"
++      role="status"
++      aria-live="polite"
++      aria-atomic="true"
++    >
++      <span>HEAD ORCH → WORKERS</span>
++      <strong>{speech}</strong>
++      <small>visual status · delivered messages appear below</small>
++    </div>
++  </div>
++);
++
+ function storedSoundEnabled(): boolean {
+   try {
+     return localStorage.getItem(SOUND_KEY) !== "off";
+@@ -378,6 +433,26 @@ export const App: React.FC = () => {
+       lease.disposition === "CLEARED" &&
+       (!activeRepository || lease.organizationId === activeRepository.id)
+   ).length || 0;
++  const headActorState: HeadOrchestratorActorState = identityError || supervisorError
++    ? "stopped"
++    : decisionBoards.length || scopedStalled
++      ? "holding"
++      : activeWorkers
++        ? "working"
++        : "standby";
++  const headActorSpeech = identityError
++    ? "STOP. Identity is not proven; no worker may proceed."
++    : supervisorError
++      ? "STOP. Worker supervision is offline; claims remain blocked."
++      : decisionBoards.length
++        ? `Hold the route. ${decisionBoards.length} decision${decisionBoards.length === 1 ? "" : "s"} need Daniel.`
++        : scopedStalled
++          ? `Hold position. ${scopedStalled} worker${scopedStalled === 1 ? " is" : "s are"} inside the grace check.`
++          : activeWorkers
++            ? `Keep moving clockwise. ${activeWorkers} active worker${activeWorkers === 1 ? "" : "s"}; report after each node.`
++            : scannedOnce
++              ? "Standing by. No worker claims are reporting in this repository."
++              : "Checking the fleet before any worker is admitted.";
+   const controlPlaneScope = useMemo<ControlPlaneScope | null>(() => {
+     if (!active || !activeRepository || !orchestratorId) return null;
+     const normalizedPlanPath = active.planPath.replace(/\\/g, "/");
+@@ -729,7 +804,11 @@ export const App: React.FC = () => {
+           aria-label="Head orchestrator"
+         >
+           <div className="orchestrator-head">
+-            <span className="head-mark" aria-hidden="true">◎</span>
++            <HeadOrchestratorActor
++              entityId={orchestratorId || ""}
++              state={headActorState}
++              speech={headActorSpeech}
++            />
+             <span className="head-copy">
+               <span className="head-eyebrow">
+                 HEAD ORCHESTRATOR · REPOSITORY {activeRepositoryCallSign} · {pipelineRepositoryLabel}
+diff --git a/src/index.css b/src/index.css
+index 56eb79e..6980681 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -616,24 +616,168 @@ body {
+ }
+ 
+ .orchestrator-head {
+-  min-height: 48px;
++  min-height: 94px;
+   display: flex;
+   align-items: center;
+   gap: 12px;
+-  padding: 7px 14px 5px;
++  padding: 9px 14px 7px;
+ }
+ 
+-.head-mark {
++.head-orchestrator-command-post {
++  position: relative;
+   display: grid;
+-  place-items: center;
+-  width: 30px;
+-  height: 30px;
++  width: min(330px, 31vw);
++  min-width: 260px;
++  grid-template-columns: 64px minmax(0, 1fr);
++  align-items: center;
++  gap: 10px;
+   flex: none;
+-  border: 1px solid #9bb1a0;
+-  border-radius: 50%;
+-  color: #b9d1be;
+-  font: 20px/1 var(--mono);
+-  box-shadow: 0 0 0 3px rgba(155, 177, 160, 0.12);
++}
++
++.head-orchestrator-command-post::after {
++  position: absolute;
++  bottom: -18px;
++  left: 31px;
++  width: 1px;
++  height: 15px;
++  content: "";
++  background: linear-gradient(#b9d1be, rgba(185, 209, 190, 0.08));
++}
++
++.head-orchestrator-character {
++  --orch-actor: #dce8df;
++  --orch-actor-dark: #17231c;
++  position: relative;
++  display: grid;
++  width: 64px;
++  min-height: 76px;
++  place-items: center;
++  align-content: center;
++  color: var(--orch-actor);
++  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.28));
++  transform-origin: 50% 100%;
++}
++
++.head-orchestrator-character svg {
++  display: block;
++  width: 53px;
++  height: 64px;
++  overflow: visible;
++}
++
++.head-orchestrator-character > span {
++  position: absolute;
++  bottom: 1px;
++  padding: 1px 4px;
++  border: 1px solid rgba(185, 209, 190, 0.48);
++  border-radius: 2px;
++  color: #f7f4ec;
++  background: #27312b;
++  font: 900 7px var(--mono);
++  letter-spacing: 1px;
++}
++
++.orch-head,
++.orch-body,
++.orch-radio {
++  fill: var(--orch-actor-dark);
++  stroke: var(--orch-actor);
++  stroke-width: 2.5;
++}
++
++.orch-eye,
++.orch-radio-light {
++  fill: var(--orch-actor);
++}
++
++.orch-antenna,
++.orch-mouth,
++.orch-arm,
++.orch-leg,
++.orch-radio-aerial {
++  fill: none;
++  stroke: var(--orch-actor);
++  stroke-width: 2.5;
++  stroke-linecap: square;
++  stroke-linejoin: round;
++}
++
++.head-orchestrator-command-post.working .head-orchestrator-character {
++  animation: head-orchestrator-watch 3.8s ease-in-out infinite;
++}
++
++.head-orchestrator-command-post.holding .head-orchestrator-character {
++  --orch-actor: #f1cb79;
++}
++
++.head-orchestrator-command-post.stopped .head-orchestrator-character {
++  --orch-actor: #ff9b96;
++}
++
++.head-orchestrator-command-post.standby .head-orchestrator-character {
++  opacity: 0.82;
++}
++
++.head-orchestrator-speech {
++  position: relative;
++  display: grid;
++  min-width: 0;
++  gap: 3px;
++  padding: 8px 10px;
++  border: 1px solid rgba(185, 209, 190, 0.58);
++  border-radius: 10px 10px 10px 3px;
++  color: #1d2a22;
++  background: #eef3ef;
++  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.2);
++}
++
++.head-orchestrator-speech::before {
++  position: absolute;
++  top: 24px;
++  left: -8px;
++  width: 13px;
++  height: 13px;
++  content: "";
++  border-bottom: 1px solid rgba(185, 209, 190, 0.58);
++  border-left: 1px solid rgba(185, 209, 190, 0.58);
++  background: #eef3ef;
++  transform: rotate(45deg);
++}
++
++.head-orchestrator-speech > span {
++  color: #4c6954;
++  font: 900 7px var(--mono);
++  letter-spacing: 0.9px;
++}
++
++.head-orchestrator-speech strong {
++  color: #17231c;
++  font: 750 9px/1.35 var(--mono);
++}
++
++.head-orchestrator-speech small {
++  color: #69776d;
++  font: 7px/1.25 var(--mono);
++}
++
++.head-orchestrator-command-post.holding .head-orchestrator-speech {
++  border-color: #d2a74b;
++  background: #fff5db;
++}
++
++.head-orchestrator-command-post.holding .head-orchestrator-speech::before {
++  border-color: #d2a74b;
++  background: #fff5db;
++}
++
++.head-orchestrator-command-post.stopped .head-orchestrator-speech {
++  border-color: #c86c66;
++  background: #ffe9e7;
++}
++
++.head-orchestrator-command-post.stopped .head-orchestrator-speech::before {
++  border-color: #c86c66;
++  background: #ffe9e7;
+ }
+ 
+ .head-copy {
+@@ -698,13 +842,18 @@ body {
+ }
+ 
+ .worker-wire::before {
+-  content: "REPORTS";
++  content: "CLOCKWISE WORKERS ↑ ORCH";
+   flex: none;
+   color: #7f9384;
+   font: 800 7.5px var(--mono);
+   letter-spacing: 0.6px;
+ }
+ 
++@keyframes head-orchestrator-watch {
++  0%, 30%, 100% { transform: translateX(0); }
++  45%, 65% { transform: translateX(3px); }
++}
++
+ .worker-report,
+ .decision-report {
+   flex: none;
+@@ -880,7 +1029,8 @@ body {
+ }
+ 
+ @media (prefers-reduced-motion: reduce) {
+-  .looplet-live-feed-mark::after { animation: none; }
++  .looplet-live-feed-mark::after,
++  .head-orchestrator-character { animation: none !important; }
+ }
+ 
+ .orchestrator-messenger-title {
+@@ -1211,6 +1361,15 @@ body {
+ }
+ 
+ @media (max-width: 1050px) {
++  .orchestrator-head {
++    align-items: flex-start;
++    flex-wrap: wrap;
++  }
++
++  .head-orchestrator-command-post {
++    width: min(100%, 360px);
++  }
++
+   .orchestrator-messenger {
+     grid-template-columns: 1fr;
+   }
+diff --git a/tests/head_orchestrator_character_e2e.py b/tests/head_orchestrator_character_e2e.py
+new file mode 100644
+index 0000000..049c062
+--- /dev/null
++++ b/tests/head_orchestrator_character_e2e.py
+@@ -0,0 +1,119 @@
++from pathlib import Path
++from urllib.parse import urlparse
++
++from playwright.sync_api import expect, sync_playwright
++
++
++ROOT = Path(__file__).resolve().parents[1]
++APP_URL = "http://127.0.0.1:5180/"
++PLAN_PATH = r"C:\fixtures\head-orchestrator-character.json"
++SCREENSHOT = ROOT / "artifacts" / "head-orchestrator-character-3x.png"
++
++
++def main() -> None:
++    SCREENSHOT.parent.mkdir(parents=True, exist_ok=True)
++    with sync_playwright() as playwright:
++        browser = playwright.chromium.launch(channel="chrome", headless=True)
++        context = browser.new_context(
++            viewport={"width": 1440, "height": 900},
++            device_scale_factor=3,
++            reduced_motion="reduce",
++        )
++        page = context.new_page()
++        console_errors: list[str] = []
++        page.on(
++            "console",
++            lambda message: console_errors.append(message.text)
++            if message.type == "error"
++            else None,
++        )
++
++        def mock_probe(route) -> None:
++            parsed = urlparse(route.request.url)
++            pieces = parsed.path.strip("/").split("/")
++            if len(pieces) != 3 or pieces[0] != "board-probe" or pieces[1] != "5232":
++                route.fulfill(status=200, json={"ok": False})
++                return
++            if pieces[2] == "whoami":
++                route.fulfill(
++                    status=200,
++                    json={
++                        "ok": True,
++                        "planPath": PLAN_PATH,
++                        "number": "PP-ORCH",
++                        "topic": "Physical head orchestrator",
++                        "project": "Perfect Planner Desktop",
++                        "repoName": "Perfect Planner Desktop",
++                        "repoRoot": str(ROOT),
++                        "branch": "feature/head-orchestrator-character",
++                        "approved": "yes @ test",
++                        "awaiting": None,
++                        "port": 5232,
++                        "pid": 22022,
++                    },
++                )
++                return
++            route.fulfill(
++                status=200,
++                json={
++                    "asOf": "2026-08-22T05:50:00.000Z",
++                    "activeWindowMs": 600000,
++                    "workers": {
++                        "B22": {"vertebra": "B22", "session": "s-actor", "state": "ACTIVE"},
++                        "B15": {"vertebra": "B15", "session": "s-bridge", "state": "ACTIVE"},
++                    },
++                },
++            )
++
++        page.route("**/board-probe/**", mock_probe)
++        page.route("http://127.0.0.1:5232/", lambda route: route.fulfill(body="<html></html>"))
++        page.goto(APP_URL)
++        page.wait_for_load_state("networkidle")
++
++        head = page.locator("#pp-entity-head-orchestrator")
++        actor = page.locator("#pp-entity-head-orchestrator-character")
++        speech = page.locator("#pp-status-head-orchestrator-speech")
++        worker_route = page.locator("#pp-list-worker-reports")
++        spinner = page.locator("#pp-status-looplet-live-feed")
++
++        expect(head).to_be_visible()
++        expect(actor).to_be_visible()
++        expect(actor).to_have_attribute("data-role", "head-orchestrator-character")
++        expect(actor).to_have_attribute("data-orchestrator-id", head.get_attribute("data-entity-id"))
++        expect(actor).to_have_attribute("aria-label", "Head orchestrator character, working")
++        expect(speech).to_contain_text("HEAD ORCH → WORKERS")
++        expect(speech).to_contain_text("Keep moving clockwise. 2 active workers")
++        expect(worker_route).to_be_visible()
++        expect(spinner).to_be_visible()
++
++        assert actor.locator("svg").count() == 1, "the ORCH actor is not a physical character glyph"
++        assert actor.locator(".orch-radio").count() == 1, "the ORCH actor lost its radio"
++        assert spinner.locator("#pp-entity-head-orchestrator-character").count() == 0, (
++            "the Looplet feed spinner was still being used as the head orchestrator"
++        )
++        assert page.locator("[data-speaking-to='pp-list-worker-reports']").count() == 1
++
++        actor_box = actor.bounding_box()
++        route_box = worker_route.bounding_box()
++        assert actor_box and route_box
++        assert actor_box["y"] + actor_box["height"] <= route_box["y"], (
++            "the head orchestrator character is not physically above the worker route"
++        )
++        assert page.evaluate(
++            "getComputedStyle(document.querySelector('#pp-entity-head-orchestrator-character')).animationName"
++        ) == "none", "reduced-motion did not stop the actor animation"
++        assert not console_errors, f"browser console errors: {console_errors}"
++
++        page.screenshot(path=str(SCREENSHOT), full_page=False)
++        image_size = SCREENSHOT.stat().st_size
++        assert image_size > 100_000, f"3x screenshot is unexpectedly small: {image_size} bytes"
++
++        context.close()
++        browser.close()
++
++    print("head orchestrator character e2e: 1 scenario passed")
++    print(f"screenshot: {SCREENSHOT}")
++
++
++if __name__ == "__main__":
++    main()

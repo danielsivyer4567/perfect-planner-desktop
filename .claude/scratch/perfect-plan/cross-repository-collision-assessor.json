@@ -5839,7 +5839,7 @@
       "spineId": "P5",
       "side": "L",
       "title": "Physical head-orchestrator character post",
-      "status": "in-progress",
+      "status": "done",
       "dependsOn": [
         "B15"
       ],
@@ -5860,24 +5860,529 @@
       "checklist": [
         {
           "text": "Place one unmistakable physical head-orchestrator character above the clockwise worker route, separate from the Looplet feed-status spinner and carrying its own stable entity identity",
-          "built": false,
-          "tested": false,
+          "built": true,
+          "tested": true,
           "verify": "python tests/head_orchestrator_character_e2e.py",
-          "ui": true
+          "ui": true,
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-c09b7ce7",
+            "at": "2026-08-22T05:52:08.150Z",
+            "git": {
+              "sha": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 5000,
+            "loc": {
+              "baseline": "72da40811263969cce1ecd230d36e81c454eaeb6",
+              "scope": "files",
+              "added": 371,
+              "removed": 14,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "src/App.tsx",
+                  "added": 80,
+                  "removed": 1
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 172,
+                  "removed": 13
+                },
+                {
+                  "file": "tests/head_orchestrator_character_e2e.py",
+                  "added": 119,
+                  "removed": 0
+                }
+              ],
+              "fileCount": 3,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "frontend-design",
+              "autopro"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T05:52:33.742Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-c09b7ce7",
+            "note": "ran `python tests/head_orchestrator_character_e2e.py` → exit 0 in 2306ms",
+            "log": "PP-002-B22-0-1787377950539.log",
+            "sha256": "7891aedbd82e2986c23c3f9562ae66595e069dbab1580b0a5593dd94a49fc1f3",
+            "exit": 0,
+            "durationMs": 2306,
+            "git": {
+              "sha": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "python tests/head_orchestrator_character_e2e.py",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-002-B22-baseline-1787377644364.before.png",
+            "beforeScreenshotSha256": "c14b731fcd568dd50588d6e608591139cad6b437fd15572c43f3b52850909138",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.2538,
+              "uniqueColors": 640,
+              "stddev": {
+                "r": 88.621,
+                "g": 83.43,
+                "b": 83.448
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Viewed at 3x: the current top strip shows only a small circular target mark, no physical ORCH character and no speech cloud; worker reports sit in a disconnected row below.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B22-baseline-1787377644364.before.png",
+              "textArtifact": "PP-002-B22-baseline-1787377644364.before.ocr.txt",
+              "textSha256": "1f81df546e310317d245c5f1d550626c309f69626d23d5cf7c33e29fb7440ff4",
+              "confidence": 82,
+              "durationMs": 4100,
+              "rssStartBytes": 65863680,
+              "rssEndBytes": 94998528,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B22-0-1787377950539.png",
+              "textArtifact": "PP-002-B22-0-1787377950539.ocr.txt",
+              "textSha256": "d2280d97b5558c9b13b6a2e200cfcc15518160fa0c24d967eaf1b7dcfe31cf18",
+              "confidence": 71,
+              "durationMs": 2724,
+              "rssStartBytes": 65875968,
+              "rssEndBytes": 149176320,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-002-B22-0-1787377950539.diff",
+            "diffSha256": "c2fe4e935efa4e65f8b792c58c973954f4b990d28605abe8f9f3eb97ba01e9e3",
+            "diffBaseline": "72da40811263969cce1ecd230d36e81c454eaeb6",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/index.css",
+              "tests/head_orchestrator_character_e2e.py"
+            ],
+            "screenshot": "PP-002-B22-0-1787377950539.png",
+            "screenshotSha256": "e2e9d0b7992d4164b0d6e596c273c0c35006d5064aab03b6da31ca8048070e19",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3807,
+              "uniqueColors": 382,
+              "stddev": {
+                "r": 89.919,
+                "g": 84.939,
+                "b": 84.429
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed at 3x: a separate standing ORCH robot with radio is physically above the worker route, while the blue Looplet spinner remains visibly separate in the feed below.",
+            "tokensEst": 2500,
+            "loc": {
+              "baseline": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Show a live speech cloud beside the character that truthfully addresses workers for active, grace, decision, stopped and standby states while the worker report lane remains visibly below",
-          "built": false,
-          "tested": false,
+          "built": true,
+          "tested": true,
           "verify": "python tests/head_orchestrator_character_e2e.py",
-          "ui": true
+          "ui": true,
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-c09b7ce7",
+            "at": "2026-08-22T05:52:10.204Z",
+            "git": {
+              "sha": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 5000,
+            "loc": {
+              "baseline": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "frontend-design",
+              "autopro"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T05:52:41.038Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-c09b7ce7",
+            "note": "ran `python tests/head_orchestrator_character_e2e.py` → exit 0 in 2301ms",
+            "log": "PP-002-B22-1-1787377958081.log",
+            "sha256": "21a462cdc7dd5b20264683bc58215be4e2be10d2fec617e88120430a79f469ca",
+            "exit": 0,
+            "durationMs": 2301,
+            "git": {
+              "sha": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "python tests/head_orchestrator_character_e2e.py",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-002-B22-baseline-1787377644364.before.png",
+            "beforeScreenshotSha256": "c14b731fcd568dd50588d6e608591139cad6b437fd15572c43f3b52850909138",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.2538,
+              "uniqueColors": 640,
+              "stddev": {
+                "r": 88.621,
+                "g": 83.43,
+                "b": 83.448
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Viewed at 3x: the current top strip shows only a small circular target mark, no physical ORCH character and no speech cloud; worker reports sit in a disconnected row below.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B22-baseline-1787377644364.before.png",
+              "textArtifact": "PP-002-B22-baseline-1787377644364.before.ocr.txt",
+              "textSha256": "1f81df546e310317d245c5f1d550626c309f69626d23d5cf7c33e29fb7440ff4",
+              "confidence": 82,
+              "durationMs": 4100,
+              "rssStartBytes": 65863680,
+              "rssEndBytes": 94998528,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B22-1-1787377958081.png",
+              "textArtifact": "PP-002-B22-1-1787377958081.ocr.txt",
+              "textSha256": "dc78f2d6c3461ed1a95bb9699564358e277cd5b51b5e7c446aefdadd96a4e9e5",
+              "confidence": 71,
+              "durationMs": 2699,
+              "rssStartBytes": 65855488,
+              "rssEndBytes": 95158272,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-002-B22-1-1787377958081.diff",
+            "diffSha256": "c2fe4e935efa4e65f8b792c58c973954f4b990d28605abe8f9f3eb97ba01e9e3",
+            "diffBaseline": "72da40811263969cce1ecd230d36e81c454eaeb6",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/index.css",
+              "tests/head_orchestrator_character_e2e.py"
+            ],
+            "screenshot": "PP-002-B22-1-1787377958081.png",
+            "screenshotSha256": "197485cd1e0b214b0f0e97e07dfbc2b419496bac70820dad337c1cefccbf0820",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3807,
+              "uniqueColors": 386,
+              "stddev": {
+                "r": 89.915,
+                "g": 84.937,
+                "b": 84.424
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed at 3x: the speech cloud beside ORCH says Keep moving clockwise and the two active worker report cards sit directly underneath with an upward ORCH label.",
+            "tokensEst": 2500,
+            "loc": {
+              "baseline": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Keep the actor lightweight, keyboard and screen-reader legible, responsive and motion-reduced, then capture and inspect a high-resolution top-down proof",
-          "built": false,
-          "tested": false,
+          "built": true,
+          "tested": true,
           "verify": "npm run build",
-          "ui": true
+          "ui": true,
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-c09b7ce7",
+            "at": "2026-08-22T05:52:12.104Z",
+            "git": {
+              "sha": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 5000,
+            "loc": {
+              "baseline": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "frontend-design",
+              "autopro"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T05:52:48.971Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-c09b7ce7",
+            "note": "ran `npm run build` → exit 0 in 2911ms",
+            "log": "PP-002-B22-2-1787377965520.log",
+            "sha256": "9bf819137b189b1ed1cf7582764e936ae3906e51cf0791c6f9073e4c8efa3bf3",
+            "exit": 0,
+            "durationMs": 2911,
+            "git": {
+              "sha": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "npm run build",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-002-B22-baseline-1787377644364.before.png",
+            "beforeScreenshotSha256": "c14b731fcd568dd50588d6e608591139cad6b437fd15572c43f3b52850909138",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.2538,
+              "uniqueColors": 640,
+              "stddev": {
+                "r": 88.621,
+                "g": 83.43,
+                "b": 83.448
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Viewed at 3x: the current top strip shows only a small circular target mark, no physical ORCH character and no speech cloud; worker reports sit in a disconnected row below.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B22-baseline-1787377644364.before.png",
+              "textArtifact": "PP-002-B22-baseline-1787377644364.before.ocr.txt",
+              "textSha256": "1f81df546e310317d245c5f1d550626c309f69626d23d5cf7c33e29fb7440ff4",
+              "confidence": 82,
+              "durationMs": 4100,
+              "rssStartBytes": 65863680,
+              "rssEndBytes": 94998528,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B22-2-1787377965520.png",
+              "textArtifact": "PP-002-B22-2-1787377965520.ocr.txt",
+              "textSha256": "dc78f2d6c3461ed1a95bb9699564358e277cd5b51b5e7c446aefdadd96a4e9e5",
+              "confidence": 71,
+              "durationMs": 2699,
+              "rssStartBytes": 65794048,
+              "rssEndBytes": 95170560,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-002-B22-2-1787377965520.diff",
+            "diffSha256": "c2fe4e935efa4e65f8b792c58c973954f4b990d28605abe8f9f3eb97ba01e9e3",
+            "diffBaseline": "72da40811263969cce1ecd230d36e81c454eaeb6",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/index.css",
+              "tests/head_orchestrator_character_e2e.py"
+            ],
+            "screenshot": "PP-002-B22-2-1787377965520.png",
+            "screenshotSha256": "197485cd1e0b214b0f0e97e07dfbc2b419496bac70820dad337c1cefccbf0820",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3807,
+              "uniqueColors": 386,
+              "stddev": {
+                "r": 89.908,
+                "g": 84.929,
+                "b": 84.419
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed at 3x under reduced-motion: character edges, radio, speech pointer, worker relationship and top-strip spacing are crisp and readable without animation.",
+            "tokensEst": 2500,
+            "loc": {
+              "baseline": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         }
       ],
       "visualBaseline": {
@@ -5942,6 +6447,15 @@
         "user": "danielsivyer4567",
         "session": "s-c09b7ce7",
         "at": "2026-08-22T05:47:24.142Z"
+      },
+      "lastStampSha": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
+      "doneAt": "2026-08-22T05:53:05.112Z",
+      "doneBy": {
+        "model": "gpt-5.6-codex",
+        "user": "danielsivyer4567",
+        "session": "s-c09b7ce7",
+        "at": "2026-08-22T05:53:05.112Z",
+        "forced": false
       }
     },
     {
