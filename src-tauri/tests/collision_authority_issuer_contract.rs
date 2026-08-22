@@ -77,7 +77,7 @@ fn issuer_and_admission_are_not_tauri_commands() {
 }
 
 #[test]
-fn production_manifest_permissions_and_handler_exclude_direct_admission() {
+fn production_manifest_permissions_and_handler_expose_only_brokered_admission() {
     let build = source("build.rs");
     let permission = source("permissions/orchestrator-pipeline.toml");
     let lib = source("src/lib.rs");
@@ -94,6 +94,11 @@ fn production_manifest_permissions_and_handler_exclude_direct_admission() {
             !handler.contains(command),
             "renderer invoke handler must not expose `{command}`"
         );
+    }
+    for command in ["orchestrator_admit_worker", "orchestrator_worker_heartbeat"] {
+        assert!(build.contains(&format!("\"{command}\"")));
+        assert!(permission.contains(&format!("\"{command}\"")));
+        assert!(handler.contains(command));
     }
 }
 
@@ -206,24 +211,19 @@ fn authority_projection_enforces_the_ordered_fail_closed_admission_chain() {
 }
 
 #[test]
-fn renderer_claim_and_heartbeat_clients_throw_instead_of_invoking_native_admission() {
+fn renderer_claim_and_heartbeat_clients_invoke_only_brokered_native_admission() {
     let renderer = source("../src/services/orchestratorPipeline.ts");
     let claim = item_body(&renderer, "export async function orchestratorClaim");
     let heartbeat = item_body(&renderer, "export async function orchestratorHeartbeat");
 
-    for (name, body) in [("claim", claim), ("heartbeat", heartbeat)] {
-        assert!(body.contains("throw new Error("));
-        assert!(
-            body.contains("blocked:"),
-            "renderer {name} error must explain the block"
-        );
-        assert!(
-            !body.contains("invokePipeline"),
-            "renderer {name} must not bypass scheduler-owned admission"
-        );
+    assert!(claim.contains("orchestrator_admit_worker"));
+    assert!(heartbeat.contains("orchestrator_worker_heartbeat"));
+    for body in [claim, heartbeat] {
+        assert!(body.contains("invokePipeline"));
+        assert!(!body.contains("leaseToken"));
+        assert!(!body.contains("workerId"));
+        assert!(!body.contains("nowMs"));
     }
-    assert!(claim.contains("B20 scheduler-owned collision authority issuer is not active"));
-    assert!(heartbeat.contains("B09/B20 authority-backed admission is not active"));
 }
 
 #[test]

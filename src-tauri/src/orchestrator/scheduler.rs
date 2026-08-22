@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::fs::OpenOptions;
@@ -26,6 +25,31 @@ pub struct NodeLease {
     pub authority_epoch: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authorization_id: Option<String>,
+}
+
+/// Renderer-safe lease state. The bearer token never crosses the native boundary.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicNodeLease {
+    pub node_id: String,
+    pub worker_id: String,
+    pub fence: u64,
+    pub expires_at_ms: u64,
+    pub authority_epoch: Option<u64>,
+    pub authorization_id: Option<String>,
+}
+
+impl From<&NodeLease> for PublicNodeLease {
+    fn from(lease: &NodeLease) -> Self {
+        Self {
+            node_id: lease.node_id.clone(),
+            worker_id: lease.worker_id.clone(),
+            fence: lease.fence,
+            expires_at_ms: lease.expires_at_ms,
+            authority_epoch: lease.authority_epoch,
+            authorization_id: lease.authorization_id.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -69,6 +93,55 @@ pub struct SchedulerState {
     pub consumed_authorization_ids: BTreeSet<String>,
     pub next_fence: u64,
     pub nodes: BTreeMap<String, ScheduledNode>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicSchedulerState {
+    pub authority_schema_version: u32,
+    pub pending_legacy_revocations: Vec<LegacyLeaseRevocation>,
+    pub next_fence: u64,
+    pub nodes: BTreeMap<String, PublicScheduledNode>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicScheduledNode {
+    pub id: String,
+    pub wave: u32,
+    pub depends_on: Vec<String>,
+    pub attempts: u32,
+    pub status: NodeStatus,
+    pub lease: Option<PublicNodeLease>,
+    pub stall_alarm_fence: Option<u64>,
+}
+
+impl From<&SchedulerState> for PublicSchedulerState {
+    fn from(state: &SchedulerState) -> Self {
+        Self {
+            authority_schema_version: state.authority_schema_version,
+            pending_legacy_revocations: state.pending_legacy_revocations.clone(),
+            next_fence: state.next_fence,
+            nodes: state
+                .nodes
+                .iter()
+                .map(|(id, node)| {
+                    (
+                        id.clone(),
+                        PublicScheduledNode {
+                            id: node.id.clone(),
+                            wave: node.wave,
+                            depends_on: node.depends_on.clone(),
+                            attempts: node.attempts,
+                            status: node.status.clone(),
+                            lease: node.lease.as_ref().map(PublicNodeLease::from),
+                            stall_alarm_fence: node.stall_alarm_fence,
+                        },
+                    )
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -155,6 +228,11 @@ impl SchedulerStore {
             .map(|state| state.clone())
     }
 
+    pub fn public_snapshot(&self) -> Result<PublicSchedulerState, String> {
+        self.snapshot()
+            .map(|state| PublicSchedulerState::from(&state))
+    }
+
     pub fn pending_legacy_revocations(&self) -> Result<Vec<LegacyLeaseRevocation>, String> {
         self.inner
             .lock()
@@ -213,7 +291,7 @@ impl SchedulerStore {
                 return Err(format!("node {node_id} is not claimable"));
             }
             node.attempts = node.attempts.saturating_add(1);
-            let token = lease_token(node_id, worker_id, fence, now_ms);
+            let token = lease_token()?;
             let lease = NodeLease {
                 node_id: node_id.to_string(),
                 worker_id: worker_id.to_string(),
@@ -285,7 +363,7 @@ impl SchedulerStore {
                 return Err(format!("node {node_id} is not claimable"));
             }
             node.attempts = node.attempts.saturating_add(1);
-            let token = lease_token(node_id, worker_id, fence, now_ms);
+            let token = lease_token()?;
             let lease = NodeLease {
                 node_id: node_id.to_string(),
                 worker_id: worker_id.to_string(),
@@ -487,16 +565,42 @@ fn validate_state(state: &SchedulerState) -> Result<(), String> {
     Ok(())
 }
 
-fn lease_token(node_id: &str, worker_id: &str, fence: u64, now_ms: u64) -> String {
-    let mut digest = Sha256::new();
-    digest.update(node_id.as_bytes());
-    digest.update([0]);
-    digest.update(worker_id.as_bytes());
-    digest.update([0]);
-    digest.update(fence.to_le_bytes());
-    digest.update(now_ms.to_le_bytes());
-    digest.update(std::process::id().to_le_bytes());
-    format!("{:x}", digest.finalize())
+fn lease_token() -> Result<String, String> {
+    let mut bytes = [0_u8; 32];
+    fill_os_random(&mut bytes)?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+#[cfg(windows)]
+fn fill_os_random(bytes: &mut [u8]) -> Result<(), String> {
+    use std::ptr;
+    #[link(name = "bcrypt")]
+    unsafe extern "system" {
+        fn BCryptGenRandom(
+            algorithm: *mut std::ffi::c_void,
+            buffer: *mut u8,
+            length: u32,
+            flags: u32,
+        ) -> i32;
+    }
+    let length = u32::try_from(bytes.len()).map_err(|_| "lease entropy request is too large")?;
+    let status =
+        unsafe { BCryptGenRandom(ptr::null_mut(), bytes.as_mut_ptr(), length, 0x0000_0002) };
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(format!(
+            "operating-system lease entropy failed: NTSTATUS {status:#x}"
+        ))
+    }
+}
+
+#[cfg(not(windows))]
+fn fill_os_random(bytes: &mut [u8]) -> Result<(), String> {
+    use std::io::Read;
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut file| file.read_exact(bytes))
+        .map_err(|error| format!("operating-system lease entropy failed: {error}"))
 }
 
 fn persist(path: &Path, state: &SchedulerState) -> Result<(), String> {

@@ -91,6 +91,16 @@ pub struct PlannerRegistration {
     pub lease_expires_at_ms: u64,
 }
 
+/// Native-only, immutable result of the conservative manifest census used before preclaim.
+/// Foreign paths and manifest spellings never cross the command boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ManifestCollisionSnapshot {
+    pub(crate) registry_generation: u64,
+    pub(crate) planner_lease_generation: u64,
+    pub(crate) digest: String,
+    pub(crate) conflict_ids: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ConfiguredDiscoveryRoot {
@@ -896,6 +906,200 @@ impl PlannerRegistryStore {
                 .claim_authorities
                 .retain(|authority| authority.planner_id != planner_id);
             Ok(removed)
+        })
+    }
+
+    /// Register or heartbeat one exact planner manifest, then conservatively compare the target
+    /// node with every live machine-registry participant under native filesystem/Git identity.
+    /// Missing, stale, malformed or identity-drifting participants reject the whole census.
+    pub(crate) fn prepare_manifest_collision_snapshot(
+        &self,
+        seed: PlannerRegistrationSeed,
+        target_node_id: &str,
+        now_ms: u64,
+        lease_ms: u64,
+    ) -> Result<ManifestCollisionSnapshot, RegistryError> {
+        validate_seed(&seed)?;
+        validate_id("target node id", target_node_id)?;
+        let plan_parent = Path::new(&seed.plan_path)
+            .parent()
+            .ok_or_else(|| RegistryError::InvalidInput("plan path has no parent".into()))?
+            .canonicalize()
+            .map_err(|error| {
+                RegistryError::Io(format!("cannot resolve plan directory: {error}"))
+            })?;
+        let root = ConfiguredDiscoveryRoot {
+            root_id: format!(
+                "root-{:x}",
+                Sha256::digest(plan_parent.to_string_lossy().as_bytes())
+            ),
+            canonical_path: plan_parent.to_string_lossy().into_owned(),
+        };
+
+        if !self.path.exists() {
+            self.initialize(vec![root.clone()], now_ms)?;
+        } else {
+            let document = load_document_for_mutation(self.path.as_path(), now_ms)?;
+            if !document
+                .configured_roots
+                .iter()
+                .any(|existing| existing.canonical_path == root.canonical_path)
+            {
+                let mut roots = document.configured_roots;
+                roots.push(root);
+                self.configure_roots(roots, now_ms)?;
+            }
+        }
+
+        let current = load_document_for_mutation(self.path.as_path(), now_ms)?;
+        let planner_id = seed.planner_id.clone();
+        let registration = match current
+            .registrations
+            .iter()
+            .find(|entry| entry.identity.planner_id == seed.planner_id)
+        {
+            Some(existing)
+                if existing.identity == seed
+                    && existing.lease_expires_at_ms > now_ms.saturating_add(60_000) =>
+            {
+                existing.clone()
+            }
+            Some(existing) if existing.identity == seed => {
+                self.heartbeat(&planner_id, existing.lease_generation, now_ms, lease_ms)?
+            }
+            Some(existing) => self.update(
+                &planner_id,
+                existing.lease_generation,
+                seed,
+                now_ms,
+                lease_ms,
+            )?,
+            None => self.register(seed, now_ms, lease_ms)?,
+        };
+
+        let _lock = RegistryLock::acquire(self.path.as_path(), self.lock_timeout)?;
+        let document = load_document_for_mutation(self.path.as_path(), now_ms)?;
+        let candidate = document
+            .registrations
+            .iter()
+            .find(|entry| entry.identity.planner_id == registration.identity.planner_id)
+            .ok_or_else(|| RegistryError::Conflict("registered planner disappeared".into()))?;
+        let candidate_node = candidate
+            .identity
+            .nodes
+            .iter()
+            .find(|node| node.node_id == target_node_id)
+            .ok_or_else(|| {
+                RegistryError::Conflict("target node is absent from the registered plan".into())
+            })?;
+        let candidate_git = native_git_authority(Path::new(&candidate.identity.worktree_root))
+            .map_err(|_| RegistryError::Conflict("candidate Git authority is ambiguous".into()))?;
+
+        let configured_roots = document
+            .configured_roots
+            .iter()
+            .map(|entry| {
+                Path::new(&entry.canonical_path)
+                    .canonicalize()
+                    .map_err(|error| {
+                        RegistryError::Io(format!("cannot resolve configured root: {error}"))
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut conflict_ids = Vec::new();
+        let mut census_entries = Vec::new();
+        for other in &document.registrations {
+            if other.lease_expires_at_ms <= now_ms || other.heartbeat_at_ms > now_ms {
+                return Err(RegistryError::Conflict(format!(
+                    "planner {} has stale or future ownership state",
+                    other.identity.planner_id
+                )));
+            }
+            let plan_path = Path::new(&other.identity.plan_path)
+                .canonicalize()
+                .map_err(|_| {
+                    RegistryError::Conflict("registered plan identity is unavailable".into())
+                })?;
+            if !configured_roots
+                .iter()
+                .any(|root| plan_path.starts_with(root))
+            {
+                return Err(RegistryError::Conflict(
+                    "registered plan is outside the complete discovery-root set".into(),
+                ));
+            }
+            let plan_bytes = fs::read(&plan_path).map_err(|_| {
+                RegistryError::Conflict("registered plan bytes are unavailable".into())
+            })?;
+            let plan_digest = format!("{:x}", Sha256::digest(&plan_bytes));
+            let other_git = native_git_authority(Path::new(&other.identity.worktree_root))
+                .map_err(|_| {
+                    RegistryError::Conflict("registered Git authority is ambiguous".into())
+                })?;
+            census_entries.push((
+                other.identity.planner_id.clone(),
+                other.lease_generation,
+                plan_digest,
+                opaque_physical_identity(b"git-common", &other_git.common_dir),
+            ));
+            if other.identity.planner_id == candidate.identity.planner_id {
+                continue;
+            }
+            let same_repository = other_git.common_dir == candidate_git.common_dir;
+            for other_node in &other.identity.nodes {
+                let file_collision = same_repository
+                    && candidate_node.files.iter().any(|left| {
+                        other_node
+                            .files
+                            .iter()
+                            .any(|right| manifest_paths_overlap(left, right))
+                    });
+                let resource_collision = candidate_node
+                    .resources
+                    .iter()
+                    .any(|left| other_node.resources.iter().any(|right| left == right));
+                if file_collision || resource_collision {
+                    conflict_ids.push(opaque_parts(
+                        b"perfect-planner:manifest-preclaim-conflict:v1",
+                        &[
+                            &candidate.identity.planner_id,
+                            target_node_id,
+                            &other.identity.planner_id,
+                            &other_node.node_id,
+                        ],
+                    ));
+                }
+            }
+            other_git
+                .revalidate()
+                .map_err(|_| RegistryError::Conflict("registered Git authority changed".into()))?;
+        }
+        candidate_git
+            .revalidate()
+            .map_err(|_| RegistryError::Conflict("candidate Git authority changed".into()))?;
+        conflict_ids.sort();
+        conflict_ids.dedup();
+        census_entries.sort();
+        let digest = format!(
+            "{:x}",
+            Sha256::digest(
+                serde_json::to_vec(&(
+                    document.generation,
+                    &candidate.identity.planner_id,
+                    target_node_id,
+                    census_entries,
+                    &conflict_ids,
+                ))
+                .map_err(|error| RegistryError::Io(format!(
+                    "cannot encode collision census: {error}"
+                )))?
+            )
+        );
+        Ok(ManifestCollisionSnapshot {
+            registry_generation: document.generation,
+            planner_lease_generation: registration.lease_generation,
+            digest,
+            conflict_ids,
         })
     }
 
@@ -4228,6 +4432,24 @@ fn validate_seed(seed: &PlannerRegistrationSeed) -> Result<(), RegistryError> {
         MAX_TOTAL_MANIFEST_ENTRIES,
     )?;
     Ok(())
+}
+
+fn manifest_paths_overlap(left: &str, right: &str) -> bool {
+    let normalize = |value: &str| {
+        value
+            .replace('\\', "/")
+            .trim_end_matches('/')
+            .to_ascii_lowercase()
+    };
+    let left = normalize(left);
+    let right = normalize(right);
+    left == right
+        || left
+            .strip_prefix(&right)
+            .is_some_and(|suffix| suffix.starts_with('/'))
+        || right
+            .strip_prefix(&left)
+            .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
 fn validate_and_sort_roots(

@@ -1,3 +1,4 @@
+pub(crate) mod admission;
 pub(crate) mod analyzer;
 pub mod api;
 pub(crate) mod authority;

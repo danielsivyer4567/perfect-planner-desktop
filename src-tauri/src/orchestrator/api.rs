@@ -1,22 +1,34 @@
+use super::authority_projection::{
+    AuthorityBinding, AuthorityPublicationReceipt, CensusClearReceipt, CensusVerdict, ClaimRequest,
+    PreclaimReservation,
+};
+use super::authority_runtime::SchedulerAuthorityRuntime;
 use super::delivery::{deliver_run, DeliveryOutcome, DeliveryRequest};
 use super::event_bus::{EventBus, EventType, RunEvent};
 use super::evidence::capture_artifact;
+use super::preclaim_store::{PreclaimRecord, PreclaimStore};
 use super::preflight::{
-    DenyProcessAdapter, PortBinding, PreflightEngine, PreflightReport, PreflightRequest,
-    ResourceSnapshot, SystemProbe,
+    DenyProcessAdapter, PortBinding, PreflightDisposition, PreflightEngine, PreflightReport,
+    PreflightRequest, ResourceSnapshot, SystemProbe,
 };
 use super::reconcile::{reconcile, ReconciliationInput, ReconciliationResult};
 use super::release::{evaluate_release, ReleaseGateInput, ReleaseGateResult};
 use super::run_scope::{AllowedFileManifest, CreateRunScope, HotResumeState, RunScope};
 use super::scheduler::{
-    NodeLease, NodeStatus, ReapAction, ScheduledNode, SchedulerState, SchedulerStore,
+    NodeLease, NodeStatus, PublicNodeLease, PublicSchedulerState, ReapAction, ScheduledNode,
+    SchedulerStore,
 };
 use super::worker::{
     validate_manifest, validate_submission, WorkerGateResult, WorkerManifest, WorkerSubmission,
 };
+use crate::collision_assessor::authority::ReservationBinding;
+use crate::collision_assessor::registry::{
+    PlannerNodeManifest, PlannerRegistrationSeed, PlannerRegistryStore,
+};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
@@ -67,7 +79,7 @@ pub struct CreateRunApiResponse {
     pub run_dir: PathBuf,
     pub manifest: AllowedFileManifest,
     pub hot_resume: HotResumeState,
-    pub scheduler: SchedulerState,
+    pub scheduler: PublicSchedulerState,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -120,7 +132,7 @@ pub struct EventTailResponse {
 pub struct PipelineSnapshotResponse {
     pub manifest: AllowedFileManifest,
     pub hot_resume: HotResumeState,
-    pub scheduler: SchedulerState,
+    pub scheduler: PublicSchedulerState,
     pub preflight: Option<PreflightReport>,
     pub preflight_recorded_at_ms: Option<u64>,
     pub reconciliation: Option<ReconciliationResult>,
@@ -174,6 +186,22 @@ pub struct ClaimNodeApiRequest {
     pub worker_id: String,
     pub now_ms: u64,
     pub lease_ms: u64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AdmitWorkerApiRequest {
+    #[serde(flatten)]
+    pub scope: ScopedRunRequest,
+    pub node_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrokeredHeartbeatApiRequest {
+    #[serde(flatten)]
+    pub scope: ScopedRunRequest,
+    pub node_id: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -276,6 +304,193 @@ struct ScopedContext {
     scope: RunScope,
 }
 
+fn planner_registration_seed(context: &ScopedContext) -> Result<PlannerRegistrationSeed, String> {
+    let plan_bytes = read_bounded_file(&context.scope.manifest.plan_path, 16 * 1024 * 1024)?;
+    let plan: Value = serde_json::from_slice(&plan_bytes)
+        .map_err(|error| format!("approved plan is not valid JSON: {error}"))?;
+    let vertebrae = plan
+        .get("vertebrae")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "approved plan has no vertebrae array".to_string())?;
+    let mut nodes = Vec::new();
+    let mut files = BTreeSet::new();
+    let mut resources = BTreeSet::new();
+    for vertebra in vertebrae {
+        let node_id = vertebra
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "approved plan contains a node without an ID".to_string())?;
+        validate_text("plan node id", node_id)?;
+        let node_files = string_array(vertebra, "files")?;
+        let node_resources = string_array(vertebra, "resources")?;
+        if node_files.is_empty() && node_resources.is_empty() {
+            continue;
+        }
+        files.extend(node_files.iter().cloned());
+        resources.extend(node_resources.iter().cloned());
+        nodes.push(PlannerNodeManifest {
+            node_id: node_id.to_string(),
+            files: node_files,
+            resources: node_resources,
+        });
+    }
+    nodes.sort_by(|left, right| left.node_id.cmp(&right.node_id));
+    if nodes.is_empty() {
+        return Err("approved plan contains no bounded file or resource ownership".to_string());
+    }
+    let repository_id = format!(
+        "repo-{}",
+        digest_text(&[&context.scope.manifest.git_common_dir.to_string_lossy()])
+    );
+    let planner_id = format!(
+        "planner-{}",
+        digest_text(&[
+            &context.scope.manifest.worktree_id,
+            &context.scope.manifest.plan_id,
+            &context.scope.manifest.plan_path.to_string_lossy(),
+        ])
+    );
+    Ok(PlannerRegistrationSeed {
+        planner_id,
+        repository_id,
+        repository_root: context.repository_root.to_string_lossy().into_owned(),
+        worktree_root: context.repository_root.to_string_lossy().into_owned(),
+        branch: context.scope.manifest.branch.clone(),
+        plan_id: context.scope.manifest.plan_id.clone(),
+        plan_path: context
+            .scope
+            .manifest
+            .plan_path
+            .to_string_lossy()
+            .into_owned(),
+        files: files.into_iter().collect(),
+        resources: resources.into_iter().collect(),
+        nodes,
+    })
+}
+
+fn read_bounded_file(path: &Path, max_bytes: u64) -> Result<Vec<u8>, String> {
+    let metadata = fs::metadata(path)
+        .map_err(|error| format!("cannot inspect {}: {error}", path.display()))?;
+    if !metadata.is_file() || metadata.len() > max_bytes {
+        return Err(format!("{} is not a bounded regular file", path.display()));
+    }
+    fs::read(path).map_err(|error| format!("cannot read {}: {error}", path.display()))
+}
+
+fn string_array(value: &Value, field: &str) -> Result<Vec<String>, String> {
+    let Some(entries) = value.get(field) else {
+        return Ok(Vec::new());
+    };
+    let entries = entries
+        .as_array()
+        .ok_or_else(|| format!("plan field {field} must be an array"))?;
+    let mut output = entries
+        .iter()
+        .map(|entry| {
+            entry
+                .as_str()
+                .map(normalize_manifest_entry)
+                .ok_or_else(|| format!("plan field {field} contains a non-string entry"))?
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    output.sort();
+    output.dedup();
+    Ok(output)
+}
+
+fn normalize_manifest_entry(value: &str) -> Result<String, String> {
+    let normalized = value.trim().replace('\\', "/");
+    let path = Path::new(&normalized);
+    if normalized.is_empty()
+        || path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        })
+    {
+        return Err("plan manifest entry is empty, absolute or traversing".to_string());
+    }
+    Ok(normalized)
+}
+
+fn reject_dirty_target_files(
+    repository_root: &Path,
+    target_files: &[String],
+) -> Result<(), String> {
+    let mut dirty = BTreeSet::new();
+    for args in [
+        vec!["diff", "--name-only", "-z", "--"],
+        vec!["diff", "--cached", "--name-only", "-z", "--"],
+        vec!["ls-files", "--others", "--exclude-standard", "-z", "--"],
+    ] {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(repository_root)
+            .args(args)
+            .output()
+            .map_err(|error| format!("cannot inspect dirty target files: {error}"))?;
+        if !output.status.success() {
+            return Err("git refused the dirty target-file inspection".to_string());
+        }
+        for raw in output
+            .stdout
+            .split(|byte| *byte == 0)
+            .filter(|raw| !raw.is_empty())
+        {
+            let value = std::str::from_utf8(raw)
+                .map_err(|_| "git returned a non-UTF-8 dirty path".to_string())?;
+            dirty.insert(value.replace('\\', "/").to_ascii_lowercase());
+        }
+    }
+    let collisions = target_files
+        .iter()
+        .filter(|file| dirty.contains(&file.to_ascii_lowercase()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if collisions.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "admission refused dirty target ownership: {}",
+            collisions.join(", ")
+        ))
+    }
+}
+
+fn digest_bytes(parts: &[&str]) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(b"perfect-planner:native-admission:v1");
+    for part in parts {
+        digest.update((part.len() as u64).to_le_bytes());
+        digest.update(part.as_bytes());
+    }
+    digest.finalize().into()
+}
+
+fn digest_text(parts: &[&str]) -> String {
+    digest_bytes(parts)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn decode_sha256(value: &str) -> Result<[u8; 32], String> {
+    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("bound SHA-256 digest is malformed".to_string());
+    }
+    let mut output = [0_u8; 32];
+    for (index, byte) in output.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
+            .map_err(|_| "bound SHA-256 digest is malformed".to_string())?;
+    }
+    Ok(output)
+}
+
 #[tauri::command]
 pub fn orchestrator_create_run(
     request: CreateRunApiRequest,
@@ -297,7 +512,7 @@ pub fn orchestrator_create_run(
         repository_root,
         run_id: request.run_id,
     })?;
-    let scheduler = open_scheduler(&context, request.nodes)?.snapshot()?;
+    let scheduler = open_scheduler(&context, request.nodes)?.public_snapshot()?;
     let hot_resume = scope.read_hot_resume()?;
 
     Ok(CreateRunApiResponse {
@@ -356,7 +571,7 @@ pub fn orchestrator_pipeline_snapshot(
 ) -> Result<PipelineSnapshotResponse, String> {
     let context = open_context(&request.scope)?;
     let hot_resume = context.scope.read_hot_resume()?;
-    let scheduler = open_scheduler(&context, Vec::new())?.snapshot()?;
+    let scheduler = open_scheduler(&context, Vec::new())?.public_snapshot()?;
     let preflight = load_optional_scoped_json::<PreflightReport>(&context, PREFLIGHT_RESULT_FILE)?;
     let reconciliation =
         load_optional_scoped_json::<ReconciliationResult>(&context, RECONCILIATION_RESULT_FILE)?;
@@ -379,6 +594,298 @@ pub fn orchestrator_pipeline_snapshot(
         release: release.map(|record| record.result),
         event_tail,
     })
+}
+
+/// Admit one bounded local worker through the native-only preclaim, collision and signing chain.
+/// The renderer names only an already-bound run and node; it cannot choose a worker identity,
+/// clock, lease lifetime, fence, authority receipt or bearer token.
+#[allow(private_interfaces)]
+#[tauri::command]
+pub fn orchestrator_admit_worker(
+    authority: tauri::State<'_, SchedulerAuthorityRuntime>,
+    registry: tauri::State<'_, PlannerRegistryStore>,
+    request: AdmitWorkerApiRequest,
+) -> Result<PublicNodeLease, String> {
+    admit_worker(&authority, &registry, request)
+}
+
+fn admit_worker(
+    authority: &SchedulerAuthorityRuntime,
+    registry: &PlannerRegistryStore,
+    request: AdmitWorkerApiRequest,
+) -> Result<PublicNodeLease, String> {
+    const LEASE_MS: u64 = 30_000;
+    const REGISTRY_LEASE_MS: u64 = 300_000;
+    const PREFLIGHT_MAX_AGE_MS: u64 = 60_000;
+
+    validate_text("nodeId", &request.node_id)?;
+    let context = open_context(&request.scope)?;
+    let now_ms = unix_ms();
+    let preflight = load_optional_scoped_json::<PreflightReport>(&context, PREFLIGHT_RESULT_FILE)?
+        .ok_or_else(|| "admission requires a recorded native preflight".to_string())?;
+    if preflight.result.disposition != PreflightDisposition::Ready
+        || preflight.result.baseline.repository_root != context.repository_root
+        || preflight.recorded_at_ms > now_ms
+        || now_ms.saturating_sub(preflight.recorded_at_ms) > PREFLIGHT_MAX_AGE_MS
+    {
+        return Err("admission preflight is stale, mismatched or not READY".to_string());
+    }
+
+    let seed = planner_registration_seed(&context)?;
+    let target = seed
+        .nodes
+        .iter()
+        .find(|node| node.node_id == request.node_id)
+        .ok_or_else(|| "admission node is absent from the approved plan".to_string())?;
+    reject_dirty_target_files(&context.repository_root, &target.files)?;
+
+    let collision = registry
+        .prepare_manifest_collision_snapshot(
+            seed.clone(),
+            &request.node_id,
+            now_ms,
+            REGISTRY_LEASE_MS,
+        )
+        .map_err(|error| format!("native collision census is UNKNOWN: {error}"))?;
+    if !collision.conflict_ids.is_empty() {
+        return Err(format!(
+            "native collision census refused admission with {} conflict(s)",
+            collision.conflict_ids.len()
+        ));
+    }
+
+    let scheduler = open_scheduler(&context, Vec::new())?;
+    let scheduler_state = scheduler.snapshot()?;
+    let node = scheduler_state
+        .nodes
+        .get(&request.node_id)
+        .ok_or_else(|| format!("unknown node {}", request.node_id))?;
+    if node.status != NodeStatus::Ready || node.lease.is_some() {
+        return Err(format!("node {} is not claimable", request.node_id));
+    }
+    let fence = scheduler_state.next_fence.max(1);
+    let authority_generation = u64::from(node.attempts)
+        .checked_add(1)
+        .ok_or_else(|| "node authority generation exhausted".to_string())?;
+    let expires_at_ms = now_ms
+        .checked_add(LEASE_MS)
+        .ok_or_else(|| "lease expiry overflowed".to_string())?;
+    let worker_id = format!(
+        "worker-{}",
+        digest_text(&[
+            &context.scope.manifest.run_id,
+            &request.node_id,
+            &authority.epoch().to_string(),
+            &fence.to_string(),
+        ])
+    );
+    let binding = AuthorityBinding {
+        organization_id: "local-machine".to_string(),
+        repository_id: seed.repository_id.clone(),
+        plan_id: context.scope.manifest.plan_id.clone(),
+        node_id: request.node_id.clone(),
+        epoch: authority.epoch(),
+        generation: collision.planner_lease_generation,
+        fence,
+        plan_digest: context.scope.manifest.plan_contract_digest.clone(),
+        manifest_digest: context.scope.manifest.manifest_digest.clone(),
+        collision_digest: collision.digest.clone(),
+    };
+    let scope_id = digest_text(&[
+        &context.scope.manifest.manifest_digest,
+        &request.node_id,
+        &authority.epoch().to_string(),
+        &collision.registry_generation.to_string(),
+        &collision.planner_lease_generation.to_string(),
+        &fence.to_string(),
+    ]);
+    let reservation_id = format!("reservation-{scope_id}");
+    let publication_id = format!("publication-{scope_id}");
+    let clearance_id = format!("clearance-{scope_id}");
+    let authorization_id = format!("authorization-{scope_id}");
+    let policy_digest = digest_text(&[
+        "native-admission-policy-v1",
+        &preflight.recorded_at_ms.to_string(),
+        &collision.digest,
+    ]);
+    let preclaims = PreclaimStore::open(context.run_dir.join("preclaims.json"))?;
+    let initial = preclaims.expectation()?;
+    let current = preclaims.reap_expired(&initial, now_ms)?;
+    let reserved = preclaims.reserve(
+        &current,
+        PreclaimRecord {
+            reservation_id: reservation_id.clone(),
+            scope_id: scope_id.clone(),
+            run_id: context.scope.manifest.run_id.clone(),
+            node_id: request.node_id.clone(),
+            worker_id: worker_id.clone(),
+            lease_generation: collision.planner_lease_generation,
+            fence,
+            manifest_digest: context.scope.manifest.manifest_digest.clone(),
+            policy_digest,
+            delivered_approval_digest: context.scope.manifest.approval_receipt_digest.clone(),
+            created_at_ms: now_ms,
+            expires_at_ms,
+        },
+    )?;
+
+    let result = (|| -> Result<PublicNodeLease, String> {
+        authority.reserve(
+            &scope_id,
+            PreclaimReservation {
+                receipt_id: reservation_id.clone(),
+                binding: binding.clone(),
+                issued_at_ms: now_ms,
+                expires_at_ms,
+            },
+            now_ms,
+        )?;
+        authority.publish_authority(
+            &scope_id,
+            AuthorityPublicationReceipt {
+                receipt_id: publication_id.clone(),
+                reservation_receipt_id: reservation_id.clone(),
+                binding: binding.clone(),
+                published_at_ms: now_ms,
+                expires_at_ms,
+            },
+            now_ms,
+        )?;
+
+        let verified_collision = registry
+            .prepare_manifest_collision_snapshot(
+                seed.clone(),
+                &request.node_id,
+                now_ms,
+                REGISTRY_LEASE_MS,
+            )
+            .map_err(|error| format!("native collision census revalidation is UNKNOWN: {error}"))?;
+        if verified_collision.digest != collision.digest
+            || verified_collision.registry_generation != collision.registry_generation
+            || verified_collision.planner_lease_generation != collision.planner_lease_generation
+            || !verified_collision.conflict_ids.is_empty()
+        {
+            return Err("native collision census changed during admission".to_string());
+        }
+        authority.accept_clear_census(
+            &scope_id,
+            CensusClearReceipt {
+                receipt_id: clearance_id.clone(),
+                reservation_receipt_id: reservation_id.clone(),
+                publication_receipt_id: publication_id,
+                binding: binding.clone(),
+                census_digest: verified_collision.digest,
+                verdict: CensusVerdict::Clear,
+                observed_at_ms: now_ms,
+                expires_at_ms,
+            },
+            now_ms,
+        )?;
+
+        let native_binding = ReservationBinding::from_native_digests(
+            digest_bytes(&["scheduler", &authority.epoch().to_string(), &scope_id]),
+            digest_bytes(&["repository", &context.scope.manifest.worktree_id]),
+            digest_bytes(&["planner", &seed.planner_id]),
+            decode_sha256(&context.scope.manifest.plan_contract_digest)?,
+            digest_bytes(&[
+                "node-set",
+                &serde_json::to_string(&seed.nodes).map_err(|error| error.to_string())?,
+            ]),
+            collision.registry_generation,
+            collision.planner_lease_generation,
+            authority_generation,
+        )
+        .map_err(|error| format!("native reservation binding rejected: {error}"))?;
+        let payload_digest = digest_bytes(&[
+            "claim-payload",
+            &context.scope.manifest.manifest_digest,
+            &context.scope.manifest.approval_receipt_digest,
+            &collision.digest,
+        ]);
+        let (grant, _) = authority.consume_and_sign_clearance(
+            &scope_id,
+            ClaimRequest {
+                request_id: authorization_id,
+                worker_id: worker_id.clone(),
+                clearance_receipt_id: clearance_id,
+                binding,
+                requested_at_ms: now_ms,
+                expires_at_ms,
+            },
+            &native_binding,
+            payload_digest,
+            now_ms,
+        )?;
+        let lease = scheduler.claim_authorized(&grant, now_ms)?;
+        preclaims.consume(&reserved, &scope_id, &reservation_id, now_ms)?;
+        append_event(
+            &context,
+            Some(request.node_id.clone()),
+            &worker_id,
+            EventType::Claim,
+            "authority-backed worker admitted",
+            json!({
+                "fence": lease.fence,
+                "expiresAtMs": lease.expires_at_ms,
+                "authorityEpoch": lease.authority_epoch,
+                "authorizationId": lease.authorization_id,
+                "collisionDigest": collision.digest,
+            }),
+        )?;
+        Ok(PublicNodeLease::from(&lease))
+    })();
+
+    if result.is_err() {
+        let _ = authority.invalidate(&scope_id);
+        if let Ok(expected) = preclaims.expectation() {
+            let _ = preclaims.consume(&expected, &scope_id, &reservation_id, now_ms);
+        }
+    }
+    result
+}
+
+/// Renew only a native-held lease. The bearer token remains in the scheduler store and the live
+/// issuer epoch is rechecked before every extension.
+#[allow(private_interfaces)]
+#[tauri::command]
+pub fn orchestrator_worker_heartbeat(
+    authority: tauri::State<'_, SchedulerAuthorityRuntime>,
+    request: BrokeredHeartbeatApiRequest,
+) -> Result<PublicNodeLease, String> {
+    brokered_heartbeat(&authority, request)
+}
+
+fn brokered_heartbeat(
+    authority: &SchedulerAuthorityRuntime,
+    request: BrokeredHeartbeatApiRequest,
+) -> Result<PublicNodeLease, String> {
+    validate_text("nodeId", &request.node_id)?;
+    let context = open_context(&request.scope)?;
+    let scheduler = open_scheduler(&context, Vec::new())?;
+    let current = scheduler
+        .snapshot()?
+        .nodes
+        .get(&request.node_id)
+        .and_then(|node| node.lease.clone())
+        .ok_or_else(|| format!("node {} has no live lease", request.node_id))?;
+    if current.authority_epoch != Some(authority.epoch()) || current.authorization_id.is_none() {
+        return Err("worker lease belongs to a stale or legacy authority epoch".to_string());
+    }
+    let now_ms = unix_ms();
+    let lease = scheduler.renew(&request.node_id, &current.token, now_ms, 30_000)?;
+    append_event(
+        &context,
+        Some(request.node_id),
+        &lease.worker_id,
+        EventType::Heartbeat,
+        "authority-backed worker heartbeat",
+        json!({
+            "fence": lease.fence,
+            "expiresAtMs": lease.expires_at_ms,
+            "authorityEpoch": lease.authority_epoch,
+        }),
+    )?;
+    Ok(PublicNodeLease::from(&lease))
 }
 
 // Internal foundation only. B20 must bind this operation to a scheduler-owned,
@@ -1755,6 +2262,184 @@ mod tests {
         assert!(validate_initial_nodes(&[precompleted])
             .unwrap_err()
             .contains("must start READY"));
+    }
+
+    #[test]
+    fn brokered_admission_redacts_secrets_rejects_duplicate_claims_and_renews_natively() {
+        let repository = TempRepo::new();
+        let scope = repository.create_scope("run-authority-admission");
+        repository.initialize_scheduler(&scope, false);
+        let request_scope = ScopedRunRequest {
+            repository_root: repository.0.clone(),
+            run_id: "run-authority-admission".to_string(),
+        };
+        let context = open_context(&request_scope).unwrap();
+        persist_scoped_json(
+            &context,
+            PREFLIGHT_RESULT_FILE,
+            &PreflightReport {
+                disposition: PreflightDisposition::Ready,
+                baseline: super::super::preflight::SystemBaseline {
+                    repository_root: repository.0.canonicalize().unwrap(),
+                    git_status_porcelain_v2: String::new(),
+                    port_bindings: Vec::new(),
+                    resources: ResourceSnapshot {
+                        logical_cpu_count: 4,
+                        cpu_usage_percent: 1.0,
+                        total_memory_bytes: 8_000,
+                        available_memory_bytes: 4_000,
+                        repository_disk_available_bytes: 100_000,
+                    },
+                },
+                conflicts: Vec::new(),
+                unknown_conflicts: Vec::new(),
+                stopped_processes: Vec::new(),
+                reasons: Vec::new(),
+            },
+        )
+        .unwrap();
+        let app_data = repository.0.join("app-data");
+        fs::create_dir_all(&app_data).unwrap();
+        let authority = SchedulerAuthorityRuntime::open(&app_data).unwrap();
+        let registry = PlannerRegistryStore::for_app_data(&app_data).unwrap();
+
+        let lease = admit_worker(
+            &authority,
+            &registry,
+            AdmitWorkerApiRequest {
+                scope: request_scope.clone(),
+                node_id: "A01".to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(lease.authority_epoch, Some(authority.epoch()));
+        assert!(lease.authorization_id.is_some());
+        let encoded = serde_json::to_string(&lease).unwrap();
+        assert!(!encoded.contains("token"));
+
+        let duplicate = admit_worker(
+            &authority,
+            &registry,
+            AdmitWorkerApiRequest {
+                scope: request_scope.clone(),
+                node_id: "A01".to_string(),
+            },
+        )
+        .unwrap_err();
+        assert!(duplicate.contains("not claimable"));
+
+        let renewed = brokered_heartbeat(
+            &authority,
+            BrokeredHeartbeatApiRequest {
+                scope: request_scope,
+                node_id: "A01".to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(renewed.fence, lease.fence);
+        assert!(renewed.expires_at_ms >= lease.expires_at_ms);
+        let public = open_scheduler(&context, Vec::new())
+            .unwrap()
+            .public_snapshot()
+            .unwrap();
+        assert!(!serde_json::to_string(&public).unwrap().contains("token"));
+    }
+
+    #[test]
+    fn brokered_admission_refuses_preexisting_dirty_target_ownership() {
+        let repository = TempRepo::new();
+        let scope = repository.create_scope("run-dirty-target");
+        repository.initialize_scheduler(&scope, false);
+        fs::create_dir_all(repository.0.join("src")).unwrap();
+        fs::write(repository.0.join("src/lib.rs"), "user-owned dirty bytes\n").unwrap();
+        let request_scope = ScopedRunRequest {
+            repository_root: repository.0.clone(),
+            run_id: "run-dirty-target".to_string(),
+        };
+        let context = open_context(&request_scope).unwrap();
+        persist_scoped_json(
+            &context,
+            PREFLIGHT_RESULT_FILE,
+            &PreflightReport {
+                disposition: PreflightDisposition::Ready,
+                baseline: super::super::preflight::SystemBaseline {
+                    repository_root: repository.0.canonicalize().unwrap(),
+                    git_status_porcelain_v2: "? src/lib.rs".to_string(),
+                    port_bindings: Vec::new(),
+                    resources: ResourceSnapshot {
+                        logical_cpu_count: 4,
+                        cpu_usage_percent: 1.0,
+                        total_memory_bytes: 8_000,
+                        available_memory_bytes: 4_000,
+                        repository_disk_available_bytes: 100_000,
+                    },
+                },
+                conflicts: Vec::new(),
+                unknown_conflicts: Vec::new(),
+                stopped_processes: Vec::new(),
+                reasons: Vec::new(),
+            },
+        )
+        .unwrap();
+        let app_data = repository.0.join("dirty-app-data");
+        fs::create_dir_all(&app_data).unwrap();
+        let authority = SchedulerAuthorityRuntime::open(&app_data).unwrap();
+        let registry = PlannerRegistryStore::for_app_data(&app_data).unwrap();
+
+        let error = admit_worker(
+            &authority,
+            &registry,
+            AdmitWorkerApiRequest {
+                scope: request_scope,
+                node_id: "A01".to_string(),
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("dirty target ownership"), "{error}");
+        assert!(
+            !registry.path().exists(),
+            "collision state must not mutate after a dirty refusal"
+        );
+    }
+
+    #[test]
+    fn native_manifest_census_detects_cross_repository_resource_ownership() {
+        let first = TempRepo::new();
+        let second = TempRepo::new();
+        let first_scope = first.create_scope("run-first-resource");
+        let second_scope = second.create_scope("run-second-resource");
+        let first_context = open_context(&ScopedRunRequest {
+            repository_root: first.0.clone(),
+            run_id: "run-first-resource".to_string(),
+        })
+        .unwrap();
+        let second_context = open_context(&ScopedRunRequest {
+            repository_root: second.0.clone(),
+            run_id: "run-second-resource".to_string(),
+        })
+        .unwrap();
+        let mut first_seed = planner_registration_seed(&first_context).unwrap();
+        let mut second_seed = planner_registration_seed(&second_context).unwrap();
+        for seed in [&mut first_seed, &mut second_seed] {
+            seed.resources = vec!["mutex:shared-resource".to_string()];
+            seed.nodes[0].resources = seed.resources.clone();
+        }
+        let app_data = first.0.join("census-app-data");
+        fs::create_dir_all(&app_data).unwrap();
+        let registry = PlannerRegistryStore::for_app_data(&app_data).unwrap();
+        let now_ms = unix_ms();
+        let first_snapshot = registry
+            .prepare_manifest_collision_snapshot(first_seed, "A01", now_ms, 300_000)
+            .unwrap();
+        assert!(first_snapshot.conflict_ids.is_empty());
+        let second_snapshot = registry
+            .prepare_manifest_collision_snapshot(second_seed, "A01", now_ms, 300_000)
+            .unwrap();
+        assert_eq!(second_snapshot.conflict_ids.len(), 1);
+        assert_ne!(
+            first_scope.manifest.worktree_id,
+            second_scope.manifest.worktree_id
+        );
     }
 
     #[test]

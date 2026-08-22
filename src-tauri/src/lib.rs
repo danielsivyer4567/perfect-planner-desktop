@@ -29,10 +29,11 @@ use control_plane_api::{
     post_control_message, record_control_delivery,
 };
 use orchestrator::api::{
-    orchestrator_authorize_fenced_completion, orchestrator_create_run, orchestrator_deliver,
-    orchestrator_evaluate_release, orchestrator_pipeline_snapshot, orchestrator_preflight_inspect,
-    orchestrator_reap_expired, orchestrator_reconcile, orchestrator_record_failure,
-    orchestrator_resource_probe, orchestrator_run_catalog, orchestrator_validate_worker_submission,
+    orchestrator_admit_worker, orchestrator_authorize_fenced_completion, orchestrator_create_run,
+    orchestrator_deliver, orchestrator_evaluate_release, orchestrator_pipeline_snapshot,
+    orchestrator_preflight_inspect, orchestrator_reap_expired, orchestrator_reconcile,
+    orchestrator_record_failure, orchestrator_resource_probe, orchestrator_run_catalog,
+    orchestrator_validate_worker_submission, orchestrator_worker_heartbeat,
 };
 use orchestrator::authority_runtime::SchedulerAuthorityRuntime;
 use supervisor::{unix_ms, SessionObservation, SupervisorSnapshot, SupervisorStore};
@@ -378,8 +379,9 @@ pub fn run() {
             collision_registry
                 .bootstrap_registry_schema(unix_ms())
                 .map_err(|error| format!("cannot bootstrap collision registry: {error}"))?;
-            let census = CensusCommandState::native(collision_registry)
+            let census = CensusCommandState::native(collision_registry.clone())
                 .map_err(|_| "native collision census helper is unavailable")?;
+            app.manage(collision_registry);
             app.manage(census);
             let control_plane_path = app_data_dir.join("control-plane.jsonl");
             let control_plane = ControlPlaneStore::open(control_plane_path)?;
@@ -420,6 +422,8 @@ pub fn run() {
             orchestrator_resource_probe,
             orchestrator_pipeline_snapshot,
             orchestrator_run_catalog,
+            orchestrator_admit_worker,
+            orchestrator_worker_heartbeat,
             orchestrator_authorize_fenced_completion,
             orchestrator_record_failure,
             orchestrator_reap_expired,

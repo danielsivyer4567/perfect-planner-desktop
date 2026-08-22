@@ -85,6 +85,37 @@ impl PreclaimStore {
         Ok(document)
     }
 
+    pub(crate) fn expectation(&self) -> Result<CasExpectation, String> {
+        self.read().map(|document| CasExpectation {
+            generation: document.generation,
+            head_digest: document.head_digest,
+        })
+    }
+
+    pub(crate) fn reap_expired(
+        &self,
+        expected: &CasExpectation,
+        now_ms: u64,
+    ) -> Result<CasExpectation, String> {
+        let _lock = StoreLock::acquire(&self.lock_path, LOCK_TIMEOUT)?;
+        let mut document = self.read()?;
+        require_cas(&document, expected)?;
+        let expired = document
+            .reservations
+            .values()
+            .filter(|record| record.expires_at_ms <= now_ms)
+            .map(|record| (record.scope_id.clone(), record.reservation_id.clone()))
+            .collect::<Vec<_>>();
+        if expired.is_empty() {
+            return Ok(expected.clone());
+        }
+        for (scope_id, reservation_id) in expired {
+            document.reservations.remove(&scope_id);
+            document.consumed_reservation_ids.insert(reservation_id);
+        }
+        publish_next(&self.state_path, &mut document)
+    }
+
     pub(crate) fn reserve(
         &self,
         expected: &CasExpectation,
@@ -124,6 +155,11 @@ impl PreclaimStore {
         let _lock = StoreLock::acquire(&self.lock_path, LOCK_TIMEOUT)?;
         let mut document = self.read()?;
         require_cas(&document, expected)?;
+        if !document.reservations.contains_key(scope_id)
+            && document.consumed_reservation_ids.contains(reservation_id)
+        {
+            return Ok(expected.clone());
+        }
         let record = document
             .reservations
             .get(scope_id)

@@ -18,7 +18,10 @@ import {
   PipelineStageId,
   PipelineWarning,
   ScheduledNode,
+  orchestratorClaim,
   orchestratorConsoleSnapshot,
+  orchestratorHeartbeat,
+  orchestratorPreflight,
 } from "../services/orchestratorPipeline";
 
 const STAGE_ORDER: Array<{ id: PipelineStageId; label: string }> = [
@@ -257,8 +260,35 @@ function PipelineSpine({ stages }: { stages: PipelineStage[] }) {
   );
 }
 
-function PreflightPanel({ snapshot }: { snapshot: OrchestratorSnapshot }) {
+function PreflightPanel({
+  snapshot,
+  repositoryRoot,
+  runId,
+  busy,
+  onRan,
+  onError,
+}: {
+  snapshot: OrchestratorSnapshot;
+  repositoryRoot?: string;
+  runId?: string;
+  busy?: boolean;
+  onRan?: () => void;
+  onError?: (message: string) => void;
+}) {
   const report = snapshot.preflight;
+  const [running, setRunning] = useState(false);
+  const inspect = async () => {
+    if (!repositoryRoot || !runId || running) return;
+    setRunning(true);
+    try {
+      await orchestratorPreflight({ repositoryRoot, runId, requiredPorts: [] });
+      onRan?.();
+    } catch (cause) {
+      onError?.(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRunning(false);
+    }
+  };
   return (
     <section
       className="pipeline-gate-panel pipeline-preflight"
@@ -268,6 +298,14 @@ function PreflightPanel({ snapshot }: { snapshot: OrchestratorSnapshot }) {
       <header>
         <h2 id="pp-orch-heading-preflight">Preflight gate</h2>
         <strong>{report ? labelize(report.disposition) : "Not run"}</strong>
+        <button
+          type="button"
+          id="pp-orch-btn-run-preflight"
+          disabled={!repositoryRoot || !runId || busy || running}
+          onClick={() => void inspect()}
+        >
+          {running ? "Inspecting…" : "Run preflight"}
+        </button>
       </header>
       {!report ? (
         <p id="pp-orch-empty-preflight">Execution remains blocked until preflight is recorded.</p>
@@ -349,7 +387,39 @@ function PreflightPanel({ snapshot }: { snapshot: OrchestratorSnapshot }) {
   );
 }
 
-function NodePanel({ nodes }: { nodes: ScheduledNode[] }) {
+function NodePanel({
+  nodes,
+  repositoryRoot,
+  runId,
+  busy,
+  onChanged,
+  onError,
+}: {
+  nodes: ScheduledNode[];
+  repositoryRoot?: string;
+  runId?: string;
+  busy?: boolean;
+  onChanged?: () => void;
+  onError?: (message: string) => void;
+}) {
+  const [pending, setPending] = useState<string | null>(null);
+  const scoped = Boolean(repositoryRoot && runId);
+  const runNative = async (nodeId: string, kind: "admit" | "heartbeat") => {
+    if (!repositoryRoot || !runId || pending) return;
+    setPending(`${kind}:${nodeId}`);
+    try {
+      if (kind === "admit") {
+        await orchestratorClaim({ repositoryRoot, runId, nodeId });
+      } else {
+        await orchestratorHeartbeat({ repositoryRoot, runId, nodeId });
+      }
+      onChanged?.();
+    } catch (cause) {
+      onError?.(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setPending(null);
+    }
+  };
   return (
     <section
       className="pipeline-gate-panel pipeline-nodes"
@@ -372,6 +442,7 @@ function NodePanel({ nodes }: { nodes: ScheduledNode[] }) {
                 key={node.id}
                 data-node-id={node.id}
                 data-worker-id={node.lease?.workerId || "unclaimed"}
+                data-lease-fence={node.lease ? String(node.lease.fence) : "none"}
                 data-attempts={node.attempts}
                 data-node-status={node.status}
                 data-context-kind="node"
@@ -386,7 +457,7 @@ function NodePanel({ nodes }: { nodes: ScheduledNode[] }) {
                   <span>{labelize(node.status)}</span>
                 </summary>
                 <div className="pipeline-node-detail">
-                  <dl data-lease-token={node.lease?.token || undefined}>
+                  <dl>
                     <div>
                       <dt>Worker</dt>
                       <dd>{node.lease?.workerId || "Unclaimed"}</dd>
@@ -408,6 +479,34 @@ function NodePanel({ nodes }: { nodes: ScheduledNode[] }) {
                       <dd>{node.profile ? labelize(node.profile) : "Not recorded"}</dd>
                     </div>
                   </dl>
+                  <div className="pipeline-node-actions">
+                    <button
+                      type="button"
+                      id={`pp-orch-btn-admit-${token}`}
+                      disabled={
+                        !scoped ||
+                        busy ||
+                        pending !== null ||
+                        Boolean(node.lease) ||
+                        node.status.toLowerCase() !== "ready"
+                      }
+                      onClick={() => void runNative(node.id, "admit")}
+                    >
+                      {pending === `admit:${node.id}` ? "Admitting…" : "Admit worker"}
+                    </button>
+                    <button
+                      type="button"
+                      id={`pp-orch-btn-heartbeat-${token}`}
+                      disabled={!scoped || busy || pending !== null || !node.lease}
+                      onClick={() => void runNative(node.id, "heartbeat")}
+                    >
+                      {pending === `heartbeat:${node.id}` ? "Renewing…" : "Heartbeat"}
+                    </button>
+                    <p>
+                      Admission is native-only. The UI names the bound run and node; it cannot
+                      pick a worker id, lease, or clock.
+                    </p>
+                  </div>
                   <div>
                     <h3>Allowed files</h3>
                     {node.allowedFiles?.length ? (
@@ -1148,8 +1247,22 @@ export function PipelineConsole({
           </div>
 
           <PipelineSpine stages={stages} />
-          <PreflightPanel snapshot={snapshot} />
-          <NodePanel nodes={nodes} />
+          <PreflightPanel
+            snapshot={snapshot}
+            repositoryRoot={repositoryRoot}
+            runId={runId}
+            busy={loading}
+            onRan={() => void refresh()}
+            onError={setError}
+          />
+          <NodePanel
+            nodes={nodes}
+            repositoryRoot={repositoryRoot}
+            runId={runId}
+            busy={loading}
+            onChanged={() => void refresh()}
+            onError={setError}
+          />
           <ReconciliationPanel snapshot={snapshot} />
           <ReleasePanel snapshot={snapshot} />
           <AuditDrawer snapshot={snapshot} />

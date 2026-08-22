@@ -3,6 +3,8 @@ export const ORCHESTRATOR_COMMANDS = {
   preflight: "orchestrator_preflight_inspect",
   snapshot: "orchestrator_pipeline_snapshot",
   catalog: "orchestrator_run_catalog",
+  admit: "orchestrator_admit_worker",
+  workerHeartbeat: "orchestrator_worker_heartbeat",
   complete: "orchestrator_authorize_fenced_completion",
   fail: "orchestrator_record_failure",
   reap: "orchestrator_reap_expired",
@@ -141,9 +143,10 @@ export interface WorkerGateResult {
 export interface NodeLease {
   nodeId: string;
   workerId: string;
-  token: string;
   fence: number;
   expiresAtMs: number;
+  authorityEpoch: number | null;
+  authorizationId: string | null;
 }
 
 export type ScheduledNodeStatus = "READY" | "RUNNING" | "DONE" | "BLOCKED";
@@ -767,16 +770,10 @@ export interface SnapshotRequest extends ScopedRunRequest {
 
 export interface ClaimNodeRequest extends ScopedRunRequest {
   nodeId: string;
-  workerId: string;
-  nowMs: number;
-  leaseMs: number;
 }
 
 export interface HeartbeatRequest extends ScopedRunRequest {
   nodeId: string;
-  token: string;
-  nowMs: number;
-  leaseMs: number;
 }
 
 export interface CompleteNodeRequest extends ScopedRunRequest {
@@ -1087,9 +1084,14 @@ function validateSchedulerShape(value: unknown): void {
       const lease = recordValue(node.lease, `pipeline snapshot scheduler.nodes.${key}.lease`);
       textValue(lease.nodeId, `pipeline snapshot scheduler.nodes.${key}.lease.nodeId`);
       textValue(lease.workerId, `pipeline snapshot scheduler.nodes.${key}.lease.workerId`);
-      textValue(lease.token, `pipeline snapshot scheduler.nodes.${key}.lease.token`);
       integerValue(lease.fence, `pipeline snapshot scheduler.nodes.${key}.lease.fence`);
       integerValue(lease.expiresAtMs, `pipeline snapshot scheduler.nodes.${key}.lease.expiresAtMs`);
+      if (lease.authorityEpoch != null) {
+        integerValue(lease.authorityEpoch, `pipeline snapshot scheduler.nodes.${key}.lease.authorityEpoch`);
+      }
+      if (lease.authorizationId != null) {
+        textValue(lease.authorizationId, `pipeline snapshot scheduler.nodes.${key}.lease.authorizationId`);
+      }
     }
   });
 }
@@ -1445,27 +1447,21 @@ export async function orchestratorConsoleSnapshot(
 }
 
 export async function orchestratorClaim(request: ClaimNodeRequest): Promise<NodeLease> {
-  requireScope(request);
+  const scoped = requireScope(request);
   requireText(request.nodeId, "nodeId");
-  requireText(request.workerId, "workerId");
-  if (!Number.isSafeInteger(request.leaseMs) || request.leaseMs < 1_000) {
-    throw new Error("leaseMs must be at least 1000");
-  }
-  throw new Error(
-    "Worker claim blocked: the B20 scheduler-owned collision authority issuer is not active."
-  );
+  return invokePipeline("orchestrator_admit_worker", {
+    ...scoped,
+    nodeId: request.nodeId,
+  });
 }
 
 export async function orchestratorHeartbeat(request: HeartbeatRequest): Promise<NodeLease> {
-  requireScope(request);
+  const scoped = requireScope(request);
   requireText(request.nodeId, "nodeId");
-  requireText(request.token, "token");
-  if (!Number.isSafeInteger(request.leaseMs) || request.leaseMs < 1_000) {
-    throw new Error("leaseMs must be at least 1000");
-  }
-  throw new Error(
-    "Worker heartbeat blocked: B09/B20 authority-backed admission is not active."
-  );
+  return invokePipeline("orchestrator_worker_heartbeat", {
+    ...scoped,
+    nodeId: request.nodeId,
+  });
 }
 
 export async function orchestratorComplete(

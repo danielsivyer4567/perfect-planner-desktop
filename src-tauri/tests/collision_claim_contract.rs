@@ -12,7 +12,7 @@ fn source(relative: &str) -> String {
 }
 
 #[test]
-fn renderer_cannot_claim_or_renew_scheduler_leases_before_b20() {
+fn renderer_can_only_use_brokered_admission_and_heartbeat_after_b20() {
     let lib = source("src/lib.rs");
     let build = source("build.rs");
     let permission = source("permissions/orchestrator-pipeline.toml");
@@ -25,8 +25,15 @@ fn renderer_cannot_claim_or_renew_scheduler_leases_before_b20() {
         assert!(!permission.contains(&format!("\"{command}\"")));
         assert!(!api.contains(&format!("#[tauri::command]\npub fn {command}")));
     }
-    assert!(renderer.contains("B20 scheduler-owned collision authority issuer is not active"));
-    assert!(renderer.contains("B09/B20 authority-backed admission is not active"));
+    for command in ["orchestrator_admit_worker", "orchestrator_worker_heartbeat"] {
+        assert!(lib.contains(&format!("            {command},")));
+        assert!(build.contains(&format!("\"{command}\"")));
+        assert!(permission.contains(&format!("\"{command}\"")));
+        assert!(api.contains(&format!("#[tauri::command]\npub fn {command}")));
+    }
+    assert!(renderer.contains("orchestrator_admit_worker"));
+    assert!(renderer.contains("orchestrator_worker_heartbeat"));
+    assert!(!renderer.contains("scheduler-owned collision authority issuer is not active"));
 }
 
 #[test]
