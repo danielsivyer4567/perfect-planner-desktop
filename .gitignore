@@ -4,6 +4,8 @@ artifacts/
 graphify-out/
 src-tauri/target/
 src-tauri/gen/
+.claude/scratch/perfect-plan/runs/
+.claude/scratch/perfect-plan/evidence/B*-before.png
 *.log
 .DS_Store
 Thumbs.db
