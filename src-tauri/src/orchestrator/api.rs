@@ -686,9 +686,7 @@ fn approve_run(
     const REGISTRY_LEASE_MS: u64 = 300_000;
     const PREFLIGHT_MAX_AGE_MS: u64 = 60_000;
 
-    eprintln!("approve_run trace: opening context");
     let context = open_context(&request)?;
-    eprintln!("approve_run trace: context opened");
     let now_ms = unix_ms();
     let preflight = load_optional_scoped_json::<PreflightReport>(&context, PREFLIGHT_RESULT_FILE)?
         .ok_or_else(|| "run approval requires a recorded native preflight".to_string())?;
@@ -701,9 +699,7 @@ fn approve_run(
     }
 
     let seed = planner_registration_seed(&context)?;
-    eprintln!("approve_run trace: registration seed built");
     let scheduler_state = open_scheduler(&context, Vec::new())?.snapshot()?;
-    eprintln!("approve_run trace: scheduler loaded");
     for node in &seed.nodes {
         let scheduled = scheduler_state.nodes.get(&node.node_id).ok_or_else(|| {
             format!(
@@ -718,7 +714,6 @@ fn approve_run(
     let mut registry_generation = None;
     let mut collision_assessments = Vec::with_capacity(seed.nodes.len());
     for node in &seed.nodes {
-        eprintln!("approve_run trace: assessing node {}", node.node_id);
         let collision = registry
             .prepare_manifest_collision_snapshot(
                 seed.clone(),
@@ -727,7 +722,6 @@ fn approve_run(
                 REGISTRY_LEASE_MS,
             )
             .map_err(|error| format!("run approval collision census is UNKNOWN: {error}"))?;
-        eprintln!("approve_run trace: assessed node {}", node.node_id);
         if !collision.conflict_ids.is_empty() {
             return Err(format!(
                 "run approval refused because node {} has {} ownership conflict(s)",
@@ -776,7 +770,6 @@ fn approve_run(
         }
     }
     persist_scoped_json(&context, RUN_APPROVAL_FILE, &receipt)?;
-    eprintln!("approve_run trace: approval persisted");
     append_event(
         &context,
         None,

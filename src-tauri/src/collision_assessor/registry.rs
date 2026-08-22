@@ -931,7 +931,6 @@ impl PlannerRegistryStore {
         lease_ms: u64,
     ) -> Result<ManifestCollisionSnapshot, RegistryError> {
         validate_seed(&seed)?;
-        eprintln!("collision trace: seed validated {}", seed.planner_id);
         validate_id("target node id", target_node_id)?;
         let plan_parent = Path::new(&seed.plan_path)
             .parent()
@@ -940,7 +939,6 @@ impl PlannerRegistryStore {
             .map_err(|error| {
                 RegistryError::Io(format!("cannot resolve plan directory: {error}"))
             })?;
-        eprintln!("collision trace: plan parent resolved");
         let root = ConfiguredDiscoveryRoot {
             root_id: format!(
                 "root-{:x}",
@@ -952,12 +950,26 @@ impl PlannerRegistryStore {
         if !self.path.exists() {
             self.initialize(vec![root.clone()], now_ms)?;
         } else {
-            eprintln!("collision trace: loading existing registry");
             let document = match load_document_for_mutation(self.path.as_path(), now_ms) {
                 Ok(document) => document,
-                Err(RegistryError::UnknownState(_)) => {
+                Err(RegistryError::UnknownState(issues))
+                    if !issues.is_empty()
+                        && issues.iter().all(|issue| {
+                            matches!(
+                                issue,
+                                RegistryIssue::StaleRegistration { planner_id, .. }
+                                    if planner_id == &seed.planner_id
+                            )
+                        }) =>
+                {
                     self.recover_expired_registration(seed.clone(), now_ms, lease_ms)?;
                     load_document_for_mutation(self.path.as_path(), now_ms)?
+                }
+                Err(RegistryError::UnknownState(issues)) => {
+                    // A new planner must never spend or inherit another planner's stale
+                    // authority. Return UNKNOWN immediately; only the exact expired planner may
+                    // revive its own registration through the fenced recovery path.
+                    return Err(RegistryError::UnknownState(issues));
                 }
                 Err(error) => return Err(error),
             };
@@ -972,10 +984,8 @@ impl PlannerRegistryStore {
             }
         }
 
-        eprintln!("collision trace: loading current registration state");
         let current = load_document_for_mutation(self.path.as_path(), now_ms)?;
         let planner_id = seed.planner_id.clone();
-        eprintln!("collision trace: registering or heartbeating planner");
         let registration = match current
             .registrations
             .iter()
@@ -999,10 +1009,8 @@ impl PlannerRegistryStore {
             )?,
             None => self.register(seed, now_ms, lease_ms)?,
         };
-        eprintln!("collision trace: planner registration ready");
 
         let _lock = RegistryLock::acquire(self.path.as_path(), self.lock_timeout)?;
-        eprintln!("collision trace: final registry lock acquired");
         let document = load_document_for_mutation(self.path.as_path(), now_ms)?;
         let candidate = document
             .registrations
@@ -1019,7 +1027,6 @@ impl PlannerRegistryStore {
             })?;
         let candidate_git = native_git_authority(Path::new(&candidate.identity.worktree_root))
             .map_err(|_| RegistryError::Conflict("candidate Git authority is ambiguous".into()))?;
-        eprintln!("collision trace: candidate git authority ready");
 
         let configured_roots = document
             .configured_roots
@@ -1035,10 +1042,6 @@ impl PlannerRegistryStore {
         let mut conflict_ids = Vec::new();
         let mut census_entries = Vec::new();
         for other in &document.registrations {
-            eprintln!(
-                "collision trace: assessing registered planner {}",
-                other.identity.planner_id
-            );
             if other.lease_expires_at_ms <= now_ms || other.heartbeat_at_ms > now_ms {
                 return Err(RegistryError::Conflict(format!(
                     "planner {} has stale or future ownership state",
@@ -1104,7 +1107,6 @@ impl PlannerRegistryStore {
                 .revalidate()
                 .map_err(|_| RegistryError::Conflict("registered Git authority changed".into()))?;
         }
-        eprintln!("collision trace: all registered planners assessed");
         candidate_git
             .revalidate()
             .map_err(|_| RegistryError::Conflict("candidate Git authority changed".into()))?;
