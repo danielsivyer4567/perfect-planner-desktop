@@ -5768,7 +5768,8 @@
       "dependsOn": [
         "B10",
         "B11",
-        "B15"
+        "B15",
+        "B22"
       ],
       "est": {
         "tokens": 80000,
@@ -5788,10 +5789,10 @@
         "protocol:worker-orchestrator-chat",
         "connector:registered-originating-chat"
       ],
-      "notes": "Reuse and harden the existing head-orchestrator strip and OrchestratorMessenger rather than creating a second messaging surface. The head is always above P1 for the active repository and plan. Messages are immutable, scoped, attributed and delivery-aware; a visual bubble never implies that a chat was actually notified.",
+      "notes": "Reuse and harden the physical head-orchestrator character post introduced by B22 and the existing OrchestratorMessenger rather than creating a second messaging surface. The character is always above P1 and the clockwise worker route for the active repository and plan. Messages are immutable, scoped, attributed and delivery-aware; a visual bubble never implies that a chat was actually notified.",
       "checklist": [
         {
-          "text": "Keep one distinctive head-orchestrator icon and identity card above P1 showing repository, plan, branch, lease, assessor verdict, approval delivery and current status",
+          "text": "Keep the distinct AutoPro-style physical head-orchestrator character and identity card above P1 and the clockwise worker route, showing repository, plan, branch, lease, assessor verdict, approval delivery and current status",
           "built": false,
           "tested": false,
           "verify": "npm run build",
@@ -5832,6 +5833,116 @@
           "ui": true
         }
       ]
+    },
+    {
+      "id": "B22",
+      "spineId": "P5",
+      "side": "L",
+      "title": "Physical head-orchestrator character post",
+      "status": "in-progress",
+      "dependsOn": [
+        "B15"
+      ],
+      "est": {
+        "tokens": 15000,
+        "minutes": 30
+      },
+      "files": [
+        "src/App.tsx",
+        "src/index.css",
+        "tests/head_orchestrator_character_e2e.py"
+      ],
+      "resources": [
+        "ui:physical-head-orchestrator-character",
+        "ui:orchestrator-to-worker-speech"
+      ],
+      "notes": "Corrects the mistaken use of the Looplet feed spinner as the orchestrator. Mirror AutoPro's proven hierarchy: one large, separate ORCH character physically stationed at the fleet head; a speech cloud beside its face; and worker characters or report routes visibly below it. Keep the Tauri treatment light and native to the existing cream/green interface. The Looplet spinner remains only a feed-status mark.",
+      "checklist": [
+        {
+          "text": "Place one unmistakable physical head-orchestrator character above the clockwise worker route, separate from the Looplet feed-status spinner and carrying its own stable entity identity",
+          "built": false,
+          "tested": false,
+          "verify": "python tests/head_orchestrator_character_e2e.py",
+          "ui": true
+        },
+        {
+          "text": "Show a live speech cloud beside the character that truthfully addresses workers for active, grace, decision, stopped and standby states while the worker report lane remains visibly below",
+          "built": false,
+          "tested": false,
+          "verify": "python tests/head_orchestrator_character_e2e.py",
+          "ui": true
+        },
+        {
+          "text": "Keep the actor lightweight, keyboard and screen-reader legible, responsive and motion-reduced, then capture and inspect a high-resolution top-down proof",
+          "built": false,
+          "tested": false,
+          "verify": "npm run build",
+          "ui": true
+        }
+      ],
+      "visualBaseline": {
+        "beforeScreenshot": "PP-002-B22-baseline-1787377644364.before.png",
+        "beforeScreenshotSha256": "c14b731fcd568dd50588d6e608591139cad6b437fd15572c43f3b52850909138",
+        "beforeScreenshotCheck": {
+          "ok": true,
+          "width": 4320,
+          "height": 2700,
+          "bitDepth": 8,
+          "colorType": 2,
+          "blankScore": 0.2538,
+          "uniqueColors": 640,
+          "stddev": {
+            "r": 88.621,
+            "g": 83.43,
+            "b": 83.448
+          },
+          "reason": null,
+          "samples": 42848
+        },
+        "beforeShotNote": "Viewed at 3x: the current top strip shows only a small circular target mark, no physical ORCH character and no speech cloud; worker reports sit in a disconnected row below.",
+        "registeredAt": "2026-08-22T05:47:24.142Z",
+        "model": "gpt-5.6-codex",
+        "user": "danielsivyer4567",
+        "session": "s-c09b7ce7",
+        "git": {
+          "sha": "72da40811263969cce1ecd230d36e81c454eaeb6",
+          "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+          "dirty": true
+        },
+        "sourceFile": "B22-before.png",
+        "beforeScreenshotOcr": {
+          "status": "clear",
+          "role": "derived-warning-only",
+          "rawScreenshotAuthoritative": true,
+          "engine": "tesseract.js",
+          "engineVersion": "5.1.1",
+          "language": "eng",
+          "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+          "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+          "oem": 1,
+          "runtime": "one-shot-subprocess",
+          "resident": false,
+          "network": "disabled-local-model-only",
+          "shot": "PP-002-B22-baseline-1787377644364.before.png",
+          "textArtifact": "PP-002-B22-baseline-1787377644364.before.ocr.txt",
+          "textSha256": "1f81df546e310317d245c5f1d550626c309f69626d23d5cf7c33e29fb7440ff4",
+          "confidence": 82,
+          "durationMs": 4100,
+          "rssStartBytes": 65863680,
+          "rssEndBytes": 94998528,
+          "workerTerminated": true,
+          "expectedText": [],
+          "alarms": []
+        }
+      },
+      "startSha": "72da40811263969cce1ecd230d36e81c454eaeb6",
+      "startedAt": "2026-08-22T05:47:24.142Z",
+      "startedBy": {
+        "model": "gpt-5.6-codex",
+        "user": "danielsivyer4567",
+        "session": "s-c09b7ce7",
+        "at": "2026-08-22T05:47:24.142Z"
+      }
     },
     {
       "id": "B12",

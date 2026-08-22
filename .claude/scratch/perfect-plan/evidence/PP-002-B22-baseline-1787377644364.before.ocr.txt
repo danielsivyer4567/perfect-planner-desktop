@@ -1,0 +1,50 @@
+. HEAD ORCHESTRATOR - REPOSITORY A - Looplet CRM
+perfect planning orch-533a7abb EC LEASE + REAPER ACTIVE © reports © active © grace © cleared © decisions
+boards on 127.0.0.1:5230-5249
+No worker claims are reporting.
+[a | REPOSITORY A
+2
+Looplet CRM pa a I ——— INBOX © | | ouTBOX © No workers are resistered in this scope queue | [ unroutep | [ cLamep | [ pELIvERED
+pp-orchestrator-efe2d6d8-52ec-47. UNROUTED © g p . ACKNOWLEDGED DEAD_LETTER
+® ~ integration/consolidate-mcp-xray-drift-20260821 2
+IN PROGRESS 1
+PP-004 [J
+[ a | LOOPLET CRM
+_~ integration/consolidate-mcp-xray-drift-20260821 . .
+. . . Refresh pipeline
+Pixel Site Inspection camera Orchestrator pipeline
+Looplet-integration-drift-20260821 : :5236 No run snapshot loaded
+Pipeline unavailable: Cannot run orchestrator_snapshot outside Tauri: set a frozen window.__ ORCHESTRATOR_PIPELINE__ fixture
+COMPLETED 1
+PP-005 J COMPLETE
+0 LOOPLET CRM No evidence is displayed because no verified pipeline snapshot is available.
+_~ integration/consolidate-mcp-xray-drift-20260821
+Pixel camera solid rail
+Looplet-integration-drift-20260821 : :5237
+BD Looplet CRM _~ integration/consolidate-mcp-xray-drift-20260821 PP-004 - Pixel Site Inspection camera ..plan\pixel-site-inspection-camera.json refresh open in browser
+REPOSITORY B
+BD Perfect Planner Logo Finish... il a
+y . . . .
+<4) Pixel Site Inspection camera controls and analysis ® synced
+® - codex/ui-invoicing-clean 1
+IN PROGRESS 1
+g 5 . 0 9 i i . .
+PP-001 STALLED Unbuilt Untested ® built @ tested Built eo ————— 100% Tested oT TT ——— 100% integrity: ok - 4 stale Export .md
+[5 | PERFECT PLANNER LOGO FINISH PREVIEW
+PROJECT - LOOPLET CRM Share bundle
+_~ codex/ui-invoicing-clean
+Invoicing #PP-004 project Looplet CRM ~~ codex/fresh-off-codex-20260821-003121 topic Pixel Site Inspection camera
+perfect-planner-logo-finish-preview : :5248..
+planned by gpt-5.6-sol for danie
+V approved 2026-08-21 (chat: Yes, the Pixel/UI work can continue in parallel if it uses its own branch/worktree, registers ownership, avoids C03 and commits before
+LOCAL OUTPUT consolidation)
+app URL not declared
+This plan focuses on: Pixel camera control placement, responsive settings, structured background Site Photo Analysis, storage URL resilience, device proof and a clean handoff commit
+P1 — Field camera controls
+No phase visibility data yet. Put capture and settings where a tradie can operate them safely on the phone.
+alarm - gentle rise 1 stalled [
+sound on test Co —
+Camera capture controls
+Del and responsive settings 1h - 4ek tok 3/3 3/3
+rescan 3 boards
+v

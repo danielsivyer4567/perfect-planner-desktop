@@ -60,6 +60,61 @@ interface WorkerReport {
   fence: number;
 }
 
+type HeadOrchestratorActorState = "working" | "holding" | "standby" | "stopped";
+
+interface HeadOrchestratorActorProps {
+  entityId: string;
+  state: HeadOrchestratorActorState;
+  speech: string;
+}
+
+const HeadOrchestratorActor: React.FC<HeadOrchestratorActorProps> = ({
+  entityId,
+  state,
+  speech,
+}) => (
+  <div
+    className={`head-orchestrator-command-post ${state}`}
+    data-speaking-to="pp-list-worker-reports"
+    data-delivery="visual-status-only"
+  >
+    <div
+      id="pp-entity-head-orchestrator-character"
+      className="head-orchestrator-character"
+      data-orchestrator-id={entityId || "unassigned"}
+      data-role="head-orchestrator-character"
+      role="img"
+      aria-label={`Head orchestrator character, ${state}`}
+    >
+      <svg viewBox="0 0 68 82" aria-hidden="true" focusable="false">
+        <path className="orch-antenna" d="M34 10V4M28 4h12" />
+        <rect className="orch-head" x="11" y="11" width="46" height="31" rx="5" />
+        <rect className="orch-eye" x="20" y="21" width="7" height="7" rx="1" />
+        <rect className="orch-eye" x="41" y="21" width="7" height="7" rx="1" />
+        <path className="orch-mouth" d="M24 34h20" />
+        <path className="orch-body" d="M20 46h28v21H20z" />
+        <path className="orch-arm" d="M20 50 10 60M48 50l9 7" />
+        <path className="orch-leg" d="M27 67v9h-8M41 67v9h8" />
+        <rect className="orch-radio" x="52" y="50" width="9" height="15" rx="2" />
+        <path className="orch-radio-aerial" d="m57 50 3-7" />
+        <circle className="orch-radio-light" cx="56.5" cy="54.5" r="1.5" />
+      </svg>
+      <span>ORCH</span>
+    </div>
+    <div
+      id="pp-status-head-orchestrator-speech"
+      className="head-orchestrator-speech"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span>HEAD ORCH → WORKERS</span>
+      <strong>{speech}</strong>
+      <small>visual status · delivered messages appear below</small>
+    </div>
+  </div>
+);
+
 function storedSoundEnabled(): boolean {
   try {
     return localStorage.getItem(SOUND_KEY) !== "off";
@@ -378,6 +433,26 @@ export const App: React.FC = () => {
       lease.disposition === "CLEARED" &&
       (!activeRepository || lease.organizationId === activeRepository.id)
   ).length || 0;
+  const headActorState: HeadOrchestratorActorState = identityError || supervisorError
+    ? "stopped"
+    : decisionBoards.length || scopedStalled
+      ? "holding"
+      : activeWorkers
+        ? "working"
+        : "standby";
+  const headActorSpeech = identityError
+    ? "STOP. Identity is not proven; no worker may proceed."
+    : supervisorError
+      ? "STOP. Worker supervision is offline; claims remain blocked."
+      : decisionBoards.length
+        ? `Hold the route. ${decisionBoards.length} decision${decisionBoards.length === 1 ? "" : "s"} need Daniel.`
+        : scopedStalled
+          ? `Hold position. ${scopedStalled} worker${scopedStalled === 1 ? " is" : "s are"} inside the grace check.`
+          : activeWorkers
+            ? `Keep moving clockwise. ${activeWorkers} active worker${activeWorkers === 1 ? "" : "s"}; report after each node.`
+            : scannedOnce
+              ? "Standing by. No worker claims are reporting in this repository."
+              : "Checking the fleet before any worker is admitted.";
   const controlPlaneScope = useMemo<ControlPlaneScope | null>(() => {
     if (!active || !activeRepository || !orchestratorId) return null;
     const normalizedPlanPath = active.planPath.replace(/\\/g, "/");
@@ -729,7 +804,11 @@ export const App: React.FC = () => {
           aria-label="Head orchestrator"
         >
           <div className="orchestrator-head">
-            <span className="head-mark" aria-hidden="true">◎</span>
+            <HeadOrchestratorActor
+              entityId={orchestratorId || ""}
+              state={headActorState}
+              speech={headActorSpeech}
+            />
             <span className="head-copy">
               <span className="head-eyebrow">
                 HEAD ORCHESTRATOR · REPOSITORY {activeRepositoryCallSign} · {pipelineRepositoryLabel}
