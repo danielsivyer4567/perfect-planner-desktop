@@ -344,7 +344,9 @@ impl ReplayState {
                 if !assessment.live
                     || recorded_at_ms < assessment.captured_at_ms
                     || recorded_at_ms >= assessment.expires_at_ms
-                    || assessment.participant_node_digests.get(actor_participant_id)
+                    || assessment
+                        .participant_node_digests
+                        .get(actor_participant_id)
                         != Some(&source_node_digest(source_node_id))
                     || !transition_signal_matches_verdict(*signal_kind, assessment.verdict)
                     || !is_sha256(source_state_digest)
@@ -689,7 +691,11 @@ fn participant_index_edge(
 ) -> Option<(u16, u16)> {
     let left = *participant_indices.get(left_participant_id)?;
     let right = *participant_indices.get(right_participant_id)?;
-    (left != right).then_some(if left < right { (left, right) } else { (right, left) })
+    (left != right).then_some(if left < right {
+        (left, right)
+    } else {
+        (right, left)
+    })
 }
 
 fn decode_sha256_hex(value: &str) -> Option<[u8; 32]> {
@@ -720,8 +726,8 @@ fn pack_participant_node_bindings(
     participants.sort_by(|left, right| left.participant_id.cmp(&right.participant_id));
     let mut packed = Vec::with_capacity(participants.len().saturating_mul(64));
     for participant in participants {
-        let participant_id = decode_sha256_hex(&participant.participant_id)
-            .ok_or(JournalError::InvalidEvent)?;
+        let participant_id =
+            decode_sha256_hex(&participant.participant_id).ok_or(JournalError::InvalidEvent)?;
         if !is_bounded_id(&participant.node_id) {
             return Err(JournalError::InvalidEvent);
         }
@@ -737,7 +743,8 @@ fn unpack_participant_node_bindings(
     packed: &str,
     participant_count: u32,
 ) -> Result<BTreeMap<String, String>, JournalError> {
-    let expected_count = usize::try_from(participant_count).map_err(|_| JournalError::LimitExceeded)?;
+    let expected_count =
+        usize::try_from(participant_count).map_err(|_| JournalError::LimitExceeded)?;
     if expected_count == 0 || expected_count > 4_096 {
         return Err(JournalError::LimitExceeded);
     }
@@ -1939,9 +1946,8 @@ mod tests {
     fn assessment(index: usize) -> JournalPayload {
         let mut participant_binding = Vec::with_capacity(64);
         participant_binding.extend_from_slice(&decode_sha256_hex(&"d".repeat(64)).unwrap());
-        participant_binding.extend_from_slice(
-            &decode_sha256_hex(&source_node_digest("node-a")).unwrap(),
-        );
+        participant_binding
+            .extend_from_slice(&decode_sha256_hex(&source_node_digest("node-a")).unwrap());
         JournalPayload::Assessment {
             snapshot_hash: format!("{index:064x}"),
             registry_generation: 7,
@@ -1971,8 +1977,7 @@ mod tests {
 
     #[test]
     fn maximum_participant_and_unique_edge_assessment_fits_and_restarts() {
-        let snapshot =
-            super::super::snapshot::tests::fixture_maximum_unique_edge_snapshot();
+        let snapshot = super::super::snapshot::tests::fixture_maximum_unique_edge_snapshot();
         assert_eq!(snapshot.participants().len(), 4_096);
         assert_eq!(snapshot.conflicts().len(), 8_192);
         let journal = temp_journal("maximum-packed-assessment");
@@ -1980,7 +1985,9 @@ mod tests {
         let store = super::super::snapshot::SnapshotStore::new_for_test(root.join("snapshots"));
         let receipt = store.persist(&snapshot).unwrap();
 
-        journal.record_assessment(&snapshot, &receipt, 1_000).unwrap();
+        journal
+            .record_assessment(&snapshot, &receipt, 1_000)
+            .unwrap();
         let line_bytes = fs::metadata(&journal.path).unwrap().len();
         assert!(line_bytes < MAX_LINE_BYTES as u64, "{line_bytes}");
         let events = journal.read_verified().unwrap();
@@ -1998,12 +2005,9 @@ mod tests {
         assert_eq!(*participant_count, 4_096);
         assert_eq!(*conflict_count, 8_192);
         assert_eq!(
-            unpack_participant_node_bindings(
-                participant_node_bindings_packed,
-                *participant_count,
-            )
-            .unwrap()
-            .len(),
+            unpack_participant_node_bindings(participant_node_bindings_packed, *participant_count,)
+                .unwrap()
+                .len(),
             4_096
         );
         assert_eq!(
@@ -2331,12 +2335,9 @@ mod tests {
                 .decode(participant_node_bindings_packed.as_bytes())
                 .unwrap();
             bindings.extend_from_slice(&decode_sha256_hex(&"e".repeat(64)).unwrap());
-            bindings.extend_from_slice(
-                &decode_sha256_hex(&source_node_digest("node-b")).unwrap(),
-            );
+            bindings.extend_from_slice(&decode_sha256_hex(&source_node_digest("node-b")).unwrap());
             *participant_node_bindings_packed = BASE64_STANDARD.encode(bindings);
-            *participant_conflict_edges_packed =
-                BASE64_STANDARD.encode([0u8, 0u8, 0u8, 1u8]);
+            *participant_conflict_edges_packed = BASE64_STANDARD.encode([0u8, 0u8, 0u8, 1u8]);
             *conflict_count = 1;
             journal.append(1_000, payload).unwrap();
             assert!(matches!(

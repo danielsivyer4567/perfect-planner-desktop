@@ -194,15 +194,15 @@ struct TicketIndexCache {
 
 impl TicketIndexCache {
     fn prune_expired(&mut self, now_ms: u64) {
-        self.entries
-            .retain(|_, index| now_ms < index.expires_at_ms);
+        self.entries.retain(|_, index| now_ms < index.expires_at_ms);
         self.least_recently_used
             .retain(|key| self.entries.contains_key(key));
     }
 
     fn get(&mut self, key: &str) -> Option<Arc<TicketIndex>> {
         let index = self.entries.get(key)?.clone();
-        self.least_recently_used.retain(|candidate| candidate != key);
+        self.least_recently_used
+            .retain(|candidate| candidate != key);
         self.least_recently_used.push_back(key.to_string());
         Some(index)
     }
@@ -221,7 +221,8 @@ impl TicketIndexCache {
 
     fn remove(&mut self, key: &str) {
         self.entries.remove(key);
-        self.least_recently_used.retain(|candidate| candidate != key);
+        self.least_recently_used
+            .retain(|candidate| candidate != key);
     }
 }
 
@@ -570,10 +571,7 @@ impl TicketBroker {
         let mailboxes = builders
             .into_iter()
             .map(|(participant_id, (ticket_ids, tickets))| {
-                (
-                    participant_id,
-                    (Arc::new(ticket_ids), Arc::new(tickets)),
-                )
+                (participant_id, (Arc::new(ticket_ids), Arc::new(tickets)))
             })
             .collect();
         let index = Arc::new(TicketIndex {
@@ -970,7 +968,10 @@ mod tests {
             snapshot_store_binding: stored.store_binding().to_string(),
             destination_registration_digest: digest_strings(
                 b"perfect-planner:test-destination-registration:v1",
-                [participant.participant_id.as_str(), participant.node_id.as_str()],
+                [
+                    participant.participant_id.as_str(),
+                    participant.node_id.as_str(),
+                ],
             ),
             route_store_binding: digest_strings(
                 b"perfect-planner:test-route-store:v1",
@@ -1084,8 +1085,7 @@ mod tests {
 
     #[test]
     fn mailbox_route_receipt_is_registration_bound_and_expiring() {
-        let (root, broker, snapshot, receipt) =
-            setup("route-binding", ConflictDisposition::Wait);
+        let (root, broker, snapshot, receipt) = setup("route-binding", ConflictDisposition::Wait);
         let participant_id = &snapshot.participants()[0].participant_id;
         let valid = route_receipt(&snapshot, &receipt, participant_id);
         broker
@@ -1160,12 +1160,8 @@ mod tests {
             broker.publish_signal(&actor, &after_expiry, 1_300),
             Err(TicketError::Denied)
         ));
-        let expired_ack = acknowledgement_receipt(
-            &snapshot,
-            &actor.participant_id,
-            &ticket_id,
-            &signal_id,
-        );
+        let expired_ack =
+            acknowledgement_receipt(&snapshot, &actor.participant_id, &ticket_id, &signal_id);
         assert!(matches!(
             broker.acknowledge_signal(&actor, &expired_ack, 1_300),
             Err(TicketError::Denied)
@@ -1817,7 +1813,10 @@ mod tests {
         broker
             .publish_signal(&first_capability, &transition, 1_500)
             .unwrap();
-        assert_eq!(broker.journal.read_verified().unwrap().len(), MAX_TICKET_INDEXES + 3);
+        assert_eq!(
+            broker.journal.read_verified().unwrap().len(),
+            MAX_TICKET_INDEXES + 3
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1987,12 +1986,7 @@ mod tests {
             .map(|(index, recipient)| {
                 let actor = &capabilities[(index + 1) % capabilities.len()];
                 let signal_id = signals_by_actor[&actor.participant_id].clone();
-                acknowledgement_receipt(
-                    &snapshot,
-                    &recipient.participant_id,
-                    "",
-                    &signal_id,
-                )
+                acknowledgement_receipt(&snapshot, &recipient.participant_id, "", &signal_id)
             })
             .collect::<Vec<_>>();
         let acknowledge_handles = capabilities
@@ -2006,11 +2000,7 @@ mod tests {
                 std::thread::spawn(move || {
                     barrier.wait();
                     broker
-                        .acknowledge_signal(
-                            &recipient,
-                            &acknowledgement,
-                            1_600 + index as u64,
-                        )
+                        .acknowledge_signal(&recipient, &acknowledgement, 1_600 + index as u64)
                         .unwrap();
                 })
             })
@@ -2079,12 +2069,8 @@ mod tests {
             .unwrap()
             .signals
             .is_empty());
-        let forged_ack = acknowledgement_receipt(
-            &snapshot,
-            &distant.participant_id,
-            &ticket_id,
-            &signal_id,
-        );
+        let forged_ack =
+            acknowledgement_receipt(&snapshot, &distant.participant_id, &ticket_id, &signal_id);
         assert!(matches!(
             broker.acknowledge_signal(distant, &forged_ack, 1_302),
             Err(TicketError::Journal(_))
@@ -2117,8 +2103,7 @@ mod tests {
                 TicketSignalKind::NodeDone,
             ),
         ];
-        for (index, (disposition, first_kind, contradictory_kind)) in
-            cases.into_iter().enumerate()
+        for (index, (disposition, first_kind, contradictory_kind)) in cases.into_iter().enumerate()
         {
             let (root, broker, snapshot, stored) =
                 setup(&format!("source-slot-{index}"), disposition);

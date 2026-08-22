@@ -316,7 +316,6 @@ impl VerifiedAssessmentSnapshot {
             commitment_root: wrap_conflict_root(&top, leaf_hashes.len()),
         })
     }
-
 }
 
 /// Sealed proof that exact snapshot bytes were fsynced, published without replacement, reopened,
