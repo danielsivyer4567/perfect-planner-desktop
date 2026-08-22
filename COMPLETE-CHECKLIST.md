@@ -613,3 +613,9 @@
 <!-- PP-EVENT 6c5f8b6fa616e77f479f983008d8491b2d61ef1d4f998f9427f8c7efc78003ba -->
 | 2026-08-22T05:54:12.775Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-codex | s-c09b7ce7 |  | 758c8d1d6c70* | session end: B22 completed and proven; implementation 17c4fd8; evidence 758c8d1; build, focused 3x visual E2E and full browser regression green |  |
 <!-- PP-EVENT aa4130614129c37c336b61c053f9e8451e2e039ba2402e0cdf65764bc978d936 -->
+| 2026-08-22T05:59:00.868Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-codex | s-77024479 |  | eb2fb2817d88* | session start: add problem location and recommended remedy to ORCH alerts |  |
+<!-- PP-EVENT a8be2df5acf267425b46d7f119dbd514555e6acf4c6aed64ac41fad92696be8c -->
+| 2026-08-22T06:00:43.426Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | visual-baseline | B23 | gpt-5.6-codex | s-77024479 |  | eb2fb2817d88* |  | PP-002-B23-baseline-1787378443759.before.png, PP-002-B23-baseline-1787378443759.before.ocr.txt |
+<!-- PP-EVENT 19e0b0032626b430ef89848984075bffb3507629921b88d6715ef48a817eaf57 -->
+| 2026-08-22T06:00:43.426Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | start | B23 | gpt-5.6-codex | s-77024479 |  | eb2fb2817d88* |  | PP-002-B23-baseline-1787378443759.before.png |
+<!-- PP-EVENT 90f5a32376e4931e88e80b10f83e2381cc8153c184a530dda9bf48fba46cc81d -->

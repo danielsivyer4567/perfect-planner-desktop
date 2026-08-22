@@ -5769,7 +5769,8 @@
         "B10",
         "B11",
         "B15",
-        "B22"
+        "B22",
+        "B23"
       ],
       "est": {
         "tokens": 80000,
@@ -6456,6 +6457,117 @@
         "session": "s-c09b7ce7",
         "at": "2026-08-22T05:53:05.112Z",
         "forced": false
+      }
+    },
+    {
+      "id": "B23",
+      "spineId": "P5",
+      "side": "R",
+      "title": "Actionable ORCH problem guidance",
+      "status": "in-progress",
+      "dependsOn": [
+        "B22"
+      ],
+      "est": {
+        "tokens": 15000,
+        "minutes": 30
+      },
+      "files": [
+        "src/App.tsx",
+        "src/services/boards.ts",
+        "src/index.css",
+        "tests/head_orchestrator_character_e2e.py"
+      ],
+      "resources": [
+        "ui:orchestrator-problem-location-remedy",
+        "protocol:actionable-operator-guidance"
+      ],
+      "notes": "A red or amber ORCH statement is not actionable unless the operator can identify the exact affected scope and the safest next step. Every ORCH bubble therefore uses an explicit Problem / Where / Remedy contract. Location must name the narrowest truthful repository, plan, branch, node and worker data available. Remedy must preserve fail-closed behavior and must not imply an action was executed merely because it was recommended. The lifecycle-boundary regression case is: start and Perfect Planner execution are usable, but the combined lifecycle remains unsafe until the Planner invokes finish as the authoritative release gate and cleanup remains explicit and last.",
+      "checklist": [
+        {
+          "text": "Replace vague ORCH warnings with a visible Problem, Where and Remedy structure for decision, stale-worker, identity, supervision and lifecycle-boundary failures",
+          "built": false,
+          "tested": false,
+          "verify": "python tests/head_orchestrator_character_e2e.py",
+          "ui": true
+        },
+        {
+          "text": "Name the narrowest available repository, plan, branch, node and worker location without inventing missing scope, and keep workers fail-closed while the problem remains",
+          "built": false,
+          "tested": false,
+          "verify": "python tests/head_orchestrator_character_e2e.py",
+          "ui": true
+        },
+        {
+          "text": "Offer one safe recommended next action, distinguish advice from delivered commands, preserve finish as the authoritative release gate and cleanup as explicit-and-last, and keep the guidance readable to screen readers at three-times device scale",
+          "built": false,
+          "tested": false,
+          "verify": "npm run build",
+          "ui": true
+        }
+      ],
+      "visualBaseline": {
+        "beforeScreenshot": "PP-002-B23-baseline-1787378443759.before.png",
+        "beforeScreenshotSha256": "0e82a72b8c19ace6e8f9e143f217916dece4c8648be27a2f06ced5ff871f64b2",
+        "beforeScreenshotCheck": {
+          "ok": true,
+          "width": 4320,
+          "height": 2700,
+          "bitDepth": 8,
+          "colorType": 2,
+          "blankScore": 0.3807,
+          "uniqueColors": 383,
+          "stddev": {
+            "r": 89.913,
+            "g": 84.937,
+            "b": 84.426
+          },
+          "reason": null,
+          "samples": 42848
+        },
+        "beforeShotNote": "Viewed at 3x: ORCH uses one combined status sentence. Even when the status signals a hold or stop, the bubble has no explicit Problem, Where or Remedy fields.",
+        "registeredAt": "2026-08-22T06:00:43.426Z",
+        "model": "gpt-5.6-codex",
+        "user": "danielsivyer4567",
+        "session": "s-77024479",
+        "git": {
+          "sha": "eb2fb2817d88d207dd5f97cbf7c7cca6f194e677",
+          "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+          "dirty": true
+        },
+        "sourceFile": "head-orchestrator-character-3x.png",
+        "beforeScreenshotOcr": {
+          "status": "clear",
+          "role": "derived-warning-only",
+          "rawScreenshotAuthoritative": true,
+          "engine": "tesseract.js",
+          "engineVersion": "5.1.1",
+          "language": "eng",
+          "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+          "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+          "oem": 1,
+          "runtime": "one-shot-subprocess",
+          "resident": false,
+          "network": "disabled-local-model-only",
+          "shot": "PP-002-B23-baseline-1787378443759.before.png",
+          "textArtifact": "PP-002-B23-baseline-1787378443759.before.ocr.txt",
+          "textSha256": "1a477c452a439286df01155f3f2584afd0cc7e3765f9bbe7001281942949d99c",
+          "confidence": 71,
+          "durationMs": 4697,
+          "rssStartBytes": 65904640,
+          "rssEndBytes": 208936960,
+          "workerTerminated": true,
+          "expectedText": [],
+          "alarms": []
+        }
+      },
+      "startSha": "eb2fb2817d88d207dd5f97cbf7c7cca6f194e677",
+      "startedAt": "2026-08-22T06:00:43.426Z",
+      "startedBy": {
+        "model": "gpt-5.6-codex",
+        "user": "danielsivyer4567",
+        "session": "s-77024479",
+        "at": "2026-08-22T06:00:43.426Z"
       }
     },
     {

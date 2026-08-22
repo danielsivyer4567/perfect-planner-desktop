@@ -27,6 +27,7 @@ def main() -> None:
             if message.type == "error"
             else None,
         )
+        phase = {"value": "active"}
 
         def mock_probe(route) -> None:
             parsed = urlparse(route.request.url)
@@ -47,7 +48,16 @@ def main() -> None:
                         "repoRoot": str(ROOT),
                         "branch": "feature/head-orchestrator-character",
                         "approved": "yes @ test",
-                        "awaiting": None,
+                        "awaiting": {
+                            "kind": "lifecycle-boundary",
+                            "item": "release-gate",
+                            "problem": "The combined workflow is not safe to treat as one automated lifecycle.",
+                            "where": "Perfect Planner Desktop / release lifecycle / $start → Planner → $finish → $cleanup",
+                            "remedy": "Planner may invoke $finish, but $finish remains the authoritative release gate; run $cleanup explicitly and last.",
+                            "since": "2026-08-22T05:50:00.000Z",
+                        }
+                        if phase["value"] == "lifecycle"
+                        else None,
                         "port": 5232,
                         "pid": 22022,
                     },
@@ -59,8 +69,16 @@ def main() -> None:
                     "asOf": "2026-08-22T05:50:00.000Z",
                     "activeWindowMs": 600000,
                     "workers": {
-                        "B22": {"vertebra": "B22", "session": "s-actor", "state": "ACTIVE"},
-                        "B15": {"vertebra": "B15", "session": "s-bridge", "state": "ACTIVE"},
+                        "B22": {
+                            "vertebra": "B22",
+                            "session": "s-actor",
+                            "state": "STALE" if phase["value"] == "stale" else "ACTIVE",
+                        },
+                        "B15": {
+                            "vertebra": "B15",
+                            "session": "s-bridge",
+                            "state": "STALE" if phase["value"] == "stale" else "ACTIVE",
+                        },
                     },
                 },
             )
@@ -82,7 +100,12 @@ def main() -> None:
         expect(actor).to_have_attribute("data-orchestrator-id", head.get_attribute("data-entity-id"))
         expect(actor).to_have_attribute("aria-label", "Head orchestrator character, working")
         expect(speech).to_contain_text("HEAD ORCH → WORKERS")
-        expect(speech).to_contain_text("Keep moving clockwise. 2 active workers")
+        expect(speech).to_contain_text("Problem")
+        expect(speech).to_contain_text("No blocking issue detected.")
+        expect(speech).to_contain_text("Where")
+        expect(speech).to_contain_text("Remedy")
+        expect(speech.locator("dt")).to_have_count(3)
+        expect(speech).to_have_attribute("aria-live", "polite")
         expect(worker_route).to_be_visible()
         expect(spinner).to_be_visible()
 
@@ -102,11 +125,34 @@ def main() -> None:
         assert page.evaluate(
             "getComputedStyle(document.querySelector('#pp-entity-head-orchestrator-character')).animationName"
         ) == "none", "reduced-motion did not stop the actor animation"
-        assert not console_errors, f"browser console errors: {console_errors}"
+
+        phase["value"] = "lifecycle"
+        page.get_by_role("button", name="rescan").click()
+        expect(page.get_by_role("button", name="rescan")).to_be_enabled(timeout=5_000)
+        expect(actor).to_have_attribute("aria-label", "Head orchestrator character, holding")
+        expect(speech).to_contain_text(
+            "The combined workflow is not safe to treat as one automated lifecycle."
+        )
+        expect(speech).to_contain_text(
+            "Perfect Planner Desktop / release lifecycle / $start → Planner → $finish → $cleanup"
+        )
+        expect(speech).to_contain_text(
+            "Planner may invoke $finish, but $finish remains the authoritative release gate; "
+            "run $cleanup explicitly and last."
+        )
+        expect(speech).to_contain_text("recommended action only")
 
         page.screenshot(path=str(SCREENSHOT), full_page=False)
         image_size = SCREENSHOT.stat().st_size
         assert image_size > 100_000, f"3x screenshot is unexpectedly small: {image_size} bytes"
+
+        phase["value"] = "stale"
+        page.get_by_role("button", name="rescan").click()
+        expect(page.get_by_role("button", name="rescan")).to_be_enabled(timeout=5_000)
+        expect(speech).to_contain_text("STALE worker heartbeat")
+        expect(speech).to_contain_text("Perfect Planner Desktop / PP-ORCH / B22 / worker s-actor")
+        expect(speech).to_contain_text("Pause new claims, check the worker heartbeat")
+        assert not console_errors, f"browser console errors: {console_errors}"
 
         context.close()
         browser.close()

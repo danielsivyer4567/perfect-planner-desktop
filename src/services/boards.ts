@@ -116,6 +116,9 @@ export interface DecisionRequest {
   kind: string;
   item: string | null;
   since: string | null;
+  problem: string | null;
+  where: string | null;
+  remedy: string | null;
 }
 
 interface WhoAmI {
@@ -517,10 +520,20 @@ export function decisionRequest(board: Board): DecisionRequest | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (typeof record.kind !== "string" || !record.kind.trim()) return null;
+  const firstText = (...keys: string[]): string | null => {
+    for (const key of keys) {
+      const candidate = record[key];
+      if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+    }
+    return null;
+  };
   return {
     kind: record.kind.trim(),
     item: typeof record.item === "string" ? record.item : null,
     since: typeof record.since === "string" ? record.since : null,
+    problem: firstText("problem", "message", "why", "reason"),
+    where: firstText("where", "location", "scope"),
+    remedy: firstText("remedy", "solution", "needs", "nextAction"),
   };
 }
 

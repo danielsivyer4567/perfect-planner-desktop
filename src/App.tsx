@@ -62,16 +62,22 @@ interface WorkerReport {
 
 type HeadOrchestratorActorState = "working" | "holding" | "standby" | "stopped";
 
+interface HeadOrchestratorGuidance {
+  problem: string;
+  where: string;
+  remedy: string;
+}
+
 interface HeadOrchestratorActorProps {
   entityId: string;
   state: HeadOrchestratorActorState;
-  speech: string;
+  guidance: HeadOrchestratorGuidance;
 }
 
 const HeadOrchestratorActor: React.FC<HeadOrchestratorActorProps> = ({
   entityId,
   state,
-  speech,
+  guidance,
 }) => (
   <div
     className={`head-orchestrator-command-post ${state}`}
@@ -109,8 +115,21 @@ const HeadOrchestratorActor: React.FC<HeadOrchestratorActorProps> = ({
       aria-atomic="true"
     >
       <span>HEAD ORCH → WORKERS</span>
-      <strong>{speech}</strong>
-      <small>visual status · delivered messages appear below</small>
+      <dl>
+        <div className="orch-guidance-problem">
+          <dt>Problem</dt>
+          <dd>{guidance.problem}</dd>
+        </div>
+        <div>
+          <dt>Where</dt>
+          <dd>{guidance.where}</dd>
+        </div>
+        <div>
+          <dt>Remedy</dt>
+          <dd>{guidance.remedy}</dd>
+        </div>
+      </dl>
+      <small>recommended action only · delivered commands appear below</small>
     </div>
   </div>
 );
@@ -440,19 +459,65 @@ export const App: React.FC = () => {
       : activeWorkers
         ? "working"
         : "standby";
-  const headActorSpeech = identityError
-    ? "STOP. Identity is not proven; no worker may proceed."
+  const firstDecisionEntry = decisionBoards[0];
+  const firstDecision = firstDecisionEntry?.decision;
+  const firstProblemWorker = visibleWorkerReports.find(
+    (report) => report.worker.state !== "ACTIVE"
+  );
+  const selectedScope = [activeRepository?.label, active?.number, active?.branch]
+    .filter((part): part is string => Boolean(part))
+    .join(" / ") || "No repository or plan selected";
+  const headActorGuidance: HeadOrchestratorGuidance = identityError
+    ? {
+        problem: "Orchestrator identity could not be reserved; workers remain blocked.",
+        where: `${selectedScope} / identity registry`,
+        remedy: "Release the conflicting lease or allocate a new unique ID, then rescan before admitting workers.",
+      }
     : supervisorError
-      ? "STOP. Worker supervision is offline; claims remain blocked."
-      : decisionBoards.length
-        ? `Hold the route. ${decisionBoards.length} decision${decisionBoards.length === 1 ? "" : "s"} need Daniel.`
-        : scopedStalled
-          ? `Hold position. ${scopedStalled} worker${scopedStalled === 1 ? " is" : "s are"} inside the grace check.`
+      ? {
+          problem: "Worker supervision could not be loaded; claim state is untrusted.",
+          where: `${selectedScope} / lease supervisor`,
+          remedy: "Keep claims blocked, restore the supervisor, inspect its log, and rescan before retrying.",
+        }
+      : firstDecisionEntry && firstDecision
+        ? {
+            problem: firstDecision.problem || `Decision required: ${firstDecision.kind}.`,
+            where: firstDecision.where || [
+              firstDecisionEntry.board.repoName,
+              firstDecisionEntry.board.number,
+              firstDecision.item,
+              firstDecisionEntry.board.branch,
+            ].filter((part): part is string => Boolean(part)).join(" / "),
+            remedy: firstDecision.remedy || "Keep the affected route on hold, review the decision request, then approve or re-plan it.",
+          }
+        : firstProblemWorker
+          ? {
+              problem: `${firstProblemWorker.worker.state} worker heartbeat; its claim cannot progress safely.`,
+              where: [
+                firstProblemWorker.organization.label,
+                active?.number,
+                firstProblemWorker.worker.vertebra,
+                `worker ${firstProblemWorker.worker.session}`,
+              ].filter((part): part is string => Boolean(part)).join(" / "),
+              remedy: "Pause new claims, check the worker heartbeat, then recover or release its claim and re-plan before restarting.",
+            }
           : activeWorkers
-            ? `Keep moving clockwise. ${activeWorkers} active worker${activeWorkers === 1 ? "" : "s"}; report after each node.`
+            ? {
+                problem: "No blocking issue detected.",
+                where: `${selectedScope} / clockwise worker route`,
+                remedy: `Continue ${activeWorkers} active worker${activeWorkers === 1 ? "" : "s"} and require a report after each node.`,
+              }
             : scannedOnce
-              ? "Standing by. No worker claims are reporting in this repository."
-              : "Checking the fleet before any worker is admitted.";
+              ? {
+                  problem: "No worker claims are currently reporting.",
+                  where: `${selectedScope} / worker route`,
+                  remedy: "No recovery is required; keep the orchestrator standing by until a validated claim arrives.",
+                }
+              : {
+                  problem: "Fleet assessment has not completed yet.",
+                  where: `${selectedScope} / initial census`,
+                  remedy: "Keep workers blocked until the first read-only census and collision assessment finish.",
+                };
   const controlPlaneScope = useMemo<ControlPlaneScope | null>(() => {
     if (!active || !activeRepository || !orchestratorId) return null;
     const normalizedPlanPath = active.planPath.replace(/\\/g, "/");
@@ -807,7 +872,7 @@ export const App: React.FC = () => {
             <HeadOrchestratorActor
               entityId={orchestratorId || ""}
               state={headActorState}
-              speech={headActorSpeech}
+              guidance={headActorGuidance}
             />
             <span className="head-copy">
               <span className="head-eyebrow">
