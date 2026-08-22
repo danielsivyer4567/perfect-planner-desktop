@@ -1,0 +1,27 @@
+perfect planning HEAD ORCH » WORKERS
+boards on 127.0.0.1:5230-5249 PROBLEM The combined workflow is not safe to treat as one automated lifecycle.
+WHERE Perfect Planner Desktop / release lifecycle / $start -» Planner >
+a HEAD ORCHESTRATOR - REPOSITORY A - Perfect Planner Desktop A
+$finish » $cleanup orch-0d98c138 LEASE + REAPER ACTIVE 2 reports 2 active
+REPOSITORY A AIA REMEDY Planner may invoke $finish, but $finish remains the authoritative
+ORen release gate; run $cleanup explicitly and last.
+Perfect Planner Desktop 1 recommended action only - delivered commands appear below
+@® ~ feature/head-orchestrator-character |
+IN PROGRESS . © grace © cleared 1 decisions
+PP-0ORCH [] s-actor B22 LIVE s-bridge B15 LIVE DECISION - release-gate
+[ » | PERFECT PLANNER DESKTOP
+_~ feature/head-orchestrator-character
+. INBOX © | | ouTBOX @ QUEUED DELIVERED
+Physical head orchestrator LOOPLET LIVE ORCHESTRATOR MESSAGES i
+y _orchestrator-96e571d1-b8bb-45 s-actor - B22 B22 LIVE s-bridge - B15 B15 LIVE
+head-orchestrator-character.json - :5232 - .. ia { unrouTeD o | ACKNOWLEDGED
+Orchestrator pipeline Refresh pipeline
+No run snapshot loaded
+No evidence is displayed because no verified pipeline snapshot is available.
+BD Perfect Planner Desktop _~ feature/head-orchestrator-character PP-ORCH : Physical head orchestrator ..xtures\head-orchestrator-character.json refresh open in browser
+LOCAL OUTPUT
+app URL not declared
+No phase visibility data yet.
+alarm - gentle rise armed
+sound on | | test | CHEE
+rescan 1 board

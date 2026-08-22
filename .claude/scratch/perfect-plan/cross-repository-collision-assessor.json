@@ -6464,7 +6464,7 @@
       "spineId": "P5",
       "side": "R",
       "title": "Actionable ORCH problem guidance",
-      "status": "in-progress",
+      "status": "done",
       "dependsOn": [
         "B22"
       ],
@@ -6486,24 +6486,534 @@
       "checklist": [
         {
           "text": "Replace vague ORCH warnings with a visible Problem, Where and Remedy structure for decision, stale-worker, identity, supervision and lifecycle-boundary failures",
-          "built": false,
-          "tested": false,
+          "built": true,
+          "tested": true,
           "verify": "python tests/head_orchestrator_character_e2e.py",
-          "ui": true
+          "ui": true,
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-77024479",
+            "at": "2026-08-22T06:05:16.055Z",
+            "git": {
+              "sha": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 5000,
+            "loc": {
+              "baseline": "eb2fb2817d88d207dd5f97cbf7c7cca6f194e677",
+              "scope": "files",
+              "added": 188,
+              "removed": 27,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "src/App.tsx",
+                  "added": 80,
+                  "removed": 15
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 44,
+                  "removed": 7
+                },
+                {
+                  "file": "src/services/boards.ts",
+                  "added": 13,
+                  "removed": 0
+                },
+                {
+                  "file": "tests/head_orchestrator_character_e2e.py",
+                  "added": 51,
+                  "removed": 5
+                }
+              ],
+              "fileCount": 4,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "frontend-design"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T06:05:36.493Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-77024479",
+            "note": "ran `python tests/head_orchestrator_character_e2e.py` → exit 0 in 2628ms",
+            "log": "PP-002-B23-0-1787378733344.log",
+            "sha256": "2c8c6058fd3d754e2dfb81b72ca2ed6228a8d7c8b95f7316adc733511a884131",
+            "exit": 0,
+            "durationMs": 2628,
+            "git": {
+              "sha": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "python tests/head_orchestrator_character_e2e.py",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-002-B23-baseline-1787378443759.before.png",
+            "beforeScreenshotSha256": "0e82a72b8c19ace6e8f9e143f217916dece4c8648be27a2f06ced5ff871f64b2",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3807,
+              "uniqueColors": 383,
+              "stddev": {
+                "r": 89.913,
+                "g": 84.937,
+                "b": 84.426
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Viewed at 3x: ORCH uses one combined status sentence. Even when the status signals a hold or stop, the bubble has no explicit Problem, Where or Remedy fields.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B23-baseline-1787378443759.before.png",
+              "textArtifact": "PP-002-B23-baseline-1787378443759.before.ocr.txt",
+              "textSha256": "1a477c452a439286df01155f3f2584afd0cc7e3765f9bbe7001281942949d99c",
+              "confidence": 71,
+              "durationMs": 4697,
+              "rssStartBytes": 65904640,
+              "rssEndBytes": 208936960,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B23-0-1787378733344.png",
+              "textArtifact": "PP-002-B23-0-1787378733344.ocr.txt",
+              "textSha256": "175f3ae8a17c61c9a99da95d14e2c7e5fefc3e273b1db61465da377fe89d766e",
+              "confidence": 84,
+              "durationMs": 2569,
+              "rssStartBytes": 65802240,
+              "rssEndBytes": 102621184,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-002-B23-0-1787378733344.diff",
+            "diffSha256": "4693211b7ebd0dcc34acf4c4f080f45f5dc5b0375b6fd1e0bc461b2033e3838f",
+            "diffBaseline": "eb2fb2817d88d207dd5f97cbf7c7cca6f194e677",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/index.css",
+              "src/services/boards.ts",
+              "tests/head_orchestrator_character_e2e.py"
+            ],
+            "screenshot": "PP-002-B23-0-1787378733344.png",
+            "screenshotSha256": "570c52a9205dce0d4ebdddd0448df5687e419d46ca752acc248171f0755c012b",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3278,
+              "uniqueColors": 441,
+              "stddev": {
+                "r": 93.254,
+                "g": 87.841,
+                "b": 87.178
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed at 3x: the amber ORCH bubble visibly separates Problem, Where and Remedy and shows the exact unsafe combined-lifecycle warning.",
+            "tokensEst": 2500,
+            "loc": {
+              "baseline": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Name the narrowest available repository, plan, branch, node and worker location without inventing missing scope, and keep workers fail-closed while the problem remains",
-          "built": false,
-          "tested": false,
+          "built": true,
+          "tested": true,
           "verify": "python tests/head_orchestrator_character_e2e.py",
-          "ui": true
+          "ui": true,
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-77024479",
+            "at": "2026-08-22T06:05:18.001Z",
+            "git": {
+              "sha": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 5000,
+            "loc": {
+              "baseline": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "frontend-design"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T06:05:44.095Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-77024479",
+            "note": "ran `python tests/head_orchestrator_character_e2e.py` → exit 0 in 2510ms",
+            "log": "PP-002-B23-1-1787378740813.log",
+            "sha256": "19775191a41e7a69f051a415d56347e3d5108c815119c3f3ff934c5d74460299",
+            "exit": 0,
+            "durationMs": 2510,
+            "git": {
+              "sha": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "python tests/head_orchestrator_character_e2e.py",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-002-B23-baseline-1787378443759.before.png",
+            "beforeScreenshotSha256": "0e82a72b8c19ace6e8f9e143f217916dece4c8648be27a2f06ced5ff871f64b2",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3807,
+              "uniqueColors": 383,
+              "stddev": {
+                "r": 89.913,
+                "g": 84.937,
+                "b": 84.426
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Viewed at 3x: ORCH uses one combined status sentence. Even when the status signals a hold or stop, the bubble has no explicit Problem, Where or Remedy fields.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B23-baseline-1787378443759.before.png",
+              "textArtifact": "PP-002-B23-baseline-1787378443759.before.ocr.txt",
+              "textSha256": "1a477c452a439286df01155f3f2584afd0cc7e3765f9bbe7001281942949d99c",
+              "confidence": 71,
+              "durationMs": 4697,
+              "rssStartBytes": 65904640,
+              "rssEndBytes": 208936960,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B23-1-1787378740813.png",
+              "textArtifact": "PP-002-B23-1-1787378740813.ocr.txt",
+              "textSha256": "e544ff7c2d0681b7b7daf35abefd8fca41fc78aceb8ff405e9acc880cacf15df",
+              "confidence": 84,
+              "durationMs": 2597,
+              "rssStartBytes": 65892352,
+              "rssEndBytes": 134361088,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-002-B23-1-1787378740813.diff",
+            "diffSha256": "4693211b7ebd0dcc34acf4c4f080f45f5dc5b0375b6fd1e0bc461b2033e3838f",
+            "diffBaseline": "eb2fb2817d88d207dd5f97cbf7c7cca6f194e677",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/index.css",
+              "src/services/boards.ts",
+              "tests/head_orchestrator_character_e2e.py"
+            ],
+            "screenshot": "PP-002-B23-1-1787378740813.png",
+            "screenshotSha256": "1ac254dca2d13ca716b964867113de943099e85f20f07f34e23712f034a8fb37",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3278,
+              "uniqueColors": 438,
+              "stddev": {
+                "r": 93.271,
+                "g": 87.859,
+                "b": 87.2
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed at 3x: Where names Perfect Planner Desktop and the exact $start to Planner to $finish to $cleanup release boundary; the E2E also verifies repo, plan, node and worker scope for stale heartbeats.",
+            "tokensEst": 2500,
+            "loc": {
+              "baseline": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Offer one safe recommended next action, distinguish advice from delivered commands, preserve finish as the authoritative release gate and cleanup as explicit-and-last, and keep the guidance readable to screen readers at three-times device scale",
-          "built": false,
-          "tested": false,
+          "built": true,
+          "tested": true,
           "verify": "npm run build",
-          "ui": true
+          "ui": true,
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-77024479",
+            "at": "2026-08-22T06:05:19.880Z",
+            "git": {
+              "sha": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 5000,
+            "loc": {
+              "baseline": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "frontend-design"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T06:05:52.323Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-77024479",
+            "note": "ran `npm run build` → exit 0 in 3112ms",
+            "log": "PP-002-B23-2-1787378748576.log",
+            "sha256": "3193ea916c34f5e4a47ae086b76bc4e78e75f912041d21a1269e287215b77aae",
+            "exit": 0,
+            "durationMs": 3112,
+            "git": {
+              "sha": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "npm run build",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-002-B23-baseline-1787378443759.before.png",
+            "beforeScreenshotSha256": "0e82a72b8c19ace6e8f9e143f217916dece4c8648be27a2f06ced5ff871f64b2",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3807,
+              "uniqueColors": 383,
+              "stddev": {
+                "r": 89.913,
+                "g": 84.937,
+                "b": 84.426
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Viewed at 3x: ORCH uses one combined status sentence. Even when the status signals a hold or stop, the bubble has no explicit Problem, Where or Remedy fields.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B23-baseline-1787378443759.before.png",
+              "textArtifact": "PP-002-B23-baseline-1787378443759.before.ocr.txt",
+              "textSha256": "1a477c452a439286df01155f3f2584afd0cc7e3765f9bbe7001281942949d99c",
+              "confidence": 71,
+              "durationMs": 4697,
+              "rssStartBytes": 65904640,
+              "rssEndBytes": 208936960,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B23-2-1787378748576.png",
+              "textArtifact": "PP-002-B23-2-1787378748576.ocr.txt",
+              "textSha256": "e544ff7c2d0681b7b7daf35abefd8fca41fc78aceb8ff405e9acc880cacf15df",
+              "confidence": 84,
+              "durationMs": 2698,
+              "rssStartBytes": 65925120,
+              "rssEndBytes": 112308224,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-002-B23-2-1787378748576.diff",
+            "diffSha256": "4693211b7ebd0dcc34acf4c4f080f45f5dc5b0375b6fd1e0bc461b2033e3838f",
+            "diffBaseline": "eb2fb2817d88d207dd5f97cbf7c7cca6f194e677",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/index.css",
+              "src/services/boards.ts",
+              "tests/head_orchestrator_character_e2e.py"
+            ],
+            "screenshot": "PP-002-B23-2-1787378748576.png",
+            "screenshotSha256": "1ac254dca2d13ca716b964867113de943099e85f20f07f34e23712f034a8fb37",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3278,
+              "uniqueColors": 434,
+              "stddev": {
+                "r": 93.262,
+                "g": 87.851,
+                "b": 87.191
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed at 3x: Remedy keeps $finish authoritative, $cleanup explicit and last, and the footer clearly labels the content as recommended action only rather than a delivered command.",
+            "tokensEst": 2500,
+            "loc": {
+              "baseline": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         }
       ],
       "visualBaseline": {
@@ -6568,6 +7078,15 @@
         "user": "danielsivyer4567",
         "session": "s-77024479",
         "at": "2026-08-22T06:00:43.426Z"
+      },
+      "lastStampSha": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
+      "doneAt": "2026-08-22T06:06:07.645Z",
+      "doneBy": {
+        "model": "gpt-5.6-codex",
+        "user": "danielsivyer4567",
+        "session": "s-77024479",
+        "at": "2026-08-22T06:06:07.645Z",
+        "forced": false
       }
     },
     {

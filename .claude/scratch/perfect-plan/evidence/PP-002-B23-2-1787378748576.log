@@ -1,0 +1,40 @@
+# perfect-planning proof artifact
+item: B23:2 — Offer one safe recommended next action, distinguish advice from delivered commands, preserve finish as the authoritative release gate and cleanup as explicit-and-last, and keep the guidance readable to screen readers at three-times device scale
+command: npm run build
+cwd: C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935
+exit: 0
+duration_ms: 3112
+at: 2026-08-22T06:05:52.323Z
+git: e90bda5a513c48c5dd8498f17114b23ddf09c4e1 (feature/tauri-orchestrator-messaging-20260821-223935, dirty)
+shot: PP-002-B23-2-1787378748576.png
+shot_note: Viewed at 3x: Remedy keeps $finish authoritative, $cleanup explicit and last, and the footer clearly labels the content as recommended action only rather than a delivered command.
+shot_check: ok (4320x2700, blankScore 0.3278)
+before_shot: PP-002-B23-baseline-1787378443759.before.png
+before_shot_note: Viewed at 3x: ORCH uses one combined status sentence. Even when the status signals a hold or stop, the bubble has no explicit Problem, Where or Remedy fields.
+before_shot_check: ok (4320x2700, blankScore 0.3807)
+before_ocr: PP-002-B23-baseline-1787378443759.before.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 71, 4697ms)
+before_ocr_alarms: none
+after_ocr: PP-002-B23-2-1787378748576.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 84, 2698ms)
+after_ocr_alarms: none
+diff: PP-002-B23-2-1787378748576.diff
+diff_baseline: eb2fb2817d88d207dd5f97cbf7c7cca6f194e677
+
+## stdout
+
+> perfect-planner-desktop@1.0.0 build
+> tsc && vite build
+
+vite v8.2.2 building client environment for production...
+transforming...
+✓ 1588 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.47 kB │ gzip:  0.30 kB
+dist/assets/index-BfQEiIOY.css   44.05 kB │ gzip: 10.26 kB
+dist/assets/core-CwxXejkd.js      0.09 kB │ gzip:  0.10 kB
+dist/assets/index-BKyiwenK.js   247.49 kB │ gzip: 76.55 kB
+
+✓ built in 653ms
+
+## stderr
+(empty)

@@ -1,0 +1,27 @@
+# perfect-planning proof artifact
+item: B23:0 — Replace vague ORCH warnings with a visible Problem, Where and Remedy structure for decision, stale-worker, identity, supervision and lifecycle-boundary failures
+command: python tests/head_orchestrator_character_e2e.py
+cwd: C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935
+exit: 0
+duration_ms: 2628
+at: 2026-08-22T06:05:36.493Z
+git: e90bda5a513c48c5dd8498f17114b23ddf09c4e1 (feature/tauri-orchestrator-messaging-20260821-223935, dirty)
+shot: PP-002-B23-0-1787378733344.png
+shot_note: Viewed at 3x: the amber ORCH bubble visibly separates Problem, Where and Remedy and shows the exact unsafe combined-lifecycle warning.
+shot_check: ok (4320x2700, blankScore 0.3278)
+before_shot: PP-002-B23-baseline-1787378443759.before.png
+before_shot_note: Viewed at 3x: ORCH uses one combined status sentence. Even when the status signals a hold or stop, the bubble has no explicit Problem, Where or Remedy fields.
+before_shot_check: ok (4320x2700, blankScore 0.3807)
+before_ocr: PP-002-B23-baseline-1787378443759.before.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 71, 4697ms)
+before_ocr_alarms: none
+after_ocr: PP-002-B23-0-1787378733344.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 84, 2569ms)
+after_ocr_alarms: none
+diff: PP-002-B23-0-1787378733344.diff
+diff_baseline: eb2fb2817d88d207dd5f97cbf7c7cca6f194e677
+
+## stdout
+head orchestrator character e2e: 1 scenario passed
+screenshot: C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935\artifacts\head-orchestrator-character-3x.png
+
+## stderr
+(empty)
