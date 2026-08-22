@@ -2351,7 +2351,7 @@
             "model": "gpt-5.6-sol",
             "user": "danielsivyer4567",
             "session": "s-816bfb35",
-            "at": "2026-08-21T18:26:14.150Z",
+            "at": "2026-08-21T18:26:14.15Z",
             "git": {
               "sha": "9b76abcf883a12ad1088f6a10512148ab36a9aca",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
@@ -3251,7 +3251,7 @@
             "model": "gpt-5.6-codex",
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "at": "2026-08-21T20:11:22.000Z",
+            "at": "2026-08-21T20:11:22Z",
             "git": {
               "sha": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
@@ -3592,7 +3592,7 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T21:09:01.350Z",
+            "at": "2026-08-21T21:09:01.35Z",
             "model": "gpt-5.6-codex",
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
@@ -3676,7 +3676,7 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T21:09:08.000Z",
+            "at": "2026-08-21T21:09:08Z",
             "model": "gpt-5.6-codex",
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
@@ -3882,7 +3882,7 @@
             "model": "gpt-5.6-codex",
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "at": "2026-08-22T02:58:43.790Z",
+            "at": "2026-08-22T02:58:43.79Z",
             "git": {
               "sha": "2492cf09797e8073b2fbb307bba64dc5154afbc0",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
@@ -3903,7 +3903,7 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T02:59:37.010Z",
+            "at": "2026-08-22T02:59:37.01Z",
             "model": "gpt-5.6-codex",
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
@@ -6452,7 +6452,7 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T19:38:08.580Z",
+            "at": "2026-08-21T19:38:08.58Z",
             "model": "gpt-5.6-codex",
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
@@ -6630,6 +6630,79 @@
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
         }
       ]
+    },
+    {
+      "id": "B21",
+      "spineId": "P6",
+      "side": "L",
+      "title": "Resource-aware PowerShell hazard sentinel",
+      "status": "in-progress",
+      "dependsOn": [
+        "B02",
+        "B03",
+        "B04",
+        "B05",
+        "B06",
+        "B07",
+        "B08",
+        "B17",
+        "B18",
+        "B19"
+      ],
+      "est": {
+        "tokens": 60000,
+        "minutes": 90
+      },
+      "files": [
+        "scripts/Invoke-CollisionHazardTests.ps1",
+        "scripts/collision-hazard-tests.psd1",
+        "docs/collision-hazard-test-matrix.md"
+      ],
+      "resources": [
+        "test:collision-hazard-powershell",
+        "policy:resource-aware-test-admission"
+      ],
+      "notes": "Pre-certification sentinel for completed collision-assessor foundations only. It runs exact allowlisted Rust hazard tests sequentially from PowerShell, validates every test name before execution, gates on host memory and CPU pressure, enforces per-test deadlines, captures durable logs and a JSON report, and never activates production authority. B12 consumes this harness later and remains responsible for B09/B10/B15/B20 end-to-end hazards once those paths exist.",
+      "checklist": [
+        {
+          "text": "Reject wrong repository, non-Windows execution, missing Cargo tests, malformed stage selection and unsafe output paths before running any hazard case",
+          "built": false,
+          "tested": false,
+          "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -ValidateOnly"
+        },
+        {
+          "text": "Exercise registry, discovery capability and native census hazards including incomplete coverage, replay, expiry, alias swaps, malformed frames and post-scan plan races",
+          "built": false,
+          "tested": false,
+          "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage Registry,Discovery,NativeCensus"
+        },
+        {
+          "text": "Exercise canonical claims, deterministic collision graph and immutable snapshot hazards including traversal, unsupported globs, permutation drift, overflow and proof splicing",
+          "built": false,
+          "tested": false,
+          "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage CanonicalClaims,CollisionGraph,Snapshot"
+        },
+        {
+          "text": "Exercise clearance, ticket broker and journal hazards including replay, cross-owner access, expiry, tamper, restart, rollback, torn writes and concurrent append contention",
+          "built": false,
+          "tested": false,
+          "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage Clearance,Tickets,Journal"
+        },
+        {
+          "text": "Run the full staged suite sequentially under CPU and free-memory admission gates, save per-case logs plus a machine-readable summary, and return nonzero on failure, timeout, pressure abort or missing coverage",
+          "built": false,
+          "tested": false,
+          "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Full"
+        }
+      ],
+      "startSha": "7f06cd6f309b41d38a6606fad2ae0186ff0baae3",
+      "startedAt": "2026-08-22T03:26:00.726Z",
+      "startedBy": {
+        "model": "gpt-5.6-codex",
+        "user": "danielsivyer4567",
+        "session": "s-4d15c758",
+        "at": "2026-08-22T03:26:00.726Z"
+      }
     }
   ]
 }
