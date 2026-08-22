@@ -4284,7 +4284,7 @@
       "spineId": "P4",
       "side": "L",
       "title": "Transactional approval-to-chat wake bridge",
-      "status": "pending",
+      "status": "done",
       "dependsOn": [
         "B07",
         "B08"
@@ -4298,9 +4298,16 @@
         "src-tauri/src/control_plane.rs",
         "src-tauri/src/connectors.rs",
         "src-tauri/src/lib.rs",
+        "src/App.tsx",
+        "src/components/OrchestratorMessenger.tsx",
+        "src/index.css",
         "src/services/boards.ts",
+        "package.json",
         "scripts/pp-control.mjs",
+        "tests/control_connector_e2e.py",
         "tests/approval_chat_bridge_e2e.py",
+        "tests/alarm_e2e.py",
+        "tests/live_board_smoke.py",
         "src-tauri/src/control_plane_api.rs",
         "src-tauri/capabilities/main-read-only.json",
         "src-tauri/permissions/control-plane.toml"
@@ -4315,54 +4322,1322 @@
       "checklist": [
         {
           "text": "Bind each managed board instance to exactly one explicit originating-chat registration using plan path, plan ID, board process identity and a launch nonce without storing arbitrary prompt text",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::exact_board_process_and_task_route_are_bound_once",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-51a1b2e0",
+            "at": "2026-08-22T05:16:33.433Z",
+            "git": {
+              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 6000,
+            "loc": {
+              "baseline": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
+              "scope": "files",
+              "added": 2175,
+              "removed": 131,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "package.json",
+                  "added": 2,
+                  "removed": 1
+                },
+                {
+                  "file": "scripts/pp-control.mjs",
+                  "added": 94,
+                  "removed": 38
+                },
+                {
+                  "file": "src-tauri/capabilities/main-read-only.json",
+                  "added": 1,
+                  "removed": 1
+                },
+                {
+                  "file": "src-tauri/permissions/control-plane.toml",
+                  "added": 2,
+                  "removed": 2
+                },
+                {
+                  "file": "src-tauri/src/approval_bridge.rs",
+                  "added": 1211,
+                  "removed": 0
+                },
+                {
+                  "file": "src-tauri/src/connectors.rs",
+                  "added": 68,
+                  "removed": 13
+                },
+                {
+                  "file": "src-tauri/src/control_plane_api.rs",
+                  "added": 37,
+                  "removed": 7
+                },
+                {
+                  "file": "src-tauri/src/lib.rs",
+                  "added": 63,
+                  "removed": 1
+                },
+                {
+                  "file": "src/App.tsx",
+                  "added": 16,
+                  "removed": 2
+                },
+                {
+                  "file": "src/components/OrchestratorMessenger.tsx",
+                  "added": 172,
+                  "removed": 0
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 120,
+                  "removed": 1
+                },
+                {
+                  "file": "src/services/boards.ts",
+                  "added": 47,
+                  "removed": 0
+                },
+                {
+                  "file": "tests/alarm_e2e.py",
+                  "added": 3,
+                  "removed": 40
+                },
+                {
+                  "file": "tests/approval_chat_bridge_e2e.py",
+                  "added": 194,
+                  "removed": 0
+                },
+                {
+                  "file": "tests/control_connector_e2e.py",
+                  "added": 78,
+                  "removed": 25
+                },
+                {
+                  "file": "tests/live_board_smoke.py",
+                  "added": 67,
+                  "removed": 0
+                }
+              ],
+              "fileCount": 16,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "systematic-debugging",
+              "frontend-design",
+              "playwright"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T05:17:01.792Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-51a1b2e0",
+            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::exact_board_process_and_task_route_are_bound_once` → exit 0 in 2297ms",
+            "log": "PP-002-B15-0-1787375818759.log",
+            "sha256": "b7065aa31485f079a914409ca5d48df04a1c5d1a9290f6065b5133a544195169",
+            "exit": 0,
+            "durationMs": 2297,
+            "git": {
+              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::exact_board_process_and_task_route_are_bound_once",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-002-B15-baseline-1787373372060.before.png",
+            "beforeScreenshotSha256": "20d731d08304c43dfad384adaf13d58b7846d9c2d9d0038544520482aaaf43a5",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.6518,
+              "uniqueColors": 300,
+              "stddev": {
+                "r": 24.991,
+                "g": 22.911,
+                "b": 24.809
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Untouched PP-002 board is visible at 3x scale with approved state, 49% built/tested, integrity OK, and no visible transactional approval-to-chat route or delivery status in the current top-level view.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B15-baseline-1787373372060.before.png",
+              "textArtifact": "PP-002-B15-baseline-1787373372060.before.ocr.txt",
+              "textSha256": "fccdcdd43bf39f2b9dad614aa07845ce9ec3a9b1fb4f32ab93ff95b103506fea",
+              "confidence": 82,
+              "durationMs": 2636,
+              "rssStartBytes": 65798144,
+              "rssEndBytes": 94916608,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-002-B15-0-1787375818759.diff",
+            "diffSha256": "3d0bba882fb07c18f314015f5e2c4d4afbfa148f155ced45c620c5130eda7190",
+            "diffBaseline": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
+            "diffFiles": [
+              "package.json",
+              "scripts/pp-control.mjs",
+              "src-tauri/capabilities/main-read-only.json",
+              "src-tauri/permissions/control-plane.toml",
+              "src-tauri/src/approval_bridge.rs",
+              "src-tauri/src/connectors.rs",
+              "src-tauri/src/control_plane_api.rs",
+              "src-tauri/src/lib.rs",
+              "src/App.tsx",
+              "src/components/OrchestratorMessenger.tsx",
+              "src/index.css",
+              "src/services/boards.ts",
+              "tests/alarm_e2e.py",
+              "tests/approval_chat_bridge_e2e.py",
+              "tests/control_connector_e2e.py",
+              "tests/live_board_smoke.py"
+            ],
+            "tokensEst": 1500,
+            "loc": {
+              "baseline": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Route every approval entry point through one approval service that atomically records the approval transition and a durable chat-notification outbox record",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::approval_and_outbox_survive_restart_without_duplicate_message",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-51a1b2e0",
+            "at": "2026-08-22T05:16:35.790Z",
+            "git": {
+              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 8000,
+            "loc": {
+              "baseline": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "systematic-debugging",
+              "frontend-design",
+              "playwright"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T05:17:18.550Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-51a1b2e0",
+            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::approval_and_outbox_survive_restart_without_duplicate_message` → exit 0 in 1082ms",
+            "log": "PP-002-B15-1-1787375837064.log",
+            "sha256": "b7a7adbd307cb23bf9f706629f77b9fa0be71dbf4b7eebb418540ce84fd6416e",
+            "exit": 0,
+            "durationMs": 1082,
+            "git": {
+              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::approval_and_outbox_survive_restart_without_duplicate_message",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-002-B15-baseline-1787373372060.before.png",
+            "beforeScreenshotSha256": "20d731d08304c43dfad384adaf13d58b7846d9c2d9d0038544520482aaaf43a5",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.6518,
+              "uniqueColors": 300,
+              "stddev": {
+                "r": 24.991,
+                "g": 22.911,
+                "b": 24.809
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Untouched PP-002 board is visible at 3x scale with approved state, 49% built/tested, integrity OK, and no visible transactional approval-to-chat route or delivery status in the current top-level view.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B15-baseline-1787373372060.before.png",
+              "textArtifact": "PP-002-B15-baseline-1787373372060.before.ocr.txt",
+              "textSha256": "fccdcdd43bf39f2b9dad614aa07845ce9ec3a9b1fb4f32ab93ff95b103506fea",
+              "confidence": 82,
+              "durationMs": 2636,
+              "rssStartBytes": 65798144,
+              "rssEndBytes": 94916608,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-002-B15-1-1787375837064.diff",
+            "diffSha256": "3d0bba882fb07c18f314015f5e2c4d4afbfa148f155ced45c620c5130eda7190",
+            "diffBaseline": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
+            "diffFiles": [
+              "package.json",
+              "scripts/pp-control.mjs",
+              "src-tauri/capabilities/main-read-only.json",
+              "src-tauri/permissions/control-plane.toml",
+              "src-tauri/src/approval_bridge.rs",
+              "src-tauri/src/connectors.rs",
+              "src-tauri/src/control_plane_api.rs",
+              "src-tauri/src/lib.rs",
+              "src/App.tsx",
+              "src/components/OrchestratorMessenger.tsx",
+              "src/index.css",
+              "src/services/boards.ts",
+              "tests/alarm_e2e.py",
+              "tests/approval_chat_bridge_e2e.py",
+              "tests/control_connector_e2e.py",
+              "tests/live_board_smoke.py"
+            ],
+            "tokensEst": 1500,
+            "loc": {
+              "baseline": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Keep worker admission blocked while approval notification is UNROUTED, QUEUED, CLAIMED, retrying or DEAD LETTER and release it only after a matching delivery receipt",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::admission_waits_for_matching_delivery_receipt",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-51a1b2e0",
+            "at": "2026-08-22T05:16:37.840Z",
+            "git": {
+              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 6000,
+            "loc": {
+              "baseline": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "systematic-debugging",
+              "frontend-design",
+              "playwright"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T05:17:21.816Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-51a1b2e0",
+            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::admission_waits_for_matching_delivery_receipt` → exit 0 in 777ms",
+            "log": "PP-002-B15-2-1787375840269.log",
+            "sha256": "f9f5fbc82d53ae4339499ca532aac0bb0fc4b3334ba1ac294bfb4b629fa241b8",
+            "exit": 0,
+            "durationMs": 777,
+            "git": {
+              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::admission_waits_for_matching_delivery_receipt",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-002-B15-baseline-1787373372060.before.png",
+            "beforeScreenshotSha256": "20d731d08304c43dfad384adaf13d58b7846d9c2d9d0038544520482aaaf43a5",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.6518,
+              "uniqueColors": 300,
+              "stddev": {
+                "r": 24.991,
+                "g": 22.911,
+                "b": 24.809
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Untouched PP-002 board is visible at 3x scale with approved state, 49% built/tested, integrity OK, and no visible transactional approval-to-chat route or delivery status in the current top-level view.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B15-baseline-1787373372060.before.png",
+              "textArtifact": "PP-002-B15-baseline-1787373372060.before.ocr.txt",
+              "textSha256": "fccdcdd43bf39f2b9dad614aa07845ce9ec3a9b1fb4f32ab93ff95b103506fea",
+              "confidence": 82,
+              "durationMs": 2636,
+              "rssStartBytes": 65798144,
+              "rssEndBytes": 94916608,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-002-B15-2-1787375840269.diff",
+            "diffSha256": "3d0bba882fb07c18f314015f5e2c4d4afbfa148f155ced45c620c5130eda7190",
+            "diffBaseline": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
+            "diffFiles": [
+              "package.json",
+              "scripts/pp-control.mjs",
+              "src-tauri/capabilities/main-read-only.json",
+              "src-tauri/permissions/control-plane.toml",
+              "src-tauri/src/approval_bridge.rs",
+              "src-tauri/src/connectors.rs",
+              "src-tauri/src/control_plane_api.rs",
+              "src-tauri/src/lib.rs",
+              "src/App.tsx",
+              "src/components/OrchestratorMessenger.tsx",
+              "src/index.css",
+              "src/services/boards.ts",
+              "tests/alarm_e2e.py",
+              "tests/approval_chat_bridge_e2e.py",
+              "tests/control_connector_e2e.py",
+              "tests/live_board_smoke.py"
+            ],
+            "tokensEst": 1500,
+            "loc": {
+              "baseline": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Make repeated clicks, watcher restarts, connector retries and app restarts produce one logical approval notification with preserved acknowledgement and receipt history",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::approval_and_outbox_survive_restart_without_duplicate_message",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-51a1b2e0",
+            "at": "2026-08-22T05:16:39.774Z",
+            "git": {
+              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 6000,
+            "loc": {
+              "baseline": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "systematic-debugging",
+              "frontend-design",
+              "playwright"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T05:17:24.768Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-51a1b2e0",
+            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::approval_and_outbox_survive_restart_without_duplicate_message` → exit 0 in 854ms",
+            "log": "PP-002-B15-3-1787375843198.log",
+            "sha256": "1864f14a60a192d07edd6f6db795808ec2042668315d3e7bb590dd54318a10a8",
+            "exit": 0,
+            "durationMs": 854,
+            "git": {
+              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::approval_and_outbox_survive_restart_without_duplicate_message",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-002-B15-baseline-1787373372060.before.png",
+            "beforeScreenshotSha256": "20d731d08304c43dfad384adaf13d58b7846d9c2d9d0038544520482aaaf43a5",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.6518,
+              "uniqueColors": 300,
+              "stddev": {
+                "r": 24.991,
+                "g": 22.911,
+                "b": 24.809
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Untouched PP-002 board is visible at 3x scale with approved state, 49% built/tested, integrity OK, and no visible transactional approval-to-chat route or delivery status in the current top-level view.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B15-baseline-1787373372060.before.png",
+              "textArtifact": "PP-002-B15-baseline-1787373372060.before.ocr.txt",
+              "textSha256": "fccdcdd43bf39f2b9dad614aa07845ce9ec3a9b1fb4f32ab93ff95b103506fea",
+              "confidence": 82,
+              "durationMs": 2636,
+              "rssStartBytes": 65798144,
+              "rssEndBytes": 94916608,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-002-B15-3-1787375843198.diff",
+            "diffSha256": "3d0bba882fb07c18f314015f5e2c4d4afbfa148f155ced45c620c5130eda7190",
+            "diffBaseline": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
+            "diffFiles": [
+              "package.json",
+              "scripts/pp-control.mjs",
+              "src-tauri/capabilities/main-read-only.json",
+              "src-tauri/permissions/control-plane.toml",
+              "src-tauri/src/approval_bridge.rs",
+              "src-tauri/src/connectors.rs",
+              "src-tauri/src/control_plane_api.rs",
+              "src-tauri/src/lib.rs",
+              "src/App.tsx",
+              "src/components/OrchestratorMessenger.tsx",
+              "src/index.css",
+              "src/services/boards.ts",
+              "tests/alarm_e2e.py",
+              "tests/approval_chat_bridge_e2e.py",
+              "tests/control_connector_e2e.py",
+              "tests/live_board_smoke.py"
+            ],
+            "tokensEst": 1500,
+            "loc": {
+              "baseline": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Use a fixed allowlisted approval notification template so plan text, worker notes and repository content cannot become executable chat instructions",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::fixed_template_never_contains_untrusted_plan_or_approval_text",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-51a1b2e0",
+            "at": "2026-08-22T05:16:41.903Z",
+            "git": {
+              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 4000,
+            "loc": {
+              "baseline": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "systematic-debugging",
+              "frontend-design",
+              "playwright"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T05:17:27.869Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-51a1b2e0",
+            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::fixed_template_never_contains_untrusted_plan_or_approval_text` → exit 0 in 1067ms",
+            "log": "PP-002-B15-4-1787375846316.log",
+            "sha256": "ec9988bdfa7b62c3e6f9ae2858e4cca56ab292431f805359c0120bfb4d6baa30",
+            "exit": 0,
+            "durationMs": 1067,
+            "git": {
+              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::fixed_template_never_contains_untrusted_plan_or_approval_text",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-002-B15-baseline-1787373372060.before.png",
+            "beforeScreenshotSha256": "20d731d08304c43dfad384adaf13d58b7846d9c2d9d0038544520482aaaf43a5",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.6518,
+              "uniqueColors": 300,
+              "stddev": {
+                "r": 24.991,
+                "g": 22.911,
+                "b": 24.809
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Untouched PP-002 board is visible at 3x scale with approved state, 49% built/tested, integrity OK, and no visible transactional approval-to-chat route or delivery status in the current top-level view.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B15-baseline-1787373372060.before.png",
+              "textArtifact": "PP-002-B15-baseline-1787373372060.before.ocr.txt",
+              "textSha256": "fccdcdd43bf39f2b9dad614aa07845ce9ec3a9b1fb4f32ab93ff95b103506fea",
+              "confidence": 82,
+              "durationMs": 2636,
+              "rssStartBytes": 65798144,
+              "rssEndBytes": 94916608,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-002-B15-4-1787375846316.diff",
+            "diffSha256": "3d0bba882fb07c18f314015f5e2c4d4afbfa148f155ced45c620c5130eda7190",
+            "diffBaseline": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
+            "diffFiles": [
+              "package.json",
+              "scripts/pp-control.mjs",
+              "src-tauri/capabilities/main-read-only.json",
+              "src-tauri/permissions/control-plane.toml",
+              "src-tauri/src/approval_bridge.rs",
+              "src-tauri/src/connectors.rs",
+              "src-tauri/src/control_plane_api.rs",
+              "src-tauri/src/lib.rs",
+              "src/App.tsx",
+              "src/components/OrchestratorMessenger.tsx",
+              "src/index.css",
+              "src/services/boards.ts",
+              "tests/alarm_e2e.py",
+              "tests/approval_chat_bridge_e2e.py",
+              "tests/control_connector_e2e.py",
+              "tests/live_board_smoke.py"
+            ],
+            "tokensEst": 1200,
+            "loc": {
+              "baseline": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Prove an APPROVE click reaches the exact registered Codex task, records a delivery receipt and wakes no other task; prove an unregistered route stays visibly blocked",
-          "built": false,
-          "tested": false,
-          "verify": "npm run test:e2e",
-          "ui": true
+          "built": true,
+          "tested": true,
+          "verify": "python tests/approval_chat_bridge_e2e.py",
+          "ui": true,
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-51a1b2e0",
+            "at": "2026-08-22T05:16:43.725Z",
+            "git": {
+              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 12000,
+            "loc": {
+              "baseline": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "systematic-debugging",
+              "frontend-design",
+              "playwright"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T05:17:44.245Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-51a1b2e0",
+            "note": "ran `python tests/approval_chat_bridge_e2e.py` → exit 0 in 3666ms",
+            "log": "PP-002-B15-5-1787375860154.log",
+            "sha256": "f6fb98aa80510e73f74b0f5dcb9a836938fff268466159162f9a97f99589ca4b",
+            "exit": 0,
+            "durationMs": 3666,
+            "git": {
+              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "python tests/approval_chat_bridge_e2e.py",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-002-B15-baseline-1787373372060.before.png",
+            "beforeScreenshotSha256": "20d731d08304c43dfad384adaf13d58b7846d9c2d9d0038544520482aaaf43a5",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.6518,
+              "uniqueColors": 300,
+              "stddev": {
+                "r": 24.991,
+                "g": 22.911,
+                "b": 24.809
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Untouched PP-002 board is visible at 3x scale with approved state, 49% built/tested, integrity OK, and no visible transactional approval-to-chat route or delivery status in the current top-level view.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B15-baseline-1787373372060.before.png",
+              "textArtifact": "PP-002-B15-baseline-1787373372060.before.ocr.txt",
+              "textSha256": "fccdcdd43bf39f2b9dad614aa07845ce9ec3a9b1fb4f32ab93ff95b103506fea",
+              "confidence": 82,
+              "durationMs": 2636,
+              "rssStartBytes": 65798144,
+              "rssEndBytes": 94916608,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B15-5-1787375860154.png",
+              "textArtifact": "PP-002-B15-5-1787375860154.ocr.txt",
+              "textSha256": "a5c8dbb82836016e3e89d72156c9c69ae5c4518fe7cb182b77438d6379ed2eb0",
+              "confidence": 80,
+              "durationMs": 2377,
+              "rssStartBytes": 65904640,
+              "rssEndBytes": 94748672,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-002-B15-5-1787375860154.diff",
+            "diffSha256": "3d0bba882fb07c18f314015f5e2c4d4afbfa148f155ced45c620c5130eda7190",
+            "diffBaseline": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
+            "diffFiles": [
+              "package.json",
+              "scripts/pp-control.mjs",
+              "src-tauri/capabilities/main-read-only.json",
+              "src-tauri/permissions/control-plane.toml",
+              "src-tauri/src/approval_bridge.rs",
+              "src-tauri/src/connectors.rs",
+              "src-tauri/src/control_plane_api.rs",
+              "src-tauri/src/lib.rs",
+              "src/App.tsx",
+              "src/components/OrchestratorMessenger.tsx",
+              "src/index.css",
+              "src/services/boards.ts",
+              "tests/alarm_e2e.py",
+              "tests/approval_chat_bridge_e2e.py",
+              "tests/control_connector_e2e.py",
+              "tests/live_board_smoke.py"
+            ],
+            "screenshot": "PP-002-B15-5-1787375860154.png",
+            "screenshotSha256": "cc03ace35341e646218e521a9bdab26ef370dd6a7f70f09448fa1e669194ef93",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.427,
+              "uniqueColors": 409,
+              "stddev": {
+                "r": 87.722,
+                "g": 83.206,
+                "b": 82.857
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed at 4320x2700: the orchestrator feed contains the crisp blue LOOPLET LIVE Braille status mark; PP-201 shows CHAT DELIVERED for the exact task while PP-202 remains CHAT UNREGISTERED; no console or page errors were recorded.",
+            "tokensEst": 2500,
+            "loc": {
+              "baseline": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Remove or gate generic main-window control-plane authority before ticket activation; every effective renderer call must be sealed to the exact registered task and route rather than caller-supplied scope",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml control_plane_api::tests::",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-51a1b2e0",
+            "at": "2026-08-22T05:16:46.205Z",
+            "git": {
+              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 7000,
+            "loc": {
+              "baseline": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "systematic-debugging",
+              "frontend-design",
+              "playwright"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T05:18:31.557Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-51a1b2e0",
+            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml control_plane_api::tests::` → exit 0 in 842ms",
+            "log": "PP-002-B15-6-1787375910025.log",
+            "sha256": "41a2aeb99a2e9313bac19b75711255d6350fa4e07283c464edeb077cfb9b01e6",
+            "exit": 0,
+            "durationMs": 842,
+            "git": {
+              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml control_plane_api::tests::",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-002-B15-baseline-1787373372060.before.png",
+            "beforeScreenshotSha256": "20d731d08304c43dfad384adaf13d58b7846d9c2d9d0038544520482aaaf43a5",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.6518,
+              "uniqueColors": 300,
+              "stddev": {
+                "r": 24.991,
+                "g": 22.911,
+                "b": 24.809
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Untouched PP-002 board is visible at 3x scale with approved state, 49% built/tested, integrity OK, and no visible transactional approval-to-chat route or delivery status in the current top-level view.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B15-baseline-1787373372060.before.png",
+              "textArtifact": "PP-002-B15-baseline-1787373372060.before.ocr.txt",
+              "textSha256": "fccdcdd43bf39f2b9dad614aa07845ce9ec3a9b1fb4f32ab93ff95b103506fea",
+              "confidence": 82,
+              "durationMs": 2636,
+              "rssStartBytes": 65798144,
+              "rssEndBytes": 94916608,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-002-B15-6-1787375910025.diff",
+            "diffSha256": "3d0bba882fb07c18f314015f5e2c4d4afbfa148f155ced45c620c5130eda7190",
+            "diffBaseline": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
+            "diffFiles": [
+              "package.json",
+              "scripts/pp-control.mjs",
+              "src-tauri/capabilities/main-read-only.json",
+              "src-tauri/permissions/control-plane.toml",
+              "src-tauri/src/approval_bridge.rs",
+              "src-tauri/src/connectors.rs",
+              "src-tauri/src/control_plane_api.rs",
+              "src-tauri/src/lib.rs",
+              "src/App.tsx",
+              "src/components/OrchestratorMessenger.tsx",
+              "src/index.css",
+              "src/services/boards.ts",
+              "tests/alarm_e2e.py",
+              "tests/approval_chat_bridge_e2e.py",
+              "tests/control_connector_e2e.py",
+              "tests/live_board_smoke.py"
+            ],
+            "tokensEst": 1800,
+            "loc": {
+              "baseline": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         },
         {
           "text": "Require a fresh revocable native route for live and audit-resume mailboxes, and prove stale, dead, reassigned, restarted and cross-task routes cannot remint authority",
-          "built": false,
-          "tested": false,
-          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+          "built": true,
+          "tested": true,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::stale_revoked_restarted_and_cross_task_routes_cannot_remint_authority",
+          "builtBy": {
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-51a1b2e0",
+            "at": "2026-08-22T05:16:47.977Z",
+            "git": {
+              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 7000,
+            "loc": {
+              "baseline": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "systematic-debugging",
+              "frontend-design",
+              "playwright"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T05:18:36.131Z",
+            "model": "gpt-5.6-codex",
+            "user": "danielsivyer4567",
+            "session": "s-51a1b2e0",
+            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::stale_revoked_restarted_and_cross_task_routes_cannot_remint_authority` → exit 0 in 874ms",
+            "log": "PP-002-B15-7-1787375914754.log",
+            "sha256": "f4bb0820722918dd6960ca1acceac23a4793897c84479604ad0172001e70c574",
+            "exit": 0,
+            "durationMs": 874,
+            "git": {
+              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::stale_revoked_restarted_and_cross_task_routes_cannot_remint_authority",
+            "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-002-B15-baseline-1787373372060.before.png",
+            "beforeScreenshotSha256": "20d731d08304c43dfad384adaf13d58b7846d9c2d9d0038544520482aaaf43a5",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.6518,
+              "uniqueColors": 300,
+              "stddev": {
+                "r": 24.991,
+                "g": 22.911,
+                "b": 24.809
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Untouched PP-002 board is visible at 3x scale with approved state, 49% built/tested, integrity OK, and no visible transactional approval-to-chat route or delivery status in the current top-level view.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B15-baseline-1787373372060.before.png",
+              "textArtifact": "PP-002-B15-baseline-1787373372060.before.ocr.txt",
+              "textSha256": "fccdcdd43bf39f2b9dad614aa07845ce9ec3a9b1fb4f32ab93ff95b103506fea",
+              "confidence": 82,
+              "durationMs": 2636,
+              "rssStartBytes": 65798144,
+              "rssEndBytes": 94916608,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-002-B15-7-1787375914754.diff",
+            "diffSha256": "3d0bba882fb07c18f314015f5e2c4d4afbfa148f155ced45c620c5130eda7190",
+            "diffBaseline": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
+            "diffFiles": [
+              "package.json",
+              "scripts/pp-control.mjs",
+              "src-tauri/capabilities/main-read-only.json",
+              "src-tauri/permissions/control-plane.toml",
+              "src-tauri/src/approval_bridge.rs",
+              "src-tauri/src/connectors.rs",
+              "src-tauri/src/control_plane_api.rs",
+              "src-tauri/src/lib.rs",
+              "src/App.tsx",
+              "src/components/OrchestratorMessenger.tsx",
+              "src/index.css",
+              "src/services/boards.ts",
+              "tests/alarm_e2e.py",
+              "tests/approval_chat_bridge_e2e.py",
+              "tests/control_connector_e2e.py",
+              "tests/live_board_smoke.py"
+            ],
+            "tokensEst": 1500,
+            "loc": {
+              "baseline": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "scope": "files",
+              "added": 0,
+              "removed": 0,
+              "dirty": true,
+              "files": [],
+              "fileCount": 0,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
         }
-      ]
+      ],
+      "visualBaseline": {
+        "beforeScreenshot": "PP-002-B15-baseline-1787373372060.before.png",
+        "beforeScreenshotSha256": "20d731d08304c43dfad384adaf13d58b7846d9c2d9d0038544520482aaaf43a5",
+        "beforeScreenshotCheck": {
+          "ok": true,
+          "width": 4320,
+          "height": 2700,
+          "bitDepth": 8,
+          "colorType": 2,
+          "blankScore": 0.6518,
+          "uniqueColors": 300,
+          "stddev": {
+            "r": 24.991,
+            "g": 22.911,
+            "b": 24.809
+          },
+          "reason": null,
+          "samples": 42848
+        },
+        "beforeShotNote": "Untouched PP-002 board is visible at 3x scale with approved state, 49% built/tested, integrity OK, and no visible transactional approval-to-chat route or delivery status in the current top-level view.",
+        "registeredAt": "2026-08-22T04:36:11.844Z",
+        "model": "gpt-5.6-codex",
+        "user": "danielsivyer4567",
+        "session": "s-06067325",
+        "git": {
+          "sha": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
+          "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+          "dirty": true
+        },
+        "sourceFile": "B15-before.png",
+        "beforeScreenshotOcr": {
+          "status": "clear",
+          "role": "derived-warning-only",
+          "rawScreenshotAuthoritative": true,
+          "engine": "tesseract.js",
+          "engineVersion": "5.1.1",
+          "language": "eng",
+          "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+          "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+          "oem": 1,
+          "runtime": "one-shot-subprocess",
+          "resident": false,
+          "network": "disabled-local-model-only",
+          "shot": "PP-002-B15-baseline-1787373372060.before.png",
+          "textArtifact": "PP-002-B15-baseline-1787373372060.before.ocr.txt",
+          "textSha256": "fccdcdd43bf39f2b9dad614aa07845ce9ec3a9b1fb4f32ab93ff95b103506fea",
+          "confidence": 82,
+          "durationMs": 2636,
+          "rssStartBytes": 65798144,
+          "rssEndBytes": 94916608,
+          "workerTerminated": true,
+          "expectedText": [],
+          "alarms": []
+        }
+      },
+      "startSha": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
+      "startedAt": "2026-08-22T04:36:11.844Z",
+      "startedBy": {
+        "model": "gpt-5.6-codex",
+        "user": "danielsivyer4567",
+        "session": "s-06067325",
+        "at": "2026-08-22T04:36:11.844Z"
+      },
+      "lastStampSha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+      "doneAt": "2026-08-22T05:18:57.503Z",
+      "doneBy": {
+        "model": "gpt-5.6-codex",
+        "user": "danielsivyer4567",
+        "session": "s-51a1b2e0",
+        "at": "2026-08-22T05:18:57.503Z",
+        "forced": false
+      }
     },
     {
       "id": "B10",

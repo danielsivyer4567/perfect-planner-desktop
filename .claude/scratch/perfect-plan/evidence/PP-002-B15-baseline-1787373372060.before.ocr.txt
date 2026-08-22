@@ -1,0 +1,34 @@
+a
+A Fail-closed cross-repository Collision Assessor ® synced Save Log & delete
+Unbuilt Untested @® built @ tested Built co——— 49% Tested co— 49% | integrity: v ok (198 journal entries) Export .md Share bundle
+#PP-002 project Perfect Planner Desktop ~~ feature/tauri-orchestrator-messaging-20260821-223935 topic Cross-repository Collision Assessor planned by gpt-5 for danie
+V approved 2026-08-22
+This plan focuses on: one-time read-only global discovery, deterministic file and resource collision analysis, immutable clearance snapshots, transactional approval-to-chat wake-up, visible head-orchestrator and worker messaging, ticket-only walkie-
+talkie coordination, forced replanning, and fail-closed worker admission
+P1 — Guarantee and trust boundary
+Define exactly what is guaranteed, isolate the assessor from orchestrators and
+workers, and fail closed outside the proven boundary.
+_ @
+1
+Formal guarantee and !
+Bol 1h - 40k tok 5/5 5/5 1
+threat model 1
+1
+Specify-theinvariantromanaged-workerclatmrexistswit... ]
+li
+oe LE EE Et
+P2 — Global registry and one-time discovery
+Build a machine-wide, read-only census with fresh identities, manifests, leases
+and a single-use capability that is destroyed after assessment.
+Machine-wide Planner
+BO2 . 2h - 80k tok 4/4 4/4
+registry
+oe Persist-versioned-Plannerregistrations-containing-reposit...
+oe Record-the-configred-discovery-rootcensus-and-refuse-...
+_ @
+1
+Single-use discovery !
+BO3 2h - 8ok tok 4/4 4/4 1
+capability 1
+1
+w 0 tsstreahigh—entropy—singte-tsediscoverycapabtity bot... | a 1 v
