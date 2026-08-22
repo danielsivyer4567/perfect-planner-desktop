@@ -14,6 +14,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 pub(crate) const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 const MAX_SNAPSHOT_TTL_MS: u64 = 10 * 60 * 1_000;
@@ -363,6 +364,8 @@ pub(crate) enum SnapshotError {
     LimitExceeded,
     InvalidHash,
     AlreadyExistsMismatch,
+    UnsafeStore,
+    DirectoryIdentityChanged,
     Journal(JournalError),
     Io(io::Error),
     Json(serde_json::Error),
@@ -386,6 +389,11 @@ impl fmt::Display for SnapshotError {
             Self::InvalidHash => formatter.write_str("assessment snapshot hash is invalid"),
             Self::AlreadyExistsMismatch => {
                 formatter.write_str("immutable snapshot path contains different bytes")
+            }
+            Self::UnsafeStore => formatter
+                .write_str("snapshot store is not a physically anchored, no-alias directory"),
+            Self::DirectoryIdentityChanged => {
+                formatter.write_str("snapshot store directory identity changed")
             }
             Self::Journal(error) => write!(formatter, "snapshot journal check failed: {error}"),
             Self::Io(_) => formatter.write_str("snapshot I/O failed"),
@@ -910,9 +918,85 @@ fn digest_parts(domain: &[u8], parts: &[&[u8]]) -> String {
     format!("{:x}", digest.finalize())
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PhysicalFileIdentity {
+    volume: u64,
+    file: u64,
+}
+
+#[derive(Debug)]
+struct OpenFileIdentity {
+    physical: PhysicalFileIdentity,
+    links: u64,
+    is_directory: bool,
+    is_reparse: bool,
+}
+
+#[derive(Debug)]
+struct DirectoryAnchor {
+    handle: File,
+    identity: PhysicalFileIdentity,
+}
+
+impl DirectoryAnchor {
+    fn open(directory: &Path) -> Result<Self, SnapshotError> {
+        if !directory.is_absolute() || contains_relative_components(directory) {
+            return Err(SnapshotError::UnsafeStore);
+        }
+        reject_reparse_components(directory)?;
+        let handle = open_directory_no_follow(directory)?;
+        let info = open_file_identity(&handle)?;
+        if !info.is_directory || info.is_reparse || info.links == 0 {
+            return Err(SnapshotError::UnsafeStore);
+        }
+        Ok(Self {
+            handle,
+            identity: info.physical,
+        })
+    }
+
+    fn verify_path(&self, directory: &Path) -> Result<(), SnapshotError> {
+        reject_reparse_components(directory)?;
+        let held = open_file_identity(&self.handle)?;
+        if !held.is_directory || held.is_reparse || held.physical != self.identity {
+            return Err(SnapshotError::DirectoryIdentityChanged);
+        }
+        let reopened = open_directory_no_follow(directory)?;
+        let reopened = open_file_identity(&reopened)?;
+        if !reopened.is_directory || reopened.is_reparse || reopened.physical != self.identity {
+            return Err(SnapshotError::DirectoryIdentityChanged);
+        }
+        Ok(())
+    }
+
+    fn binding(&self) -> String {
+        format!("{:016x}:{:016x}", self.identity.volume, self.identity.file)
+    }
+
+    #[cfg(not(windows))]
+    fn sync_after_publish(&self) -> Result<(), SnapshotError> {
+        self.handle.sync_all().map_err(SnapshotError::Io)
+    }
+
+    #[cfg(windows)]
+    fn sync_after_publish(&self) -> Result<(), SnapshotError> {
+        // `atomic_publish` uses MOVEFILE_WRITE_THROUGH, the Windows primitive that does not
+        // return until the same-directory move has reached durable storage. Directory handles
+        // do not support a portable FlushFileBuffers contract; revalidating the owner-held
+        // handle here ensures the durable move was made in the anchored directory.
+        let held = open_file_identity(&self.handle)?;
+        if held.is_directory && !held.is_reparse && held.physical == self.identity {
+            Ok(())
+        } else {
+            Err(SnapshotError::DirectoryIdentityChanged)
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct SnapshotStore {
     directory: PathBuf,
+    directory_anchor: Arc<DirectoryAnchor>,
     store_binding: String,
 }
 
@@ -931,15 +1015,26 @@ impl SnapshotStore {
     /// native-owned, physically verified app-data directory and anchor its authority.
     #[cfg(test)]
     pub(crate) fn new_for_test(directory: impl Into<PathBuf>) -> Self {
+        Self::try_new_for_test(directory).expect("physically anchored test snapshot store")
+    }
+
+    #[cfg(test)]
+    fn try_new_for_test(directory: impl Into<PathBuf>) -> Result<Self, SnapshotError> {
         let directory = directory.into();
-        let store_binding = opaque_parts(
-            b"perfect-planner:snapshot-store-binding:v1",
-            &[&directory.to_string_lossy()],
-        );
-        Self {
-            directory,
-            store_binding,
+        if !directory.is_absolute() || contains_relative_components(&directory) {
+            return Err(SnapshotError::UnsafeStore);
         }
+        fs::create_dir_all(&directory)?;
+        let directory_anchor = Arc::new(DirectoryAnchor::open(&directory)?);
+        let store_binding = opaque_parts(
+            b"perfect-planner:snapshot-store-binding:v2",
+            &[&directory_anchor.binding()],
+        );
+        Ok(Self {
+            directory,
+            directory_anchor,
+            store_binding,
+        })
     }
 
     pub(crate) fn persist(
@@ -948,70 +1043,89 @@ impl SnapshotStore {
     ) -> Result<StoredSnapshotReceipt, SnapshotError> {
         let snapshot = &snapshot.0;
         validate_assessment_snapshot(snapshot)?;
-        fs::create_dir_all(&self.directory)?;
+        self.verify_directory()?;
         let final_path = self.path_for_hash(&snapshot.snapshot_hash)?;
         let mut encoded = serde_json::to_vec(snapshot)?;
         encoded.push(b'\n');
         if encoded.len() as u64 > MAX_SNAPSHOT_BYTES {
             return Err(SnapshotError::LimitExceeded);
         }
-        if final_path.exists() {
+        if path_entry_exists(&final_path)? {
             return self
                 .verify_existing(&final_path, &encoded)
                 .map(|_| self.receipt(snapshot, encoded.len() as u64));
         }
 
-        let temp_path = self.directory.join(format!(
+        let temp_path = self.relative_path(&format!(
             ".{}.{}.{}.tmp",
             snapshot.snapshot_hash,
             std::process::id(),
             TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-        ));
+        ))?;
         let write_result = (|| -> Result<(), SnapshotError> {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&temp_path)?;
+            self.verify_directory()?;
+            let mut file = open_snapshot_create(&temp_path)?;
+            let created = validate_open_snapshot_file(&temp_path, &file)?;
             file.write_all(&encoded)?;
             file.sync_all()?;
+            let flushed = validate_open_snapshot_file(&temp_path, &file)?;
+            if created.physical != flushed.physical
+                || flushed.links != 1
+                || flushed.is_directory
+                || flushed.is_reparse
+            {
+                return Err(SnapshotError::AlreadyExistsMismatch);
+            }
             drop(file);
-            match fs::hard_link(&temp_path, &final_path) {
+            self.verify_directory()?;
+            match atomic_publish(&temp_path, &final_path) {
                 Ok(()) => {
-                    fs::remove_file(&temp_path)?;
-                    self.verify_existing(&final_path, &encoded)?;
+                    self.directory_anchor.sync_after_publish()?;
+                    self.verify_directory()?;
+                    self.verify_existing_identity(&final_path, &encoded, Some(&created.physical))?;
                     Ok(())
                 }
-                Err(_error) if final_path.exists() => {
+                Err(_error) if path_entry_exists(&final_path)? => {
                     self.verify_existing(&final_path, &encoded)?;
-                    fs::remove_file(&temp_path)?;
+                    remove_owned_temp(&temp_path, &created.physical)?;
                     Ok(())
                 }
                 Err(error) => Err(error.into()),
             }
         })();
-        if write_result.is_err() {
-            let _ = fs::remove_file(&temp_path);
-        }
         write_result?;
         self.verify_existing(&final_path, &encoded)?;
         Ok(self.receipt(snapshot, encoded.len() as u64))
+    }
+
+    fn verify_directory(&self) -> Result<(), SnapshotError> {
+        self.directory_anchor.verify_path(&self.directory)
     }
 
     fn read_unrecorded(
         &self,
         snapshot_hash: &str,
     ) -> Result<(VerifiedAssessmentSnapshot, StoredSnapshotReceipt), SnapshotError> {
+        self.verify_directory()?;
         let path = self.path_for_hash(snapshot_hash)?;
-        let file = open_snapshot_read(&path)?;
+        let mut file = open_snapshot_read(&path)?;
+        let info = validate_open_snapshot_file(&path, &file)?;
         let size = file.metadata()?.len();
         if size == 0 || size > MAX_SNAPSHOT_BYTES {
             return Err(SnapshotError::LimitExceeded);
         }
         let mut bytes = Vec::with_capacity(size as usize);
-        file.take(MAX_SNAPSHOT_BYTES + 1).read_to_end(&mut bytes)?;
+        (&mut file)
+            .take(MAX_SNAPSHOT_BYTES + 1)
+            .read_to_end(&mut bytes)?;
         if bytes.len() as u64 > MAX_SNAPSHOT_BYTES {
             return Err(SnapshotError::LimitExceeded);
         }
+        let after = validate_open_snapshot_file(&path, &file)?;
+        if after.physical != info.physical || file.metadata()?.len() != size {
+            return Err(SnapshotError::AlreadyExistsMismatch);
+        }
+        self.verify_directory()?;
         let snapshot: AssessmentSnapshot = serde_json::from_slice(&bytes)?;
         validate_assessment_snapshot(&snapshot)?;
         if snapshot.snapshot_hash != snapshot_hash {
@@ -1073,17 +1187,42 @@ impl SnapshotStore {
         if !is_sha256(snapshot_hash) {
             return Err(SnapshotError::InvalidHash);
         }
-        Ok(self.directory.join(format!("{snapshot_hash}.json")))
+        self.relative_path(&format!("{snapshot_hash}.json"))
+    }
+
+    fn relative_path(&self, name: &str) -> Result<PathBuf, SnapshotError> {
+        let path = Path::new(name);
+        if name.is_empty()
+            || path.is_absolute()
+            || path.components().count() != 1
+            || !matches!(
+                path.components().next(),
+                Some(std::path::Component::Normal(_))
+            )
+        {
+            return Err(SnapshotError::UnsafeStore);
+        }
+        Ok(self.directory.join(path))
     }
 
     fn verify_existing(&self, path: &Path, expected: &[u8]) -> Result<(), SnapshotError> {
+        self.verify_existing_identity(path, expected, None)
+    }
+
+    fn verify_existing_identity(
+        &self,
+        path: &Path,
+        expected: &[u8],
+        expected_identity: Option<&PhysicalFileIdentity>,
+    ) -> Result<(), SnapshotError> {
+        self.verify_directory()?;
         let mut file = open_snapshot_read(path)?;
+        let identity = validate_open_snapshot_file(path, &file)?;
+        if expected_identity.is_some_and(|expected| expected != &identity.physical) {
+            return Err(SnapshotError::AlreadyExistsMismatch);
+        }
         let metadata = file.metadata()?;
-        if !metadata.file_type().is_file()
-            || metadata.file_type().is_symlink()
-            || metadata.len() != expected.len() as u64
-            || metadata.len() > MAX_SNAPSHOT_BYTES
-        {
+        if metadata.len() != expected.len() as u64 || metadata.len() > MAX_SNAPSHOT_BYTES {
             return Err(SnapshotError::AlreadyExistsMismatch);
         }
         let mut actual = Vec::with_capacity(metadata.len() as usize);
@@ -1093,6 +1232,11 @@ impl SnapshotStore {
         if actual != expected {
             return Err(SnapshotError::AlreadyExistsMismatch);
         }
+        let after = validate_open_snapshot_file(path, &file)?;
+        if after.physical != identity.physical || file.metadata()?.len() != metadata.len() {
+            return Err(SnapshotError::AlreadyExistsMismatch);
+        }
+        self.verify_directory()?;
         Ok(())
     }
 
@@ -1150,6 +1294,284 @@ fn dependency_graph_has_cycle(participants: &[SnapshotParticipant]) -> bool {
         }
     }
     visited != participants.len()
+}
+
+fn contains_relative_components(path: &Path) -> bool {
+    path.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::CurDir | std::path::Component::ParentDir
+        )
+    })
+}
+
+fn path_entry_exists(path: &Path) -> io::Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+fn validate_open_snapshot_file(
+    path: &Path,
+    file: &File,
+) -> Result<OpenFileIdentity, SnapshotError> {
+    let identity = open_file_identity(file)?;
+    if identity.is_directory || identity.is_reparse || identity.links != 1 {
+        return Err(SnapshotError::AlreadyExistsMismatch);
+    }
+    let path_metadata = fs::symlink_metadata(path)?;
+    if path_metadata.file_type().is_symlink() {
+        return Err(SnapshotError::AlreadyExistsMismatch);
+    }
+    let path_identity = metadata_identity(&path_metadata)?;
+    if path_identity.is_directory || path_identity.is_reparse || path_identity.links != 1 {
+        return Err(SnapshotError::AlreadyExistsMismatch);
+    }
+    #[cfg(not(windows))]
+    if path_identity.physical != identity.physical {
+        return Err(SnapshotError::AlreadyExistsMismatch);
+    }
+    Ok(identity)
+}
+
+fn remove_owned_temp(
+    path: &Path,
+    expected_identity: &PhysicalFileIdentity,
+) -> Result<(), SnapshotError> {
+    let file = open_snapshot_read(path)?;
+    let identity = validate_open_snapshot_file(path, &file)?;
+    if &identity.physical != expected_identity {
+        return Err(SnapshotError::AlreadyExistsMismatch);
+    }
+    drop(file);
+    fs::remove_file(path)?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn reject_reparse_components(path: &Path) -> Result<(), SnapshotError> {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        current.push(component.as_os_str());
+        if matches!(
+            component,
+            std::path::Component::Prefix(_) | std::path::Component::RootDir
+        ) {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(&current)?;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(SnapshotError::UnsafeStore);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn reject_reparse_components(path: &Path) -> Result<(), SnapshotError> {
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        current.push(component.as_os_str());
+        if matches!(component, std::path::Component::RootDir) {
+            continue;
+        }
+        if fs::symlink_metadata(&current)?.file_type().is_symlink() {
+            return Err(SnapshotError::UnsafeStore);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn open_directory_no_follow(path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+}
+
+#[cfg(not(windows))]
+fn open_directory_no_follow(path: &Path) -> io::Result<File> {
+    File::open(path)
+}
+
+#[cfg(windows)]
+fn open_snapshot_create(path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .share_mode(0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+}
+
+#[cfg(not(windows))]
+fn open_snapshot_create(path: &Path) -> io::Result<File> {
+    OpenOptions::new().write(true).create_new(true).open(path)
+}
+
+#[cfg(windows)]
+fn atomic_publish(source: &Path, destination: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x0000_0008;
+    #[link(name = "Kernel32")]
+    unsafe extern "system" {
+        fn MoveFileExW(
+            existing_file_name: *const u16,
+            new_file_name: *const u16,
+            flags: u32,
+        ) -> i32;
+    }
+
+    let source = source
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let destination = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    // SAFETY: both paths are valid, NUL-terminated UTF-16 buffers for this call.
+    let moved = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if moved == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+fn atomic_publish(source: &Path, destination: &Path) -> io::Result<()> {
+    // Standard Rust has no portable rename-without-replace operation. Creating the final link is
+    // atomic and cannot replace an existing entry; unlinking the same-directory temporary name
+    // immediately leaves the published file with exactly one link.
+    fs::hard_link(source, destination)?;
+    fs::remove_file(source)
+}
+
+#[cfg(windows)]
+fn open_file_identity(file: &File) -> io::Result<OpenFileIdentity> {
+    use std::ffi::c_void;
+    use std::os::windows::io::AsRawHandle;
+
+    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+
+    #[repr(C)]
+    struct FileTime {
+        low_date_time: u32,
+        high_date_time: u32,
+    }
+
+    #[repr(C)]
+    struct ByHandleFileInformation {
+        file_attributes: u32,
+        creation_time: FileTime,
+        last_access_time: FileTime,
+        last_write_time: FileTime,
+        volume_serial_number: u32,
+        file_size_high: u32,
+        file_size_low: u32,
+        number_of_links: u32,
+        file_index_high: u32,
+        file_index_low: u32,
+    }
+
+    #[link(name = "Kernel32")]
+    unsafe extern "system" {
+        fn GetFileInformationByHandle(
+            file: *mut c_void,
+            information: *mut ByHandleFileInformation,
+        ) -> i32;
+    }
+
+    let mut information = std::mem::MaybeUninit::<ByHandleFileInformation>::uninit();
+    // SAFETY: the file handle is live and the output points to sufficient writable storage.
+    let result =
+        unsafe { GetFileInformationByHandle(file.as_raw_handle(), information.as_mut_ptr()) };
+    if result == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a successful call initialized the complete output structure.
+    let information = unsafe { information.assume_init() };
+    Ok(OpenFileIdentity {
+        physical: PhysicalFileIdentity {
+            volume: u64::from(information.volume_serial_number),
+            file: (u64::from(information.file_index_high) << 32)
+                | u64::from(information.file_index_low),
+        },
+        links: u64::from(information.number_of_links),
+        is_directory: information.file_attributes & FILE_ATTRIBUTE_DIRECTORY != 0,
+        is_reparse: information.file_attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0,
+    })
+}
+
+#[cfg(not(windows))]
+fn open_file_identity(file: &File) -> io::Result<OpenFileIdentity> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = file.metadata()?;
+    Ok(OpenFileIdentity {
+        physical: PhysicalFileIdentity {
+            volume: metadata.dev(),
+            file: metadata.ino(),
+        },
+        links: metadata.nlink(),
+        is_directory: metadata.is_dir(),
+        is_reparse: metadata.file_type().is_symlink(),
+    })
+}
+
+#[cfg(windows)]
+fn metadata_identity(metadata: &fs::Metadata) -> io::Result<OpenFileIdentity> {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+
+    // Windows MetadataExt does not expose the file ID or link count. Reopen callers compare the
+    // owner-held handle identity; these sentinel values ensure path metadata cannot be mistaken
+    // for a second physical identity source.
+    Ok(OpenFileIdentity {
+        physical: PhysicalFileIdentity { volume: 0, file: 0 },
+        links: 1,
+        is_directory: metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0,
+        is_reparse: metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0,
+    })
+}
+
+#[cfg(not(windows))]
+fn metadata_identity(metadata: &fs::Metadata) -> io::Result<OpenFileIdentity> {
+    use std::os::unix::fs::MetadataExt;
+    Ok(OpenFileIdentity {
+        physical: PhysicalFileIdentity {
+            volume: metadata.dev(),
+            file: metadata.ino(),
+        },
+        links: metadata.nlink(),
+        is_directory: metadata.is_dir(),
+        is_reparse: metadata.file_type().is_symlink(),
+    })
 }
 
 #[cfg(windows)]
@@ -1704,6 +2126,140 @@ pub(crate) mod tests {
             Err(SnapshotError::AlreadyExistsMismatch)
         ));
         let _ = fs::remove_dir_all(store.directory);
+    }
+
+    #[test]
+    fn atomic_publish_is_same_directory_single_link_and_no_replace() {
+        let store = temp_store("atomic-publish");
+        let directory = store.directory.clone();
+        let snapshot = fixture_snapshot(AssessmentVerdict::Clear);
+        let receipt = store.persist(&snapshot).unwrap();
+        let final_path = store.path_for_hash(snapshot.snapshot_hash()).unwrap();
+        let before_file = open_snapshot_read(&final_path).unwrap();
+        let before = open_file_identity(&before_file).unwrap();
+        assert_eq!(before.links, 1);
+        drop(before_file);
+
+        assert_eq!(store.persist(&snapshot).unwrap(), receipt);
+        let after_file = open_snapshot_read(&final_path).unwrap();
+        let after = open_file_identity(&after_file).unwrap();
+        assert_eq!(after.links, 1);
+        assert_eq!(after.physical, before.physical);
+        assert!(fs::read_dir(&directory).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".tmp")
+        }));
+
+        drop(after_file);
+        drop(store);
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn hard_link_alias_invalidates_snapshot_authority() {
+        let store = temp_store("hardlink-reject");
+        let directory = store.directory.clone();
+        let snapshot = fixture_snapshot(AssessmentVerdict::Clear);
+        let receipt = store.persist(&snapshot).unwrap();
+        let final_path = store.path_for_hash(snapshot.snapshot_hash()).unwrap();
+        let alias = directory.join("attacker-alias.json");
+        fs::hard_link(&final_path, &alias).unwrap();
+
+        assert!(matches!(
+            store.verify_receipt(&snapshot, &receipt),
+            Err(SnapshotError::AlreadyExistsMismatch)
+        ));
+        assert!(matches!(
+            store.read_unrecorded(snapshot.snapshot_hash()),
+            Err(SnapshotError::AlreadyExistsMismatch)
+        ));
+
+        fs::remove_file(alias).unwrap();
+        drop(store);
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn final_reparse_point_is_opened_without_following_and_rejected() {
+        use std::os::windows::fs::symlink_file;
+
+        let store = temp_store("final-reparse");
+        let directory = store.directory.clone();
+        let snapshot = fixture_snapshot(AssessmentVerdict::Clear);
+        let final_path = store.path_for_hash(snapshot.snapshot_hash()).unwrap();
+        let target = directory.join("outside-authority.json");
+        fs::write(&target, b"attacker bytes\n").unwrap();
+        if symlink_file(&target, &final_path).is_err() {
+            drop(store);
+            let _ = fs::remove_dir_all(directory);
+            return;
+        }
+
+        assert!(matches!(
+            store.persist(&snapshot),
+            Err(SnapshotError::AlreadyExistsMismatch)
+        ));
+
+        fs::remove_file(final_path).unwrap();
+        drop(store);
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn reparse_directory_alias_cannot_become_a_store() {
+        use std::os::windows::fs::symlink_dir;
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "perfect-planner-snapshot-dir-alias-{}-{nonce}",
+            std::process::id()
+        ));
+        let real = root.join("real");
+        let alias = root.join("alias");
+        fs::create_dir_all(&real).unwrap();
+        if symlink_dir(&real, &alias).is_err() {
+            let _ = fs::remove_dir_all(root);
+            return;
+        }
+
+        assert!(matches!(
+            SnapshotStore::try_new_for_test(&alias),
+            Err(SnapshotError::UnsafeStore)
+        ));
+
+        fs::remove_dir(alias).unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn owner_held_directory_handle_blocks_path_swap() {
+        let store = temp_store("directory-swap");
+        let directory = store.directory.clone();
+        let replacement_name = directory.with_extension("swapped");
+
+        assert!(fs::rename(&directory, &replacement_name).is_err());
+        store.verify_directory().unwrap();
+
+        drop(store);
+        fs::rename(&directory, &replacement_name).unwrap();
+        let _ = fs::remove_dir_all(replacement_name);
+    }
+
+    #[test]
+    fn relative_store_root_is_rejected_before_filesystem_creation() {
+        assert!(matches!(
+            SnapshotStore::try_new_for_test(PathBuf::from("relative-snapshot-root")),
+            Err(SnapshotError::UnsafeStore)
+        ));
     }
 
     #[test]

@@ -50,6 +50,7 @@ export interface PipelineConsoleProps {
   onSnapshotChange?: (snapshot: OrchestratorSnapshot) => void;
   onSelectRun?: (run: PipelineRunSummary) => void;
   onReviewDecision?: (warning: PipelineWarning) => void;
+  onDiagnostic?: (level: "info" | "warning" | "error", message: string) => void;
 }
 
 function domToken(value: string): string {
@@ -365,7 +366,7 @@ function NodePanel({ nodes }: { nodes: ScheduledNode[] }) {
             const token = domToken(node.id);
             const evidence = node.evidence || [];
             return (
-              <details
+      <details
                 className={`pipeline-node pipeline-node-${node.status.toLowerCase()}`}
                 id={`pp-orch-node-${token}`}
                 key={node.id}
@@ -373,6 +374,9 @@ function NodePanel({ nodes }: { nodes: ScheduledNode[] }) {
                 data-worker-id={node.lease?.workerId || "unclaimed"}
                 data-attempts={node.attempts}
                 data-node-status={node.status}
+                data-context-kind="node"
+                data-context-id={node.id}
+                data-context-label={`${node.id} · ${node.title || `Plan node ${node.id}`}`}
               >
                 <summary id={`pp-orch-btn-toggle-node-${token}`}>
                   <span>{node.id}</span>
@@ -423,7 +427,12 @@ function NodePanel({ nodes }: { nodes: ScheduledNode[] }) {
                     {evidence.length ? (
                       <ul className="pipeline-evidence-list">
                         {evidence.map((artifact, index) => (
-                          <li key={`${artifact.kind}-${artifact.sha256}-${index}`}>
+                          <li
+                            key={`${artifact.kind}-${artifact.sha256}-${index}`}
+                            data-context-kind="evidence"
+                            data-context-id={`${node.id}:${artifact.kind}:${artifact.sha256}`}
+                            data-context-label={`${labelize(artifact.kind)} · ${artifact.path}`}
+                          >
                             <span
                               data-evidence-id={`${node.id}:${artifact.kind}:${artifact.sha256}`}
                               data-evidence-kind={artifact.kind}
@@ -771,6 +780,10 @@ function AuditDrawer({ snapshot }: { snapshot: OrchestratorSnapshot }) {
       aria-labelledby="pp-orch-heading-audit-drawer"
       style={style}
       data-state={collapsed ? "collapsed" : maximized ? "maximized" : "open"}
+      data-context-kind="modal"
+      data-context-id="audit-drawer"
+      data-context-label="Bottom audit log"
+      data-context-close="#pp-orch-btn-audit-collapse"
     >
       <div
         className="pipeline-audit-resize-handle"
@@ -960,6 +973,7 @@ export function PipelineConsole({
   onSnapshotChange,
   onSelectRun,
   onReviewDecision,
+  onDiagnostic,
 }: PipelineConsoleProps) {
   const [loadedSnapshot, setLoadedSnapshot] = useState<OrchestratorSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
@@ -969,9 +983,8 @@ export function PipelineConsole({
 
   const refresh = useCallback(async () => {
     if (!runId || !repositoryRoot || refreshRunning.current) {
-      if (!runId || !repositoryRoot) {
-        setError("Select a repository-scoped run before requesting an orchestrator snapshot.");
-      }
+      if (!repositoryRoot) setError("Select a repository before requesting an orchestrator snapshot.");
+      else if (!runId) setError(null);
       return;
     }
     refreshRunning.current = true;
@@ -984,16 +997,23 @@ export function PipelineConsole({
       setLoadedSnapshot(next);
       onSnapshotChange?.(next);
       setError(null);
+      onDiagnostic?.("info", `Verified orchestrator snapshot ${next.run.runId}.`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      onDiagnostic?.("error", message);
     } finally {
       refreshRunning.current = false;
       setLoading(false);
     }
-  }, [onSnapshotChange, repositoryRoot, runId, snapshotSeed]);
+  }, [onDiagnostic, onSnapshotChange, repositoryRoot, runId, snapshotSeed]);
 
   useEffect(() => {
-    if (!runId) return;
+    if (!runId) {
+      setLoadedSnapshot(null);
+      setError(null);
+      return;
+    }
     void refresh();
     if (!Number.isFinite(pollIntervalMs) || pollIntervalMs < 2_000) return;
     const timer = window.setInterval(() => void refresh(), pollIntervalMs);
@@ -1018,6 +1038,8 @@ export function PipelineConsole({
       id="pp-orch-pipeline-console"
       aria-labelledby="pp-orch-heading-console"
       data-repository-id={snapshot?.run.repositoryId}
+      data-context-surface="pipeline"
+      data-context-label="Head orchestrator pipeline"
     >
       <header className="pipeline-console-header">
         <div>
@@ -1050,7 +1072,16 @@ export function PipelineConsole({
 
       {!snapshot ? (
         <div className="pipeline-console-empty" id="pp-orch-empty-console" role="status">
-          No evidence is displayed because no verified pipeline snapshot is available.
+          {repositoryRoot && !runId ? (
+            <>
+              <strong>Pipeline not initialized for this plan</strong>
+              <span>No verified orchestrator run is bound to the selected Perfect Plan.</span>
+              <dl>
+                <div><dt>Where</dt><dd>{repositoryRoot}</dd></div>
+                <div><dt>Remedy</dt><dd>Start an orchestrator run or explicitly select a recorded run. Plan IDs are never guessed as run IDs.</dd></div>
+              </dl>
+            </>
+          ) : "No evidence is displayed because no verified pipeline snapshot is available."}
         </div>
       ) : (
         <>

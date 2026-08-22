@@ -12,6 +12,24 @@ fn source(relative: &str) -> String {
 }
 
 #[test]
+fn renderer_cannot_claim_or_renew_scheduler_leases_before_b20() {
+    let lib = source("src/lib.rs");
+    let build = source("build.rs");
+    let permission = source("permissions/orchestrator-pipeline.toml");
+    let api = source("src/orchestrator/api.rs");
+    let renderer = source("../src/services/orchestratorPipeline.ts");
+
+    for command in ["orchestrator_claim_node", "orchestrator_heartbeat"] {
+        assert!(!lib.contains(&format!("            {command},")));
+        assert!(!build.contains(&format!("\"{command}\"")));
+        assert!(!permission.contains(&format!("\"{command}\"")));
+        assert!(!api.contains(&format!("#[tauri::command]\npub fn {command}")));
+    }
+    assert!(renderer.contains("B20 scheduler-owned collision authority issuer is not active"));
+    assert!(renderer.contains("B09/B20 authority-backed admission is not active"));
+}
+
+#[test]
 fn authority_issuance_is_native_only_and_aggregate_scoped() {
     let registry = source("src/collision_assessor/registry.rs");
     assert!(registry.contains("struct MachineAuthoritySetReceipt"));

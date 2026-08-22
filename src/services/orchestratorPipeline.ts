@@ -3,8 +3,6 @@ export const ORCHESTRATOR_COMMANDS = {
   preflight: "orchestrator_preflight_inspect",
   snapshot: "orchestrator_pipeline_snapshot",
   catalog: "orchestrator_run_catalog",
-  claim: "orchestrator_claim_node",
-  heartbeat: "orchestrator_heartbeat",
   complete: "orchestrator_authorize_fenced_completion",
   fail: "orchestrator_record_failure",
   reap: "orchestrator_reap_expired",
@@ -1453,7 +1451,9 @@ export async function orchestratorClaim(request: ClaimNodeRequest): Promise<Node
   if (!Number.isSafeInteger(request.leaseMs) || request.leaseMs < 1_000) {
     throw new Error("leaseMs must be at least 1000");
   }
-  return invokePipeline(ORCHESTRATOR_COMMANDS.claim, request);
+  throw new Error(
+    "Worker claim blocked: the B20 scheduler-owned collision authority issuer is not active."
+  );
 }
 
 export async function orchestratorHeartbeat(request: HeartbeatRequest): Promise<NodeLease> {
@@ -1463,7 +1463,9 @@ export async function orchestratorHeartbeat(request: HeartbeatRequest): Promise<
   if (!Number.isSafeInteger(request.leaseMs) || request.leaseMs < 1_000) {
     throw new Error("leaseMs must be at least 1000");
   }
-  return invokePipeline(ORCHESTRATOR_COMMANDS.heartbeat, request);
+  throw new Error(
+    "Worker heartbeat blocked: B09/B20 authority-backed admission is not active."
+  );
 }
 
 export async function orchestratorComplete(

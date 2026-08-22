@@ -1,5 +1,6 @@
 pub(crate) mod analyzer;
 pub mod api;
+pub(crate) mod authority;
 pub mod capability;
 pub(crate) mod clearance;
 pub mod collector_process;

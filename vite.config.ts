@@ -17,6 +17,7 @@ function readBoard(
   port: number,
   path: "/whoami" | "/workers" | "/plan"
 ): Promise<ProbeReply> {
+  const responseLimit = path === "/plan" ? 8 * 1024 * 1024 : 512 * 1024;
   return new Promise((resolve, reject) => {
     const upstream = http.get(
       {
@@ -31,8 +32,8 @@ function readBoard(
         let size = 0;
         response.on("data", (chunk: Buffer) => {
           size += chunk.length;
-          if (size > 64 * 1024) {
-            response.destroy(new Error("board response exceeded 64 KiB"));
+          if (size > responseLimit) {
+            response.destroy(new Error(`board ${path} response exceeded ${responseLimit} bytes`));
             return;
           }
           chunks.push(chunk);

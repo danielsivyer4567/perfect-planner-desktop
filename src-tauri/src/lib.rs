@@ -29,12 +29,12 @@ use control_plane_api::{
     post_control_message, record_control_delivery,
 };
 use orchestrator::api::{
-    orchestrator_authorize_fenced_completion, orchestrator_claim_node, orchestrator_create_run,
-    orchestrator_deliver, orchestrator_evaluate_release, orchestrator_heartbeat,
-    orchestrator_pipeline_snapshot, orchestrator_preflight_inspect, orchestrator_reap_expired,
-    orchestrator_reconcile, orchestrator_record_failure, orchestrator_run_catalog,
-    orchestrator_validate_worker_submission,
+    orchestrator_authorize_fenced_completion, orchestrator_create_run, orchestrator_deliver,
+    orchestrator_evaluate_release, orchestrator_pipeline_snapshot, orchestrator_preflight_inspect,
+    orchestrator_reap_expired, orchestrator_reconcile, orchestrator_record_failure,
+    orchestrator_resource_probe, orchestrator_run_catalog, orchestrator_validate_worker_submission,
 };
+use orchestrator::authority_runtime::SchedulerAuthorityRuntime;
 use supervisor::{unix_ms, SessionObservation, SupervisorSnapshot, SupervisorStore};
 
 /// Loopback window the app is allowed to look in. perfect-planning's default board port is
@@ -42,6 +42,16 @@ use supervisor::{unix_ms, SessionObservation, SupervisorSnapshot, SupervisorStor
 /// and clamping here means the webview can never talk this command into a port sweep.
 const WINDOW_START: u16 = 5200;
 const WINDOW_END: u16 = 5299;
+const BOARD_STATE_RESPONSE_LIMIT: u64 = 512 * 1024;
+const BOARD_PLAN_RESPONSE_LIMIT: u64 = 8 * 1024 * 1024;
+
+fn board_response_limit(path: &str) -> u64 {
+    if path == "/plan" {
+        BOARD_PLAN_RESPONSE_LIMIT
+    } else {
+        BOARD_STATE_RESPONSE_LIMIT
+    }
+}
 
 /// Read one of the two explicitly allowed board endpoints.
 ///
@@ -65,8 +75,12 @@ fn request_json(port: u16, path: &'static str) -> Option<Value> {
     );
     stream.write_all(request.as_bytes()).ok()?;
 
+    let limit = board_response_limit(path);
     let mut raw = Vec::new();
-    (&mut stream).take(64 * 1024).read_to_end(&mut raw).ok()?;
+    (&mut stream).take(limit + 1).read_to_end(&mut raw).ok()?;
+    if raw.len() as u64 > limit {
+        return None;
+    }
     parse_json_response(&raw)
 }
 
@@ -357,6 +371,8 @@ pub fn run() {
             supervisor.spawn_reaper()?;
             app.manage(supervisor);
             app.manage(CapabilityStore::default());
+            let scheduler_authority = SchedulerAuthorityRuntime::open(&app_data_dir)?;
+            app.manage(scheduler_authority);
             let collision_registry = PlannerRegistryStore::for_app_data(&app_data_dir)
                 .map_err(|error| format!("cannot bind collision registry: {error}"))?;
             collision_registry
@@ -401,10 +417,9 @@ pub fn run() {
             acknowledge_control_message,
             orchestrator_create_run,
             orchestrator_preflight_inspect,
+            orchestrator_resource_probe,
             orchestrator_pipeline_snapshot,
             orchestrator_run_catalog,
-            orchestrator_claim_node,
-            orchestrator_heartbeat,
             orchestrator_authorize_fenced_completion,
             orchestrator_record_failure,
             orchestrator_reap_expired,
@@ -420,6 +435,13 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn large_plan_reads_stay_bounded_without_using_tiny_identity_limit() {
+        assert_eq!(board_response_limit("/whoami"), 512 * 1024);
+        assert_eq!(board_response_limit("/workers"), 512 * 1024);
+        assert_eq!(board_response_limit("/plan"), 8 * 1024 * 1024);
+    }
 
     #[test]
     fn whoami_requires_success_status_and_ok_identity() {

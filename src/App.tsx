@@ -21,6 +21,9 @@ import {
 import { LocalOutputWitness } from "./components/LocalOutputWitness";
 import { OrchestratorMessenger } from "./components/OrchestratorMessenger";
 import { PipelineConsole } from "./components/PipelineConsole";
+import { ResourceGuard, type ResourceGuardState } from "./components/ResourceGuard";
+import { ActionContextMenu, type ContextActionLog } from "./components/ActionContextMenu";
+import { DiagnosticsConsole, type DiagnosticEntry } from "./components/DiagnosticsConsole";
 import {
   browserOrchestratorScope,
   OrchestratorSnapshot,
@@ -29,6 +32,7 @@ import {
 } from "./services/orchestratorPipeline";
 import { PlanSnapshot } from "./types/plan";
 import { alarmDurationMs, playRisingAlarm } from "./services/stallAlarm";
+import { probeResourceGuard } from "./services/resourceGuard";
 import {
   IdentityLease,
   assignRepositoryCallSigns,
@@ -47,6 +51,7 @@ import { ControlPlaneScope } from "./services/controlPlane";
 
 const SOUND_KEY = "perfect-planner:stall-sound";
 const VOLUME_KEY = "perfect-planner:stall-volume";
+const DISMISSED_BOARDS_KEY = "perfect-planner:dismissed-plans";
 
 interface WorkerReport {
   boardPort: number;
@@ -151,6 +156,19 @@ function storedVolume(): number {
   }
 }
 
+function storedDismissedPlans(): Set<string> {
+  try {
+    const value = JSON.parse(localStorage.getItem(DISMISSED_BOARDS_KEY) || "[]");
+    return new Set(
+      Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === "string")
+        : []
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 function isPlanComplete(plan: PlanSnapshot | undefined): boolean {
   const items = plan?.vertebrae.flatMap((vertebra) => vertebra.checklist || []) || [];
   if (!items.length) return false;
@@ -197,6 +215,13 @@ export const App: React.FC = () => {
     repositoryRoot: string;
   } | null>(null);
   const [pipelineSnapshot, setPipelineSnapshot] = useState<OrchestratorSnapshot | null>(null);
+  const [dismissedPlans, setDismissedPlans] = useState<Set<string>>(storedDismissedPlans);
+  const [resourceGuard, setResourceGuard] = useState<ResourceGuardState>({
+    status: "checking",
+    result: null,
+    error: null,
+  });
+  const [diagnosticEntries, setDiagnosticEntries] = useState<DiagnosticEntry[]>([]);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const scanRunningRef = useRef(false);
   const soundEnabledRef = useRef(soundEnabled);
@@ -205,6 +230,18 @@ export const App: React.FC = () => {
   const stallsByPlanRef = useRef(new Map<string, Set<string>>());
   const orchestratorLeasesRef = useRef(new Map<string, IdentityLease>());
   const mirroredRecoveryEventsRef = useRef(new Set<string>());
+  const dismissedPlansRef = useRef(dismissedPlans);
+  const diagnosticSequenceRef = useRef(0);
+  const lastResourceDiagnosticRef = useRef("");
+
+  const recordDiagnostic = useCallback((entry: Omit<DiagnosticEntry, "id" | "at">) => {
+    diagnosticSequenceRef.current += 1;
+    setDiagnosticEntries((current) => [...current.slice(-199), {
+      ...entry,
+      id: `diagnostic-${diagnosticSequenceRef.current}`,
+      at: Date.now(),
+    }]);
+  }, []);
 
   const ring = useCallback(async (force = false) => {
     if ((!force && !soundEnabledRef.current) || alarmPlayingRef.current) return;
@@ -229,8 +266,9 @@ export const App: React.FC = () => {
     try {
       const found = await discoverBoards();
       setActivePort((current) => {
-        if (current !== null && found.some((b) => b.port === current)) return current;
-        return found.length ? found[0].port : null;
+        const visible = found.filter((board) => !dismissedPlansRef.current.has(board.planPath));
+        if (current !== null && visible.some((b) => b.port === current)) return current;
+        return visible.length ? visible[0].port : null;
       });
 
       const [snapshots, manifests, approvalBridges] = await Promise.all([
@@ -256,6 +294,9 @@ export const App: React.FC = () => {
       const observedIdsByOrganization = new Map<string, Set<string>>();
       for (let index = 0; index < found.length; index++) {
         const board = found[index];
+        if (dismissedPlansRef.current.has(board.planPath)) {
+          continue;
+        }
         const organization = repositoryForBoard(board);
         const observedIds = observedIdsByOrganization.get(organization.id) || new Set<string>();
         observedIds.add(boardEntitySource(board));
@@ -409,16 +450,22 @@ export const App: React.FC = () => {
     []
   );
 
-  const active = boards.find((b) => b.port === activePort) || null;
+  const visibleBoards = useMemo(
+    () => boards.filter((board) => !dismissedPlans.has(board.planPath)),
+    [boards, dismissedPlans]
+  );
+  const hiddenBoardCount = boards.length - visibleBoards.length;
+  const active = visibleBoards.find((b) => b.port === activePort) || null;
+  const isNativeTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   const activePlan = active ? planSnapshots[active.planPath]?.plan || null : null;
   const repositoryGroups = useMemo(() => {
-    const groups = groupBoardsByRepository(boards);
+    const groups = groupBoardsByRepository(visibleBoards);
     const callSigns = assignRepositoryCallSigns(groups.map((repository) => repository.scope.id));
     return groups.map((repository) => ({
       ...repository,
       callSign: callSigns.get(repository.scope.id) || "?",
     }));
-  }, [boards]);
+  }, [visibleBoards]);
   const activeRepository = active ? repositoryForBoard(active) : null;
   const activeRepositoryCallSign = activeRepository
     ? repositoryGroups.find((repository) => repository.scope.id === activeRepository.id)?.callSign || "?"
@@ -426,8 +473,8 @@ export const App: React.FC = () => {
   const orchestratorId = activeRepository
     ? orchestratorIds[activeRepository.id] || null
     : null;
-  const firstStalledBoard = boards.find((board) => (stalledByPlan[board.planPath] || 0) > 0);
-  const decisionBoards = boards
+  const firstStalledBoard = visibleBoards.find((board) => (stalledByPlan[board.planPath] || 0) > 0);
+  const decisionBoards = visibleBoards
     .map((board) => ({ board, decision: decisionRequest(board) }))
     .filter(
       (entry) =>
@@ -544,10 +591,8 @@ export const App: React.FC = () => {
   const pipelineScope = useMemo(() => {
     if (browserPipelineScope) return browserPipelineScope;
     if (selectedPipelineScope) return selectedPipelineScope;
-    const runId = active?.number?.trim().replace(/^#/, "");
-    if (!runId || !active?.repoRoot) return null;
-    return { runId, repositoryRoot: active.repoRoot };
-  }, [active, browserPipelineScope, selectedPipelineScope]);
+    return null;
+  }, [browserPipelineScope, selectedPipelineScope]);
   useEffect(() => {
     if (
       selectedPipelineScope &&
@@ -560,6 +605,7 @@ export const App: React.FC = () => {
   }, [active?.repoRoot, selectedPipelineScope]);
   useEffect(() => {
     setSelectedPipelineScope(null);
+    setPipelineSnapshot(null);
   }, [active?.planPath]);
   const selectPipelineRun = useCallback((run: PipelineRunSummary) => {
     setSelectedPipelineScope({
@@ -622,8 +668,96 @@ export const App: React.FC = () => {
     void ring(true);
   };
 
+  const refreshResourceGuard = useCallback(() => {
+    if (!active?.repoRoot) {
+      setResourceGuard({
+        status: "unavailable",
+        result: null,
+        error: "Select a repository to check system resources",
+      });
+      return;
+    }
+    setResourceGuard({ status: "checking", result: null, error: null });
+    void probeResourceGuard(active.repoRoot).then(
+      (result) => setResourceGuard({ status: "active", result, error: null }),
+      (error) => setResourceGuard({
+        status: "unavailable",
+        result: null,
+        error: error instanceof Error ? error.message : "Windows resource probe failed",
+      })
+    );
+  }, [active?.repoRoot]);
+
+  useEffect(() => {
+    refreshResourceGuard();
+    const timer = window.setInterval(refreshResourceGuard, 30_000);
+    return () => window.clearInterval(timer);
+  }, [refreshResourceGuard]);
+
+  useEffect(() => {
+    if (resourceGuard.status === "checking") return;
+    const signature = resourceGuard.status === "active"
+      ? `active:${resourceGuard.result.provider}`
+      : `unavailable:${resourceGuard.error}`;
+    if (signature === lastResourceDiagnosticRef.current) return;
+    lastResourceDiagnosticRef.current = signature;
+    const browserOnly = resourceGuard.status === "unavailable" && resourceGuard.error.includes("Tauri desktop app");
+    recordDiagnostic({
+      level: resourceGuard.status === "active" || browserOnly ? "info" : "error",
+      source: "resource-guard",
+      message: resourceGuard.status === "active"
+        ? `Windows resource probe active via ${resourceGuard.result.provider}.`
+        : resourceGuard.error,
+    });
+  }, [recordDiagnostic, resourceGuard]);
+
+  const dismissPlan = useCallback((planPath: string) => {
+    const next = new Set(dismissedPlansRef.current);
+    next.add(planPath);
+    dismissedPlansRef.current = next;
+    setDismissedPlans(next);
+    try {
+      localStorage.setItem(DISMISSED_BOARDS_KEY, JSON.stringify([...next]));
+    } catch {
+      // Dismissal remains reversible for this session when storage is unavailable.
+    }
+    const replacement = boards.find((board) => !next.has(board.planPath));
+    setActivePort(replacement?.port ?? null);
+    recordDiagnostic({ level: "info", source: "plan", message: `Removed ${planPath} from the live rail; the plan file was not changed.` });
+    void scan();
+  }, [boards, recordDiagnostic, scan]);
+
+  const restoreDismissedPlans = () => {
+    const next = new Set<string>();
+    dismissedPlansRef.current = next;
+    setDismissedPlans(next);
+    try {
+      localStorage.removeItem(DISMISSED_BOARDS_KEY);
+    } catch {
+      // The in-memory restore still takes effect.
+    }
+    setActivePort(boards[0]?.port ?? null);
+    void scan();
+  };
+
+  const handleContextPlanAction = useCallback((action: "select" | "remove" | "open", planPath: string) => {
+    const board = boards.find((candidate) => candidate.planPath === planPath);
+    if (!board) {
+      recordDiagnostic({ level: "warning", source: "context-menu", message: `Plan action refused because ${planPath} is no longer in the current board census.` });
+      return;
+    }
+    if (action === "select") setActivePort(board.port);
+    if (action === "remove") dismissPlan(planPath);
+    if (action === "open") window.open(board.url, "_blank", "noopener,noreferrer");
+  }, [boards, dismissPlan, recordDiagnostic]);
+
+  const recordContextAction = useCallback((entry: ContextActionLog) => {
+    recordDiagnostic({ level: entry.level, source: entry.source, message: entry.message });
+  }, [recordDiagnostic]);
+
   return (
     <div className="shell" id="pp-app-shell" data-orchestrator-id={orchestratorId || "pending"}>
+      <ActionContextMenu onPlanAction={handleContextPlanAction} onLog={recordContextAction} />
       <aside className="rail" id="pp-region-board-rail">
         <div className="rail-head" id="pp-region-board-rail-heading">
           <h1>
@@ -643,6 +777,9 @@ export const App: React.FC = () => {
               data-repository-id={repository.scope.id}
               data-repository-name={repository.scope.label}
               data-repository-call-sign={repository.callSign}
+              data-context-kind="surface"
+              data-context-id={repository.scope.id}
+              data-context-label={`Repository ${repository.callSign} ${repository.scope.label}`}
               aria-labelledby={`pp-repository-heading-${repository.scope.id}`}
             >
               <header className="repo-heading">
@@ -665,6 +802,9 @@ export const App: React.FC = () => {
                     className="branch-group"
                     data-branch-id={branch.id}
                     data-branch-name={branch.name}
+                    data-context-kind="surface"
+                    data-context-id={branch.id}
+                    data-context-label={`Branch ${branch.name}`}
                   >
                     <div className="branch-heading" title={branch.name}>
                       <span aria-hidden="true">⎇</span>
@@ -711,6 +851,10 @@ export const App: React.FC = () => {
                               data-project-name={projectLabel}
                               data-branch-name={branch.name}
                               data-board-port={b.port}
+                              data-context-kind="plan"
+                              data-context-id={boardId}
+                              data-context-label={`${b.number || "Unnumbered plan"} · ${b.topic || "untitled plan"}`}
+                              data-plan-path={b.planPath}
                               className={`rail-item${b.port === activePort ? " on" : ""}${boardStalls ? " stalled" : ""}${isComplete ? " complete" : ""}`}
                               onClick={() => setActivePort(b.port)}
                               title={`Repository ${repository.callSign} · ${repository.scope.label}${hasDistinctProject ? ` · Project ${projectLabel}` : ""} · ${branch.name}\n${b.planPath}`}
@@ -743,11 +887,15 @@ export const App: React.FC = () => {
                                 {boardStalls ? ` · ${boardStalls} stalled` : ""}
                               </span>
                               <span
-                                className={`rail-chat-route ${b.approvalBridge?.admissionReleased ? "delivered" : "blocked"}`}
-                                data-approval-bridge-state={b.approvalBridge?.state || "UNAVAILABLE"}
-                                title={b.approvalBridge?.lastError || b.approvalBridge?.routeId || "No native task route is registered"}
+                                className={`rail-chat-route ${isNativeTauri && b.approvalBridge?.admissionReleased ? "delivered" : "blocked"}`}
+                                data-approval-bridge-state={isNativeTauri ? b.approvalBridge?.state || "UNAVAILABLE" : "UNVERIFIED_BOARD_CLAIM"}
+                                title={isNativeTauri
+                                  ? b.approvalBridge?.lastError || b.approvalBridge?.routeId || "No native task route is registered"
+                                  : "Browser mode cannot verify a board-reported chat route"}
                               >
-                                chat · {b.approvalBridge?.state?.replace(/_/g, " ").toLowerCase() || "unavailable"}
+                                chat · {isNativeTauri
+                                  ? b.approvalBridge?.state?.replace(/_/g, " ").toLowerCase() || "unavailable"
+                                  : "unverified board claim"}
                               </span>
                             </button>
                           </div>
@@ -774,6 +922,14 @@ export const App: React.FC = () => {
                 It appears here on its own — a chat joins by serving a board, not by wiring
                 anything up.
               </p>
+            </div>
+          )}
+          {scannedOnce && boards.length > 0 && !visibleBoards.length && (
+            <div className="rail-empty">
+              <p>All running boards are hidden.</p>
+              <button id="pp-btn-restore-dismissed-empty" type="button" className="chip" onClick={restoreDismissedPlans}>
+                restore {hiddenBoardCount}
+              </button>
             </div>
           )}
         </div>
@@ -851,8 +1007,13 @@ export const App: React.FC = () => {
             {scanning ? "scanning…" : "rescan"}
           </button>
           <span className="rail-count">
-            {boards.length} board{boards.length === 1 ? "" : "s"}
+            {visibleBoards.length} board{visibleBoards.length === 1 ? "" : "s"}
           </span>
+          {hiddenBoardCount ? (
+            <button id="pp-btn-restore-dismissed" type="button" className="chip" onClick={restoreDismissedPlans}>
+              restore {hiddenBoardCount}
+            </button>
+          ) : null}
         </div>
       </aside>
 
@@ -899,6 +1060,7 @@ export const App: React.FC = () => {
             <span className={`head-stat${scopedStalled ? " bad" : ""}`}><b>{scopedStalled}</b> grace</span>
             <span className="head-stat"><b>{scopedCleared}</b> cleared</span>
             <span className={`head-stat${decisionBoards.length ? " needs" : ""}`}><b>{decisionBoards.length}</b> decisions</span>
+            <ResourceGuard state={resourceGuard} onRefresh={refreshResourceGuard} />
           </div>
 
           <div className="worker-wire" id="pp-list-worker-reports" role="list" aria-label="Worker reports">
@@ -959,10 +1121,11 @@ export const App: React.FC = () => {
 
         <PipelineConsole
           runId={pipelineScope?.runId}
-          repositoryRoot={pipelineScope?.repositoryRoot}
+          repositoryRoot={pipelineScope?.repositoryRoot || active?.repoRoot}
           snapshotSeed={pipelineSnapshotSeed}
           onSelectRun={selectPipelineRun}
           onSnapshotChange={setPipelineSnapshot}
+          onDiagnostic={(level, message) => recordDiagnostic({ level, source: "pipeline", message })}
         />
 
         {active ? (
@@ -974,6 +1137,10 @@ export const App: React.FC = () => {
               data-repository-call-sign={activeRepositoryCallSign}
               data-project-name={active.project || active.repoName}
               data-branch-name={active.branch}
+              data-context-kind="plan"
+              data-context-id={stableEntityId("board", boardEntitySource(active))}
+              data-context-label={boardLabel(active)}
+              data-plan-path={active.planPath}
             >
               <span className="active-scope" aria-label="Active repository, branch and plan">
                 <span className="scope-call-sign" aria-hidden="true">{activeRepositoryCallSign}</span>
@@ -993,6 +1160,7 @@ export const App: React.FC = () => {
                 {active.worktreeName} · {active.planPath}
               </span>
               <span className="stage-actions">
+                <span className="context-action-hint" id="pp-hint-plan-context-actions">right-click plan for actions</span>
                 <button
                   id="pp-btn-reload-active-board"
                   type="button"
@@ -1038,6 +1206,14 @@ export const App: React.FC = () => {
           </div>
         )}
       </main>
+      <DiagnosticsConsole
+        activeBoard={active}
+        activePlan={activePlan}
+        resourceGuard={resourceGuard}
+        pipelineReady={Boolean(pipelineSnapshot)}
+        entries={diagnosticEntries}
+        onClear={() => setDiagnosticEntries([])}
+      />
     </div>
   );
 };

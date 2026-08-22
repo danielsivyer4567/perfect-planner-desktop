@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 const MAX_ATTEMPTS: u32 = 3;
+const AUTHORITY_SCHEMA_VERSION: u32 = 1;
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -42,9 +43,22 @@ pub struct ScheduledNode {
     pub stall_alarm_fence: Option<u64>,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyLeaseRevocation {
+    pub node_id: String,
+    pub worker_id: String,
+    pub fence: u64,
+    pub previous_expires_at_ms: u64,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchedulerState {
+    #[serde(default)]
+    pub authority_schema_version: u32,
+    #[serde(default)]
+    pub pending_legacy_revocations: Vec<LegacyLeaseRevocation>,
     pub next_fence: u64,
     pub nodes: BTreeMap<String, ScheduledNode>,
 }
@@ -75,13 +89,15 @@ impl SchedulerStore {
         run_dir: PathBuf,
         nodes: Vec<ScheduledNode>,
     ) -> Result<Self, String> {
-        let state = if state_path.exists() {
+        let mut state = if state_path.exists() {
             let bytes = fs::read(&state_path)
                 .map_err(|error| format!("cannot read scheduler state: {error}"))?;
             serde_json::from_slice(&bytes)
                 .map_err(|error| format!("cannot parse scheduler state: {error}"))?
         } else {
             let state = SchedulerState {
+                authority_schema_version: AUTHORITY_SCHEMA_VERSION,
+                pending_legacy_revocations: Vec::new(),
                 next_fence: 1,
                 nodes: nodes
                     .into_iter()
@@ -91,6 +107,30 @@ impl SchedulerStore {
             persist(&state_path, &state)?;
             state
         };
+        if state.authority_schema_version < AUTHORITY_SCHEMA_VERSION {
+            let mut revoked = Vec::new();
+            for node in state.nodes.values_mut() {
+                let Some(lease) = node.lease.take() else {
+                    continue;
+                };
+                revoked.push(LegacyLeaseRevocation {
+                    node_id: node.id.clone(),
+                    worker_id: lease.worker_id,
+                    fence: lease.fence,
+                    previous_expires_at_ms: lease.expires_at_ms,
+                });
+                node.stall_alarm_fence = Some(lease.fence);
+                node.status = if node.attempts >= MAX_ATTEMPTS {
+                    NodeStatus::Blocked
+                } else {
+                    NodeStatus::Ready
+                };
+            }
+            state.pending_legacy_revocations.extend(revoked);
+            state.authority_schema_version = AUTHORITY_SCHEMA_VERSION;
+            validate_state(&state)?;
+            persist(&state_path, &state)?;
+        }
         validate_state(&state)?;
         Ok(Self {
             state_path,
@@ -104,6 +144,28 @@ impl SchedulerStore {
             .lock()
             .map_err(|_| "scheduler lock is poisoned".to_string())
             .map(|state| state.clone())
+    }
+
+    pub fn pending_legacy_revocations(&self) -> Result<Vec<LegacyLeaseRevocation>, String> {
+        self.inner
+            .lock()
+            .map_err(|_| "scheduler lock is poisoned".to_string())
+            .map(|state| state.pending_legacy_revocations.clone())
+    }
+
+    pub fn acknowledge_legacy_revocations(
+        &self,
+        acknowledged: &[LegacyLeaseRevocation],
+    ) -> Result<(), String> {
+        self.mutate(|state| {
+            if state.pending_legacy_revocations != acknowledged {
+                return Err(
+                    "legacy revocation audit queue changed before acknowledgement".to_string(),
+                );
+            }
+            state.pending_legacy_revocations.clear();
+            Ok(())
+        })
     }
 
     pub fn claim(
@@ -522,6 +584,50 @@ mod tests {
             store.snapshot().expect("snapshot").nodes["B01"].status,
             NodeStatus::Blocked
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn upgrade_revokes_legacy_leases_until_their_audit_is_acknowledged() {
+        let root = temp_dir("legacy-authority");
+        let state_path = root.join("leases.json");
+        let store =
+            SchedulerStore::open(state_path.clone(), root.clone(), vec![node()]).expect("store");
+        let legacy_lease = store
+            .claim("B01", "legacy-renderer", 100, 10_000)
+            .expect("legacy claim");
+        let mut legacy_state = store.snapshot().expect("legacy snapshot");
+        legacy_state.authority_schema_version = 0;
+        persist(&state_path, &legacy_state).expect("persist legacy shape");
+        drop(store);
+
+        let upgraded =
+            SchedulerStore::open(state_path, root.clone(), Vec::new()).expect("upgrade scheduler");
+        let snapshot = upgraded.snapshot().expect("upgraded snapshot");
+        assert_eq!(snapshot.authority_schema_version, AUTHORITY_SCHEMA_VERSION);
+        assert_eq!(snapshot.nodes["B01"].status, NodeStatus::Ready);
+        assert!(snapshot.nodes["B01"].lease.is_none());
+        assert_eq!(
+            snapshot.nodes["B01"].stall_alarm_fence,
+            Some(legacy_lease.fence)
+        );
+        assert!(upgraded
+            .authorize_commit("B01", &legacy_lease.token, 101)
+            .is_err());
+
+        let pending = upgraded
+            .pending_legacy_revocations()
+            .expect("pending revocations");
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].worker_id, "legacy-renderer");
+        assert!(upgraded.acknowledge_legacy_revocations(&[]).is_err());
+        upgraded
+            .acknowledge_legacy_revocations(&pending)
+            .expect("acknowledge audit");
+        assert!(upgraded
+            .pending_legacy_revocations()
+            .expect("empty revocations")
+            .is_empty());
         let _ = fs::remove_dir_all(root);
     }
 }

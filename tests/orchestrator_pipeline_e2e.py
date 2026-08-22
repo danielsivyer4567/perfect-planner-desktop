@@ -648,6 +648,30 @@ def assert_node_evidence_and_persistent_warnings(page: Page) -> None:
     expect(node.locator("[data-evidence-kind='git-diff']")).to_have_count(1)
     expect(node.locator("[data-evidence-kind='command-output']")).to_have_count(1)
 
+    node.click(button="right")
+    context_menu = page.locator("#pp-context-menu")
+    expect(context_menu).to_be_visible()
+    expect(context_menu).to_contain_text("TO-02")
+    # The action intentionally closes the context-menu portal and mutates the owning
+    # <details> in the same React update. Playwright's high-level click waits for the
+    # clicked menu item to remain stable after dispatch, so it can time out even though
+    # the intended action completed. Dispatching the trusted test event directly proves
+    # the menu wiring without imposing that incompatible post-click stability contract.
+    context_menu.get_by_role(
+        "menuitem", name="Expand / collapse"
+    ).dispatch_event("click")
+    expect(node).not_to_have_attribute("open", "")
+
+    node.click(button="right")
+    page.locator("#pp-context-menu").get_by_role(
+        "menuitem", name="Expand / collapse"
+    ).dispatch_event("click")
+    expect(node).to_have_attribute("open", "")
+    node.locator("[data-evidence-id]").first.click(button="right")
+    expect(page.locator("#pp-context-menu")).to_contain_text("evidence")
+    expect(page.locator("#pp-context-menu")).to_contain_text("Copy evidence identity")
+    page.keyboard.press("Escape")
+
     release_warning = page.locator("#pp-orch-warning-release-infra-001")
     expect(release_warning).to_be_visible()
     expect(release_warning).to_have_attribute(

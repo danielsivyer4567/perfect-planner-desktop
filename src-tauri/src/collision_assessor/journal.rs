@@ -6,6 +6,7 @@ use super::snapshot::{
     StoredSnapshotReceipt, VerifiedAssessmentSnapshot, VerifiedConflictProof,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -15,7 +16,7 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicU8, Ordering},
-    Arc, Mutex,
+    Arc, Mutex, OnceLock, Weak,
 };
 use std::thread;
 use std::time::{Duration, Instant};
@@ -29,6 +30,68 @@ const MAX_EVENTS: usize = 200_000;
 const DEFAULT_LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 const TRUST_LIVE_PROCESS: u8 = 1;
 const TRUST_RECOVERED_UNANCHORED: u8 = 2;
+const JOURNAL_ANCHOR_VERSION: u32 = 1;
+const JOURNAL_WRITER_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+const MAX_ANCHOR_BYTES: u64 = 4 * 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct JournalAnchor {
+    version: u32,
+    writer_epoch: u64,
+    sequence: u64,
+    event_hash: String,
+    file_len: u64,
+    verifying_key: String,
+    key_fingerprint: String,
+    checkpoint_signature: String,
+}
+
+/// One secret owner exists per journal path in this process. Cloned journals share this object;
+/// they never clone or serialize the signing key. The lifetime-held writer lock excludes another
+/// process, while `append_gate` bounds all local writers to one authenticated transition at a time.
+struct NativeJournalWriter {
+    epoch: u64,
+    signing_key: SigningKey,
+    append_gate: Mutex<()>,
+    _exclusive_writer: JournalLock,
+}
+
+impl NativeJournalWriter {
+    fn verification_key(&self) -> [u8; 32] {
+        self.signing_key.verifying_key().to_bytes()
+    }
+
+    fn fingerprint(&self) -> String {
+        journal_key_fingerprint(&self.verification_key())
+    }
+
+    fn checkpoint(&self, high_water: &HighWater) -> JournalAnchor {
+        let verifying_key = self.verification_key();
+        let mut anchor = JournalAnchor {
+            version: JOURNAL_ANCHOR_VERSION,
+            writer_epoch: self.epoch,
+            sequence: high_water.sequence,
+            event_hash: high_water.event_hash.clone(),
+            file_len: high_water.file_len,
+            verifying_key: encode_hex(&verifying_key),
+            key_fingerprint: journal_key_fingerprint(&verifying_key),
+            checkpoint_signature: String::new(),
+        };
+        anchor.checkpoint_signature = encode_hex(
+            &self
+                .signing_key
+                .sign(&journal_anchor_message(&anchor))
+                .to_bytes(),
+        );
+        anchor
+    }
+}
+
+fn live_writers() -> &'static Mutex<BTreeMap<PathBuf, Weak<NativeJournalWriter>>> {
+    static WRITERS: OnceLock<Mutex<BTreeMap<PathBuf, Weak<NativeJournalWriter>>>> = OnceLock::new();
+    WRITERS.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -888,6 +951,11 @@ pub(crate) enum JournalError {
     CorruptChain,
     TornTail,
     RollbackDetected,
+    AnchorMissing,
+    AnchorInvalid,
+    WriterAuthorityUnavailable,
+    WriterAuthorityHeld,
+    InvalidWriterEpoch,
     LimitExceeded,
     LockTimeout,
     Io(io::Error),
@@ -908,6 +976,19 @@ impl fmt::Display for JournalError {
             Self::TornTail => formatter.write_str("journal has an unterminated tail"),
             Self::RollbackDetected => {
                 formatter.write_str("journal rolled behind its live high-water")
+            }
+            Self::AnchorMissing => formatter.write_str("external journal anchor is missing"),
+            Self::AnchorInvalid => {
+                formatter.write_str("external journal anchor is invalid or unauthenticated")
+            }
+            Self::WriterAuthorityUnavailable => {
+                formatter.write_str("exclusive native journal writer authority is unavailable")
+            }
+            Self::WriterAuthorityHeld => {
+                formatter.write_str("exclusive native journal writer authority is already held")
+            }
+            Self::InvalidWriterEpoch => {
+                formatter.write_str("native journal writer epoch is invalid or non-monotonic")
             }
             Self::LimitExceeded => formatter.write_str("journal exceeds a hard bound"),
             Self::LockTimeout => formatter.write_str("journal lock timed out"),
@@ -935,6 +1016,7 @@ pub(crate) struct AssessmentJournal {
     lock_timeout: Duration,
     high_water: Arc<Mutex<Option<HighWater>>>,
     trust: Arc<AtomicU8>,
+    writer: Option<Arc<NativeJournalWriter>>,
 }
 
 impl fmt::Debug for AssessmentJournal {
@@ -956,27 +1038,137 @@ impl AssessmentJournal {
             lock_timeout: DEFAULT_LOCK_TIMEOUT,
             high_water: Arc::new(Mutex::new(None)),
             trust: Arc::new(AtomicU8::new(TRUST_RECOVERED_UNANCHORED)),
+            writer: None,
         }
+    }
+
+    /// Establish the only production writer for this journal process epoch. The epoch must come
+    /// from scheduler-owned state outside the journal. A non-empty journal requires an exact,
+    /// authenticated prior anchor and the immediately following epoch.
+    pub(crate) fn open_native_writer(
+        path: impl Into<PathBuf>,
+        writer_epoch: u64,
+    ) -> Result<Self, JournalError> {
+        Self::open_native_writer_with(
+            path.into(),
+            writer_epoch,
+            DEFAULT_LOCK_TIMEOUT,
+            fill_os_random,
+        )
     }
 
     #[cfg(test)]
     pub(crate) fn new_live_for_test(path: impl Into<PathBuf>) -> Self {
-        Self {
-            path: path.into(),
-            lock_timeout: DEFAULT_LOCK_TIMEOUT,
-            high_water: Arc::new(Mutex::new(None)),
-            trust: Arc::new(AtomicU8::new(TRUST_LIVE_PROCESS)),
-        }
+        let path = path.into();
+        let epoch = next_test_writer_epoch(&path).unwrap_or(1);
+        Self::open_native_writer_with(path, epoch, DEFAULT_LOCK_TIMEOUT, fill_os_random)
+            .expect("test journal writer authority")
     }
 
     #[cfg(test)]
     fn with_lock_timeout(path: impl Into<PathBuf>, lock_timeout: Duration) -> Self {
-        Self {
-            path: path.into(),
-            lock_timeout,
-            high_water: Arc::new(Mutex::new(None)),
-            trust: Arc::new(AtomicU8::new(TRUST_RECOVERED_UNANCHORED)),
+        let path = path.into();
+        let epoch = next_test_writer_epoch(&path).unwrap_or(1);
+        Self::open_native_writer_with(path, epoch, lock_timeout, fill_os_random)
+            .expect("test journal writer authority")
+    }
+
+    fn open_native_writer_with<F>(
+        path: PathBuf,
+        writer_epoch: u64,
+        lock_timeout: Duration,
+        mut fill: F,
+    ) -> Result<Self, JournalError>
+    where
+        F: FnMut(&mut [u8]) -> Result<(), JournalError>,
+    {
+        if writer_epoch == 0 {
+            return Err(JournalError::InvalidWriterEpoch);
         }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let registry_key = canonical_writer_key(&path)?;
+        let mut writers = live_writers()
+            .lock()
+            .map_err(|_| JournalError::WriterAuthorityUnavailable)?;
+        writers.retain(|_, writer| writer.strong_count() > 0);
+        if let Some(existing) = writers.get(&registry_key).and_then(Weak::upgrade) {
+            if existing.epoch != writer_epoch {
+                return Err(JournalError::WriterAuthorityHeld);
+            }
+            return Ok(Self {
+                path,
+                lock_timeout,
+                high_water: Arc::new(Mutex::new(None)),
+                trust: Arc::new(AtomicU8::new(TRUST_LIVE_PROCESS)),
+                writer: Some(existing),
+            });
+        }
+
+        let exclusive_writer = JournalLock::acquire(
+            &writer_lock_path(&path),
+            JOURNAL_WRITER_LOCK_TIMEOUT.min(lock_timeout),
+        )
+        .map_err(|error| match error {
+            JournalError::LockTimeout => JournalError::WriterAuthorityHeld,
+            other => other,
+        })?;
+        let _journal_lock = JournalLock::acquire(&lock_path(&path), lock_timeout)?;
+        let mut secret = [0_u8; 32];
+        fill(&mut secret)?;
+        if secret == [0; 32] {
+            secret.fill(0);
+            return Err(JournalError::WriterAuthorityUnavailable);
+        }
+        let signing_key = SigningKey::from_bytes(&secret);
+        secret.fill(0);
+        let writer = Arc::new(NativeJournalWriter {
+            epoch: writer_epoch,
+            signing_key,
+            append_gate: Mutex::new(()),
+            _exclusive_writer: exclusive_writer,
+        });
+
+        let mut file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(&path)?;
+        let (events, _) = load_chain(&mut file, false, None)?;
+        replay_events(&events)?;
+        let file_len = file.metadata()?.len();
+        let current = high_water_from(events.last(), file_len);
+        let anchor_path = anchor_path(&path);
+        match load_anchor(&anchor_path) {
+            Ok(previous) => {
+                verify_anchor(&previous)?;
+                anchor_matches(&previous, &current)?;
+                if previous
+                    .writer_epoch
+                    .checked_add(1)
+                    .filter(|next| *next == writer_epoch)
+                    .is_none()
+                {
+                    return Err(JournalError::InvalidWriterEpoch);
+                }
+            }
+            Err(JournalError::AnchorMissing) if current.sequence == 0 && current.file_len == 0 => {}
+            Err(error) => return Err(error),
+        }
+        persist_anchor(&anchor_path, &writer.checkpoint(&current))?;
+        writers.insert(registry_key, Arc::downgrade(&writer));
+        Ok(Self {
+            path,
+            lock_timeout,
+            high_water: Arc::new(Mutex::new(if current.sequence == 0 {
+                None
+            } else {
+                Some(current)
+            })),
+            trust: Arc::new(AtomicU8::new(TRUST_LIVE_PROCESS)),
+            writer: Some(writer),
+        })
     }
 
     fn append(
@@ -1001,6 +1193,14 @@ impl AssessmentJournal {
         payload: JournalPayload,
         idempotent: bool,
     ) -> Result<JournalEvent, JournalError> {
+        let writer = self
+            .writer
+            .as_ref()
+            .ok_or(JournalError::WriterAuthorityUnavailable)?;
+        let _writer_gate = writer
+            .append_gate
+            .lock()
+            .map_err(|_| JournalError::WriterAuthorityUnavailable)?;
         if recorded_at_ms == 0 {
             return Err(JournalError::InvalidEvent);
         }
@@ -1010,22 +1210,28 @@ impl AssessmentJournal {
         }
         let lock_path = lock_path(&self.path);
         let _lock = JournalLock::acquire(&lock_path, self.lock_timeout)?;
+        let anchor = load_anchor(&anchor_path(&self.path))?;
+        verify_writer_anchor(&anchor, writer)?;
         let mut file = OpenOptions::new()
             .create(true)
             .read(true)
             .write(true)
             .open(&self.path)?;
-        let protected_len = self
+        let memory_protected_len = self
             .high_water
             .lock()
             .map_err(|_| JournalError::RollbackDetected)?
             .as_ref()
             .map(|water| water.file_len);
+        let protected_len = Some(
+            memory_protected_len.map_or(anchor.file_len, |memory| memory.max(anchor.file_len)),
+        );
         let (events, repaired) = load_chain(&mut file, true, protected_len)?;
         if repaired {
             file.sync_all()?;
         }
         let file_len = file.metadata()?.len();
+        anchor_matches(&anchor, &high_water_from(events.last(), file_len))?;
         self.enforce_high_water(events.last(), file_len)?;
         let last = events.last().cloned();
         let mut replay = replay_events(&events)?;
@@ -1083,6 +1289,14 @@ impl AssessmentJournal {
         file.write_all(&encoded)?;
         file.sync_all()?;
         let end = file_len + encoded.len() as u64;
+        persist_anchor(
+            &anchor_path(&self.path),
+            &writer.checkpoint(&HighWater {
+                sequence: event.sequence,
+                event_hash: event.event_hash.clone(),
+                file_len: end,
+            }),
+        )?;
         self.set_high_water(&event, end)?;
         Ok(event)
     }
@@ -1092,13 +1306,21 @@ impl AssessmentJournal {
             fs::create_dir_all(parent)?;
         }
         let _lock = JournalLock::acquire(&lock_path(&self.path), self.lock_timeout)?;
+        let anchor = load_anchor(&anchor_path(&self.path))?;
+        verify_anchor(&anchor)?;
+        if let Some(writer) = &self.writer {
+            verify_writer_anchor(&anchor, writer)?;
+        }
         let mut file = match OpenOptions::new().read(true).open(&self.path) {
             Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Err(JournalError::RollbackDetected)
+            }
             Err(error) => return Err(error.into()),
         };
         let (events, _) = load_chain(&mut file, false, None)?;
         let file_len = file.metadata()?.len();
+        anchor_matches(&anchor, &high_water_from(events.last(), file_len))?;
         self.enforce_high_water(events.last(), file_len)?;
         replay_events(&events)?;
         Ok(events)
@@ -1797,6 +2019,291 @@ fn is_bounded_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'-' | b'_' | b'.' | b':'))
 }
 
+fn high_water_from(last: Option<&JournalEvent>, file_len: u64) -> HighWater {
+    HighWater {
+        sequence: last.map_or(0, |event| event.sequence),
+        event_hash: last.map_or_else(
+            || GENESIS_HASH.to_string(),
+            |event| event.event_hash.clone(),
+        ),
+        file_len,
+    }
+}
+
+fn anchor_path(path: &Path) -> PathBuf {
+    let mut name = path
+        .file_name()
+        .map_or_else(|| "assessment.jsonl".into(), |value| value.to_os_string());
+    name.push(".anchor.json");
+    path.with_file_name(name)
+}
+
+fn writer_lock_path(path: &Path) -> PathBuf {
+    let mut name = path
+        .file_name()
+        .map_or_else(|| "assessment.jsonl".into(), |value| value.to_os_string());
+    name.push(".writer.lock");
+    path.with_file_name(name)
+}
+
+fn canonical_writer_key(path: &Path) -> Result<PathBuf, JournalError> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let canonical_parent = fs::canonicalize(parent)?;
+    Ok(canonical_parent.join(
+        path.file_name()
+            .unwrap_or_else(|| std::ffi::OsStr::new("assessment.jsonl")),
+    ))
+}
+
+fn load_anchor(path: &Path) -> Result<JournalAnchor, JournalError> {
+    let file = match OpenOptions::new().read(true).open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Err(JournalError::AnchorMissing)
+        }
+        Err(error) => return Err(error.into()),
+    };
+    if file.metadata()?.len() > MAX_ANCHOR_BYTES {
+        return Err(JournalError::AnchorInvalid);
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_ANCHOR_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.is_empty() || bytes.len() as u64 > MAX_ANCHOR_BYTES {
+        return Err(JournalError::AnchorInvalid);
+    }
+    serde_json::from_slice(&bytes).map_err(|_| JournalError::AnchorInvalid)
+}
+
+fn verify_anchor(anchor: &JournalAnchor) -> Result<(), JournalError> {
+    if anchor.version != JOURNAL_ANCHOR_VERSION
+        || anchor.writer_epoch == 0
+        || !is_sha256(&anchor.event_hash)
+        || !is_sha256(&anchor.key_fingerprint)
+        || anchor.verifying_key.len() != 64
+        || anchor.checkpoint_signature.len() != 128
+        || (anchor.sequence == 0 && (anchor.event_hash != GENESIS_HASH || anchor.file_len != 0))
+        || (anchor.sequence > 0 && anchor.file_len == 0)
+    {
+        return Err(JournalError::AnchorInvalid);
+    }
+    let verifying_key = decode_journal_hex::<32>(&anchor.verifying_key)?;
+    if journal_key_fingerprint(&verifying_key) != anchor.key_fingerprint {
+        return Err(JournalError::AnchorInvalid);
+    }
+    let signature = decode_journal_hex::<64>(&anchor.checkpoint_signature)?;
+    let verifier =
+        VerifyingKey::from_bytes(&verifying_key).map_err(|_| JournalError::AnchorInvalid)?;
+    verifier
+        .verify_strict(
+            &journal_anchor_message(anchor),
+            &Signature::from_bytes(&signature),
+        )
+        .map_err(|_| JournalError::AnchorInvalid)
+}
+
+fn verify_writer_anchor(
+    anchor: &JournalAnchor,
+    writer: &NativeJournalWriter,
+) -> Result<(), JournalError> {
+    verify_anchor(anchor)?;
+    if anchor.writer_epoch != writer.epoch
+        || anchor.verifying_key != encode_hex(&writer.verification_key())
+        || anchor.key_fingerprint != writer.fingerprint()
+    {
+        return Err(JournalError::InvalidWriterEpoch);
+    }
+    Ok(())
+}
+
+fn anchor_matches(anchor: &JournalAnchor, current: &HighWater) -> Result<(), JournalError> {
+    if anchor.sequence != current.sequence
+        || anchor.event_hash != current.event_hash
+        || anchor.file_len != current.file_len
+    {
+        return Err(JournalError::RollbackDetected);
+    }
+    Ok(())
+}
+
+fn journal_anchor_message(anchor: &JournalAnchor) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(b"perfect-planner:assessment-journal-anchor:v1");
+    digest.update(anchor.version.to_le_bytes());
+    digest.update(anchor.writer_epoch.to_le_bytes());
+    digest.update(anchor.sequence.to_le_bytes());
+    digest.update((anchor.event_hash.len() as u64).to_le_bytes());
+    digest.update(anchor.event_hash.as_bytes());
+    digest.update(anchor.file_len.to_le_bytes());
+    digest.update((anchor.verifying_key.len() as u64).to_le_bytes());
+    digest.update(anchor.verifying_key.as_bytes());
+    digest.update((anchor.key_fingerprint.len() as u64).to_le_bytes());
+    digest.update(anchor.key_fingerprint.as_bytes());
+    digest.finalize().into()
+}
+
+fn journal_key_fingerprint(verifying_key: &[u8; 32]) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"perfect-planner:assessment-journal-writer-key:v1");
+    digest.update(verifying_key);
+    format!("{:x}", digest.finalize())
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
+}
+
+fn decode_journal_hex<const N: usize>(value: &str) -> Result<[u8; N], JournalError> {
+    if value.len() != N * 2 {
+        return Err(JournalError::AnchorInvalid);
+    }
+    let mut output = [0_u8; N];
+    for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
+        let high = (chunk[0] as char)
+            .to_digit(16)
+            .ok_or(JournalError::AnchorInvalid)? as u8;
+        let low = (chunk[1] as char)
+            .to_digit(16)
+            .ok_or(JournalError::AnchorInvalid)? as u8;
+        output[index] = (high << 4) | low;
+    }
+    Ok(output)
+}
+
+fn persist_anchor(path: &Path, anchor: &JournalAnchor) -> Result<(), JournalError> {
+    let mut bytes = serde_json::to_vec(anchor)?;
+    bytes.push(b'\n');
+    if bytes.len() as u64 > MAX_ANCHOR_BYTES {
+        return Err(JournalError::LimitExceeded);
+    }
+    let mut temp_name = path
+        .file_name()
+        .map_or_else(|| "assessment.anchor".into(), |value| value.to_os_string());
+    temp_name.push(".tmp");
+    let temp_path = path.with_file_name(temp_name);
+    let mut temp = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&temp_path)?;
+    temp.write_all(&bytes)?;
+    temp.sync_all()?;
+    drop(temp);
+    replace_anchor(&temp_path, path)?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn replace_anchor(source: &Path, destination: &Path) -> Result<(), JournalError> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn MoveFileExW(existing: *const u16, new_name: *const u16, flags: u32) -> i32;
+    }
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+    let source = source
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let destination = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let moved = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if moved == 0 {
+        Err(io::Error::last_os_error().into())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_anchor(source: &Path, destination: &Path) -> Result<(), JournalError> {
+    fs::rename(source, destination)?;
+    if let Some(parent) = destination.parent() {
+        File::open(parent)?.sync_all()?;
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn fill_os_random(bytes: &mut [u8]) -> Result<(), JournalError> {
+    const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 0x0000_0002;
+    #[link(name = "Bcrypt")]
+    unsafe extern "system" {
+        fn BCryptGenRandom(
+            algorithm: *mut std::ffi::c_void,
+            buffer: *mut u8,
+            length: u32,
+            flags: u32,
+        ) -> i32;
+    }
+    let length = u32::try_from(bytes.len()).map_err(|_| JournalError::LimitExceeded)?;
+    let status = unsafe {
+        BCryptGenRandom(
+            std::ptr::null_mut(),
+            bytes.as_mut_ptr(),
+            length,
+            BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+        )
+    };
+    if status >= 0 {
+        Ok(())
+    } else {
+        Err(JournalError::WriterAuthorityUnavailable)
+    }
+}
+
+#[cfg(unix)]
+fn fill_os_random(bytes: &mut [u8]) -> Result<(), JournalError> {
+    File::open("/dev/urandom")
+        .and_then(|mut source| source.read_exact(bytes))
+        .map_err(JournalError::Io)
+}
+
+#[cfg(not(any(windows, unix)))]
+fn fill_os_random(_bytes: &mut [u8]) -> Result<(), JournalError> {
+    Err(JournalError::WriterAuthorityUnavailable)
+}
+
+#[cfg(test)]
+fn next_test_writer_epoch(path: &Path) -> Result<u64, JournalError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let key = canonical_writer_key(path)?;
+    if let Some(writer) = live_writers()
+        .lock()
+        .map_err(|_| JournalError::WriterAuthorityUnavailable)?
+        .get(&key)
+        .and_then(Weak::upgrade)
+    {
+        return Ok(writer.epoch);
+    }
+    match load_anchor(&anchor_path(path)) {
+        Ok(anchor) => anchor
+            .writer_epoch
+            .checked_add(1)
+            .ok_or(JournalError::InvalidWriterEpoch),
+        Err(JournalError::AnchorMissing) => Ok(1),
+        Err(error) => Err(error),
+    }
+}
+
 fn lock_path(path: &Path) -> PathBuf {
     let mut name = path
         .file_name()
@@ -1807,7 +2314,9 @@ fn lock_path(path: &Path) -> PathBuf {
 
 #[cfg(windows)]
 struct JournalLock {
-    handle: *mut std::ffi::c_void,
+    // HANDLE is pointer-sized but carries no Rust provenance. Storing the owned value as `isize`
+    // lets the guard move with its Arc owner without asserting blanket Send/Sync for raw pointers.
+    handle: isize,
 }
 
 #[cfg(windows)]
@@ -1854,7 +2363,9 @@ impl JournalLock {
                 )
             };
             if handle != INVALID_HANDLE_VALUE {
-                return Ok(Self { handle });
+                return Ok(Self {
+                    handle: handle as isize,
+                });
             }
             let error = io::Error::last_os_error();
             if !matches!(error.raw_os_error(), Some(5 | 32 | 33)) {
@@ -1877,7 +2388,7 @@ impl Drop for JournalLock {
             fn CloseHandle(handle: *mut std::ffi::c_void) -> i32;
         }
         unsafe {
-            CloseHandle(self.handle);
+            CloseHandle(self.handle as *mut std::ffi::c_void);
         }
     }
 }
@@ -2056,6 +2567,11 @@ mod tests {
         for pair in events.windows(2) {
             assert_eq!(pair[1].previous_hash, pair[0].event_hash);
         }
+        let anchor = load_anchor(&anchor_path(&journal.path)).unwrap();
+        verify_anchor(&anchor).unwrap();
+        assert_eq!(anchor.sequence, 100);
+        assert_eq!(anchor.event_hash, events.last().unwrap().event_hash);
+        assert_eq!(anchor.file_len, fs::metadata(&journal.path).unwrap().len());
         let _ = fs::remove_dir_all(journal.path.parent().unwrap());
     }
 
@@ -2111,7 +2627,7 @@ mod tests {
     }
 
     #[test]
-    fn restarted_history_is_unanchored_and_cannot_authorize_clearance() {
+    fn restarted_reader_requires_the_exact_external_head_anchor() {
         let journal = temp_journal("restart-unanchored");
         journal.append(1_000, assessment(1)).unwrap();
         let prefix = fs::read(&journal.path).unwrap();
@@ -2124,10 +2640,15 @@ mod tests {
 
         fs::write(&journal.path, prefix).unwrap();
         let rolled_back_restart = AssessmentJournal::new(&journal.path);
-        assert_eq!(rolled_back_restart.read_verified().unwrap().len(), 1);
+        assert!(matches!(
+            rolled_back_restart.read_verified(),
+            Err(JournalError::RollbackDetected)
+        ));
         assert!(!rolled_back_restart.clearance_authority_ready());
-        rolled_back_restart.append(1_002, assessment(3)).unwrap();
-        assert!(!rolled_back_restart.clearance_authority_ready());
+        assert!(matches!(
+            rolled_back_restart.append(1_002, assessment(3)),
+            Err(JournalError::WriterAuthorityUnavailable)
+        ));
         let _ = fs::remove_dir_all(journal.path.parent().unwrap());
     }
 
@@ -2152,12 +2673,92 @@ mod tests {
                 fs::remove_file(&path).unwrap();
             }
             let restarted = AssessmentJournal::new(&path);
-            assert!(restarted.read_verified().unwrap().is_empty());
+            assert!(matches!(
+                restarted.read_verified(),
+                Err(JournalError::RollbackDetected)
+            ));
             assert!(!restarted.clearance_authority_ready());
-            restarted.append(1_002, assessment(2)).unwrap();
-            assert!(!restarted.clearance_authority_ready());
+            assert!(matches!(
+                restarted.append(1_002, assessment(2)),
+                Err(JournalError::WriterAuthorityUnavailable)
+            ));
             let _ = fs::remove_dir_all(path.parent().unwrap());
         }
+    }
+
+    #[test]
+    fn missing_tampered_and_rolled_back_anchors_fail_closed() {
+        let journal = temp_journal("anchor-fail-closed");
+        journal.append(1_000, assessment(1)).unwrap();
+        let first_anchor = fs::read(anchor_path(&journal.path)).unwrap();
+        journal.append(1_001, assessment(2)).unwrap();
+
+        fs::write(anchor_path(&journal.path), &first_anchor).unwrap();
+        assert!(matches!(
+            journal.read_verified(),
+            Err(JournalError::RollbackDetected)
+        ));
+
+        let current = journal.writer.as_ref().unwrap().checkpoint(&HighWater {
+            sequence: 2,
+            event_hash: load_chain(
+                &mut OpenOptions::new().read(true).open(&journal.path).unwrap(),
+                false,
+                None,
+            )
+            .unwrap()
+            .0
+            .last()
+            .unwrap()
+            .event_hash
+            .clone(),
+            file_len: fs::metadata(&journal.path).unwrap().len(),
+        });
+        persist_anchor(&anchor_path(&journal.path), &current).unwrap();
+        let mut tampered = fs::read(anchor_path(&journal.path)).unwrap();
+        let position = tampered.iter().position(|byte| *byte == b'1').unwrap();
+        tampered[position] = b'2';
+        fs::write(anchor_path(&journal.path), tampered).unwrap();
+        assert!(matches!(
+            journal.read_verified(),
+            Err(JournalError::AnchorInvalid)
+        ));
+
+        fs::remove_file(anchor_path(&journal.path)).unwrap();
+        assert!(matches!(
+            journal.read_verified(),
+            Err(JournalError::AnchorMissing)
+        ));
+        let _ = fs::remove_dir_all(journal.path.parent().unwrap());
+    }
+
+    #[test]
+    fn one_process_writer_is_shared_and_restart_requires_next_external_epoch() {
+        let journal = temp_journal("exclusive-writer-epoch");
+        journal.append(1_000, assessment(1)).unwrap();
+        let same = AssessmentJournal::open_native_writer(&journal.path, 1).unwrap();
+        assert!(Arc::ptr_eq(
+            journal.writer.as_ref().unwrap(),
+            same.writer.as_ref().unwrap()
+        ));
+        assert!(matches!(
+            AssessmentJournal::open_native_writer(&journal.path, 2),
+            Err(JournalError::WriterAuthorityHeld)
+        ));
+        let path = journal.path.clone();
+        drop(same);
+        drop(journal);
+
+        assert!(matches!(
+            AssessmentJournal::open_native_writer(&path, 1),
+            Err(JournalError::InvalidWriterEpoch)
+        ));
+        let rotated = AssessmentJournal::open_native_writer(&path, 2).unwrap();
+        assert_eq!(rotated.read_verified().unwrap().len(), 1);
+        let anchor = load_anchor(&anchor_path(&path)).unwrap();
+        assert_eq!(anchor.writer_epoch, 2);
+        verify_writer_anchor(&anchor, rotated.writer.as_ref().unwrap()).unwrap();
+        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
@@ -2174,7 +2775,10 @@ mod tests {
             Err(JournalError::LockTimeout)
         ));
         drop(lock);
-        assert!(!journal.path.exists());
+        assert_eq!(fs::metadata(&journal.path).unwrap().len(), 0);
+        let anchor = load_anchor(&anchor_path(&journal.path)).unwrap();
+        assert_eq!(anchor.sequence, 0);
+        assert_eq!(anchor.event_hash, GENESIS_HASH);
         let _ = fs::remove_dir_all(journal.path.parent().unwrap());
     }
 

@@ -82,6 +82,21 @@ pub struct PreflightInspectApiRequest {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResourceProbeApiRequest {
+    pub repository_root: PathBuf,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceProbeApiResponse {
+    pub provider: &'static str,
+    pub executable: PathBuf,
+    pub sampled_at_ms: u64,
+    pub resources: ResourceSnapshot,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SnapshotApiRequest {
     #[serde(flatten)]
     pub scope: ScopedRunRequest,
@@ -321,6 +336,23 @@ pub fn orchestrator_preflight_inspect(
     Ok(report)
 }
 
+/// Read-only capacity telemetry for the always-visible resource guard.
+/// Reuses the fixed PowerShell 7 + Windows CIM preflight probe and gains no stop authority.
+#[tauri::command]
+pub fn orchestrator_resource_probe(
+    request: ResourceProbeApiRequest,
+) -> Result<ResourceProbeApiResponse, String> {
+    let repository_root = canonical_repository(&request.repository_root)?;
+    let probe = Pwsh7SystemProbe::fixed()?;
+    let resources = probe.resources(&repository_root)?;
+    Ok(ResourceProbeApiResponse {
+        provider: "Windows CIM via PowerShell 7",
+        executable: probe.executable,
+        sampled_at_ms: unix_ms(),
+        resources,
+    })
+}
+
 #[tauri::command]
 pub fn orchestrator_pipeline_snapshot(
     request: SnapshotApiRequest,
@@ -352,7 +384,8 @@ pub fn orchestrator_pipeline_snapshot(
     })
 }
 
-#[tauri::command]
+// Internal foundation only. B20 must bind this operation to a scheduler-owned,
+// consumed collision-clearance receipt before it can be registered as a Tauri command.
 pub fn orchestrator_claim_node(request: ClaimNodeApiRequest) -> Result<NodeLease, String> {
     validate_text("nodeId", &request.node_id)?;
     validate_text("workerId", &request.worker_id)?;
@@ -375,7 +408,8 @@ pub fn orchestrator_claim_node(request: ClaimNodeApiRequest) -> Result<NodeLease
     Ok(lease)
 }
 
-#[tauri::command]
+// Renewal is admission authority too. Keep it off the renderer surface until B09/B20
+// prove the persisted lease against the current native issuer epoch and clearance.
 pub fn orchestrator_heartbeat(request: HeartbeatApiRequest) -> Result<NodeLease, String> {
     validate_text("nodeId", &request.node_id)?;
     validate_token(&request.token)?;
@@ -1111,7 +1145,28 @@ fn open_scheduler(
     } else if nodes.is_empty() {
         return Err("scheduler state is missing; refusing implicit reinitialization".to_string());
     }
-    SchedulerStore::open(state_path, context.run_dir.clone(), nodes)
+    let scheduler = SchedulerStore::open(state_path, context.run_dir.clone(), nodes)?;
+    let pending_revocations = scheduler.pending_legacy_revocations()?;
+    for revocation in &pending_revocations {
+        append_event(
+            context,
+            Some(revocation.node_id.clone()),
+            "head-orchestrator",
+            EventType::Warning,
+            "LEGACY_UNATTESTED_CLAIM_REVOKED",
+            json!({
+                "workerId": revocation.worker_id,
+                "fence": revocation.fence,
+                "previousExpiresAtMs": revocation.previous_expires_at_ms,
+                "authoritySchemaVersion": 1,
+                "remedy": "worker must request a fresh collision-assessed scheduler admission"
+            }),
+        )?;
+    }
+    if !pending_revocations.is_empty() {
+        scheduler.acknowledge_legacy_revocations(&pending_revocations)?;
+    }
+    Ok(scheduler)
 }
 
 fn bounded_event_tail(
@@ -1370,7 +1425,7 @@ impl Pwsh7SystemProbe {
             .arg("-NoLogo")
             .arg("-NoProfile")
             .arg("-NonInteractive")
-            .arg("-Command")
+            .arg("-CommandWithArgs")
             .arg(script);
         for argument in arguments {
             command.arg(argument);
@@ -1640,6 +1695,48 @@ mod tests {
             .contains("must be absolute"));
         assert!(validate_token("not-a-fence").is_err());
         assert!(validate_text("field", "line\nbreak").is_err());
+    }
+
+    #[test]
+    fn standalone_resource_probe_keeps_repository_scope() {
+        let relative = orchestrator_resource_probe(ResourceProbeApiRequest {
+            repository_root: PathBuf::from("relative/repo"),
+        })
+        .unwrap_err();
+        assert!(relative.contains("must be absolute"));
+
+        let directory = std::env::temp_dir().join(format!(
+            "pp-resource-probe-not-git-{}",
+            API_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let not_git = orchestrator_resource_probe(ResourceProbeApiRequest {
+            repository_root: directory.clone(),
+        })
+        .unwrap_err();
+        assert!(not_git.contains("existing Git worktree"));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn fixed_pwsh_probe_receives_the_repository_argument() {
+        let repository_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("src-tauri must have a repository parent")
+            .to_path_buf();
+        let probe = Pwsh7SystemProbe::fixed().expect("PowerShell 7 probe must be installed");
+
+        probe
+            .git_status_porcelain_v2(&repository_root)
+            .expect("the Git probe must receive repository_root as args[0]");
+        let resources = probe
+            .resources(&repository_root)
+            .expect("the resource probe must receive repository_root as args[0]");
+
+        assert!(resources.logical_cpu_count > 0);
+        assert!(resources.total_memory_bytes > 0);
+        assert!(resources.repository_disk_available_bytes > 0);
     }
 
     #[test]

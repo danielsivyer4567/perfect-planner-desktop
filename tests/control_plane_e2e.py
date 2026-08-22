@@ -213,6 +213,10 @@ def main():
         page.locator("#pp-btn-open-worker-notes-s-worker-alpha").click()
         expect(page.locator("#pp-list-worker-notes article")).to_have_count(3)
         page.screenshot(path=str(SCREENSHOT), full_page=True)
+        page.locator("#pp-panel-worker-notes").click(button="right")
+        expect(page.locator("#pp-context-menu")).to_contain_text("Worker notes")
+        page.locator("#pp-context-menu").get_by_role("menuitem", name="Close modal").click()
+        expect(page.locator("#pp-panel-worker-notes")).to_have_count(0)
         assert not console_errors, f"browser console errors: {console_errors}"
 
         context.close()

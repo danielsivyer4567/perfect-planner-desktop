@@ -55,6 +55,12 @@ export interface Vertebra {
   side?: "L" | "R";
   title: string;
   status?: string;
+  dependsOn?: string[];
+  est?: {
+    tokens?: number;
+    minutes?: number;
+  };
+  notes?: string;
   files?: string[];
   resources?: string[];
   checklist?: ChecklistItem[];

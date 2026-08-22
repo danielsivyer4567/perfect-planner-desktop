@@ -154,8 +154,8 @@ def main():
 
         exact_row = page.locator('[data-board-port="5230"]')
         blocked_row = page.locator('[data-board-port="5231"]')
-        expect(exact_row.locator('[data-approval-bridge-state="PENDING"]')).to_be_visible()
-        expect(blocked_row.locator('[data-approval-bridge-state="UNREGISTERED"]')).to_be_visible()
+        expect(exact_row.locator('[data-approval-bridge-state="UNVERIFIED_BOARD_CLAIM"]')).to_be_visible()
+        expect(blocked_row.locator('[data-approval-bridge-state="UNVERIFIED_BOARD_CLAIM"]')).to_be_visible()
         live_mark = page.locator("#pp-status-looplet-live-feed")
         expect(live_mark).to_be_visible()
         expect(live_mark).to_have_attribute("data-feed-state", "live")
@@ -173,11 +173,11 @@ def main():
 
         exact_row = page.locator('[data-board-port="5230"]')
         blocked_row = page.locator('[data-board-port="5231"]')
-        delivered = exact_row.locator('[data-approval-bridge-state="DELIVERED"]')
-        expect(delivered).to_be_visible()
-        expect(delivered).to_contain_text("chat · delivered")
-        assert EXACT_TASK in (await_title := delivered.get_attribute("title") or ""), await_title
-        expect(blocked_row.locator('[data-approval-bridge-state="UNREGISTERED"]')).to_be_visible()
+        unverified = exact_row.locator('[data-approval-bridge-state="UNVERIFIED_BOARD_CLAIM"]')
+        expect(unverified).to_be_visible()
+        expect(unverified).to_contain_text("chat · unverified board claim")
+        assert state["approved"], "fixture approval was not recorded"
+        expect(blocked_row.locator('[data-approval-bridge-state="UNVERIFIED_BOARD_CLAIM"]')).to_be_visible()
         expect(page.locator("#pp-status-looplet-live-feed")).to_be_visible()
         page.screenshot(path=str(AFTER), full_page=True)
         assert not console_errors, f"browser console errors: {console_errors}"
@@ -187,7 +187,7 @@ def main():
     print("approval_chat_bridge_e2e: PASS")
     print(f"before: {BEFORE}")
     print(f"after: {AFTER}")
-    print("proved: approval changes only the exact registered task route; an unregistered plan stays blocked")
+    print("proved: browser-reported approval routes remain visibly unverified before and after approval")
 
 
 if __name__ == "__main__":

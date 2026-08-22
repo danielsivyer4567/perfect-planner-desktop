@@ -151,6 +151,34 @@ def main():
             "data-repository-call-sign", "B"
         )
 
+        resource_guard = page.locator("#pp-btn-resource-guard")
+        expect(resource_guard).to_contain_text("RESOURCE GUARD · UNAVAILABLE")
+        resource_guard.click()
+        expect(page.locator("#pp-resource-guard")).to_contain_text(
+            "Resource guard is available in the Tauri desktop app"
+        )
+
+        target_plan = page.get_by_role(
+            "button", name="PP-001 Repository B Perfect Planner main Desktop shell"
+        )
+        target_plan.click()
+        target_plan.click(button="right")
+        context_menu = page.locator("#pp-context-menu")
+        expect(context_menu).to_be_visible()
+        expect(context_menu.get_by_role("menuitem", name="Reject and delete blocked")).to_be_disabled()
+        context_menu.get_by_role("menuitem", name="Remove from rail").click()
+        expect(page.locator(".rail-item")).to_have_count(2)
+        expect(page.locator("#pp-btn-restore-dismissed")).to_contain_text("restore 1")
+        page.locator("#pp-btn-restore-dismissed").click()
+        expect(page.locator(".rail-item")).to_have_count(3)
+
+        console_toggle = page.locator("#pp-btn-diagnostics-toggle")
+        expect(console_toggle).to_contain_text("CONSOLE")
+        if console_toggle.get_attribute("aria-expanded") != "true":
+            console_toggle.click()
+        expect(page.locator("#pp-panel-diagnostics-console")).to_contain_text("MCP runtime")
+        expect(page.locator("#pp-panel-diagnostics-console")).to_contain_text("NOT ATTESTED")
+
         page.screenshot(path=str(SCREENSHOT), full_page=True)
         browser.close()
 

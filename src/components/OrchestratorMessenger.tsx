@@ -318,6 +318,7 @@ export function OrchestratorMessenger({
   refreshToken,
   chatDestination,
 }: OrchestratorMessengerProps) {
+  const isNativeTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -640,6 +641,9 @@ export function OrchestratorMessenger({
               role="listitem"
               data-worker-id={worker.id}
               data-node-id={worker.nodeId}
+              data-context-kind="node"
+              data-context-id={`${worker.id}:${worker.nodeId}`}
+              data-context-label={`${worker.label} · ${worker.nodeId}`}
             >
               <button
                 className="orchestrator-worker-message-button"
@@ -688,6 +692,10 @@ export function OrchestratorMessenger({
             aria-describedby="pp-description-worker-notes"
             data-worker-id={selectedWorker.id}
             data-node-id={selectedWorker.nodeId}
+            data-context-kind="modal"
+            data-context-id={`${selectedWorker.id}:${selectedWorker.nodeId}`}
+            data-context-label={`Worker notes · ${selectedWorker.label}`}
+            data-context-close="#pp-btn-close-worker-notes"
           >
             <header className="orchestrator-worker-notes-header">
               <div>
@@ -713,6 +721,9 @@ export function OrchestratorMessenger({
                     key={id || safeId}
                     data-message-id={id || "unassigned"}
                     data-delivery-state={state}
+                    data-context-surface="worker-note"
+                    data-context-id={id || safeId}
+                    data-context-label={`${formatKind(messageKind(message))} · ${messageAuthor(message)}`}
                   >
                     <header>
                       <span className="orchestrator-worker-note-kind">{formatKind(messageKind(message))}</span>
@@ -762,11 +773,18 @@ export function OrchestratorMessenger({
                   id="pp-check-escalate-chat"
                   type="checkbox"
                   checked={escalate}
-                  disabled={loading || !orchestratorId}
+                  disabled={loading || !orchestratorId || isNativeTauri}
                   onChange={(event) => updateEscalation(event.currentTarget.checked)}
                 />
-                Also create a chat notification delivery
+                {isNativeTauri
+                  ? "Chat escalation awaiting B16 native route"
+                  : "Also create an unverified browser chat-delivery record"}
               </label>
+              {isNativeTauri ? (
+                <p className="orchestrator-chat-route-status" id="pp-status-chat-route-native-blocked">
+                  The renderer is forbidden from selecting a chat destination. B16 must derive and deliver the registered route inside the native orchestrator.
+                </p>
+              ) : null}
               {escalate ? (
                 <p className="orchestrator-chat-route-status" id="pp-status-chat-route">
                   {effectiveChatDestination?.registrationId && effectiveChatDestination?.address && effectiveChatDestination?.enabled !== false

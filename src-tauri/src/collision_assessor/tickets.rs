@@ -4,6 +4,7 @@
 //! only from an immutable assessment snapshot and its hash-chained native journal. Production
 //! construction remains disabled until B15/B20 provide native route and journal-anchor receipts.
 
+use super::authority::SchedulerAuthorityIssuer;
 use super::journal::{
     conflict_ticket_id, conflict_ticket_signal_id, AssessmentJournal, JournalError, JournalPayload,
     TicketSignalKind,
@@ -17,12 +18,13 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
-    Arc, Mutex,
+    Arc, Mutex, OnceLock,
 };
 
 const MAX_PAGE_SIZE: usize = 100;
 const MAX_TICKET_INDEXES: usize = 4;
 static BROKER_EPOCH: AtomicU64 = AtomicU64::new(1);
+static CLAIMED_TICKET_AUTHORITY_EPOCHS: OnceLock<Mutex<BTreeSet<u64>>> = OnceLock::new();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TicketEndpointView {
@@ -73,6 +75,8 @@ pub(crate) struct TicketSignalPage {
 #[derive(Clone)]
 pub(crate) struct TicketMailboxCapability {
     broker_epoch: u64,
+    authority_process_epoch: u64,
+    authority_binding_digest: String,
     snapshot_hash: String,
     participant_id: String,
     node_id: String,
@@ -112,6 +116,8 @@ impl std::fmt::Debug for TicketMailboxCapability {
 /// callers cannot supply a participant ID to mint mailbox authority.
 #[derive(Clone)]
 pub(crate) struct MachineMailboxRouteReceipt {
+    authority_process_epoch: u64,
+    authority_binding_digest: String,
     snapshot_hash: String,
     participant_id: String,
     orchestrator_id: String,
@@ -130,6 +136,8 @@ pub(crate) struct MachineMailboxRouteReceipt {
 /// Sealed scheduler/registry fact. B09/B20 will own production construction from native stores.
 #[derive(Clone)]
 pub(crate) struct MachineTicketSignalReceipt {
+    authority_process_epoch: u64,
+    authority_binding_digest: String,
     snapshot_hash: String,
     participant_id: String,
     source_node_id: String,
@@ -143,6 +151,8 @@ pub(crate) struct MachineTicketSignalReceipt {
 
 #[derive(Clone)]
 pub(crate) struct MachineTicketAcknowledgementReceipt {
+    authority_process_epoch: u64,
+    authority_binding_digest: String,
     snapshot_hash: String,
     signal_id: String,
     participant_id: String,
@@ -155,6 +165,7 @@ pub(crate) struct MachineTicketAcknowledgementReceipt {
 #[derive(Debug)]
 pub(crate) enum TicketError {
     ProductionDisabled,
+    InvalidAuthority,
     Denied,
     InvalidSnapshot,
     InvalidReceipt,
@@ -168,12 +179,92 @@ impl From<JournalError> for TicketError {
     }
 }
 
+/// Non-cloneable process authority consumed by the native scheduler when it creates a broker.
+///
+/// It contains no signing key. Its binding is derived from the scheduler issuer's public
+/// fingerprint plus the native scheduler identity, so renderer/model/worker data cannot enable a
+/// broker or move a receipt between process epochs.
+pub(crate) struct TicketBrokerAuthority {
+    process_epoch: u64,
+    binding_digest: String,
+}
+
+impl TicketBrokerAuthority {
+    pub(crate) fn from_native_scheduler(
+        process_epoch: u64,
+        scheduler_owner_digest: &str,
+        issuer: &SchedulerAuthorityIssuer,
+    ) -> Result<Self, TicketError> {
+        if process_epoch == 0 || !is_sha256(scheduler_owner_digest) {
+            return Err(TicketError::InvalidAuthority);
+        }
+        let verification = issuer.verification_material();
+        if verification.issuer_epoch != process_epoch || !is_sha256(&verification.key_fingerprint) {
+            return Err(TicketError::InvalidAuthority);
+        }
+        let mut claimed = CLAIMED_TICKET_AUTHORITY_EPOCHS
+            .get_or_init(|| Mutex::new(BTreeSet::new()))
+            .lock()
+            .map_err(|_| TicketError::InvalidAuthority)?;
+        if !claimed.insert(process_epoch) {
+            return Err(TicketError::InvalidAuthority);
+        }
+        drop(claimed);
+        let process_epoch_text = process_epoch.to_string();
+        Ok(Self {
+            process_epoch,
+            binding_digest: digest_strings(
+                b"perfect-planner:ticket-broker-authority:v1",
+                [
+                    scheduler_owner_digest,
+                    verification.key_fingerprint.as_str(),
+                    process_epoch_text.as_str(),
+                ],
+            ),
+        })
+    }
+
+    #[cfg(test)]
+    fn new_for_test(process_epoch: u64, scheduler_owner_digest: &str) -> Self {
+        assert!(process_epoch > 0);
+        assert!(is_sha256(scheduler_owner_digest));
+        let process_epoch_text = process_epoch.to_string();
+        Self {
+            process_epoch,
+            binding_digest: digest_strings(
+                b"perfect-planner:ticket-broker-authority:test:v1",
+                [scheduler_owner_digest, process_epoch_text.as_str()],
+            ),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct TicketBroker {
     journal: AssessmentJournal,
     broker_epoch: u64,
-    enabled: bool,
+    authority: Option<Arc<TicketBrokerAuthority>>,
     ticket_indexes: Arc<Mutex<TicketIndexCache>>,
+}
+
+struct AuthorizedSignalAppend {
+    authority_process_epoch: u64,
+    authority_binding_digest: String,
+    snapshot_hash: String,
+    participant_id: String,
+    source_node_id: String,
+    kind: TicketSignalKind,
+    source_state_digest: String,
+    source_event_id: String,
+}
+
+struct AuthorizedAcknowledgementAppend {
+    authority_process_epoch: u64,
+    authority_binding_digest: String,
+    snapshot_hash: String,
+    signal_id: String,
+    participant_id: String,
+    acknowledgement_digest: String,
 }
 
 type ParticipantMailboxIndex = (Arc<BTreeSet<String>>, Arc<BTreeMap<String, TicketView>>);
@@ -227,25 +318,35 @@ impl TicketIndexCache {
 }
 
 impl TicketBroker {
-    /// Fail-closed production primitive. B15/B20 must replace this with a native-authority
-    /// constructor; exposing a renderer command here would recreate the caller-asserted bypass.
+    /// Fail-closed production primitive. Until the native scheduler moves its unique authority
+    /// into `from_native_scheduler`, no ticket read or append operation is available.
     pub(crate) fn new_disabled(journal: AssessmentJournal) -> Self {
         Self {
             journal,
             broker_epoch: next_broker_epoch(),
-            enabled: false,
+            authority: None,
+            ticket_indexes: Arc::new(Mutex::new(TicketIndexCache::default())),
+        }
+    }
+
+    pub(crate) fn from_native_scheduler(
+        journal: AssessmentJournal,
+        authority: TicketBrokerAuthority,
+    ) -> Self {
+        Self {
+            journal,
+            broker_epoch: next_broker_epoch(),
+            authority: Some(Arc::new(authority)),
             ticket_indexes: Arc::new(Mutex::new(TicketIndexCache::default())),
         }
     }
 
     #[cfg(test)]
-    fn new_enabled_for_test(journal: AssessmentJournal) -> Self {
-        Self {
+    fn new_authorized_for_test(journal: AssessmentJournal) -> Self {
+        Self::from_native_scheduler(
             journal,
-            broker_epoch: next_broker_epoch(),
-            enabled: true,
-            ticket_indexes: Arc::new(Mutex::new(TicketIndexCache::default())),
-        }
+            TicketBrokerAuthority::new_for_test(1, &"f".repeat(64)),
+        )
     }
 
     pub(crate) fn materialize_for_participant(
@@ -269,7 +370,7 @@ impl TicketBroker {
         routes: &[MachineMailboxRouteReceipt],
         now_ms: u64,
     ) -> Result<Vec<TicketMailboxCapability>, TicketError> {
-        self.require_enabled()?;
+        self.require_authority()?;
         if now_ms == 0
             || now_ms >= snapshot.expires_at_ms()
             || !receipt.matches(snapshot)
@@ -306,7 +407,7 @@ impl TicketBroker {
         route: &MachineMailboxRouteReceipt,
         now_ms: u64,
     ) -> Result<TicketMailboxCapability, TicketError> {
-        self.require_enabled()?;
+        self.require_authority()?;
         if now_ms == 0 || !receipt.matches(snapshot) {
             return Err(TicketError::InvalidSnapshot);
         }
@@ -334,7 +435,7 @@ impl TicketBroker {
         if limit == 0 || limit > MAX_PAGE_SIZE {
             return Err(TicketError::LimitExceeded);
         }
-        let events = self.journal.read_verified()?;
+        let events = self.read_owner_filtered(capability)?;
         if cursor > events.last().map_or(0, |event| event.sequence) {
             return Err(TicketError::LimitExceeded);
         }
@@ -416,7 +517,7 @@ impl TicketBroker {
         if limit == 0 || limit > MAX_PAGE_SIZE || cursor > capability.allowed_ticket_ids.len() {
             return Err(TicketError::LimitExceeded);
         }
-        let events = self.journal.read_verified()?;
+        let events = self.read_owner_filtered(capability)?;
         let revoked = snapshot_is_revoked(&events, &capability.snapshot_hash);
         let tickets = capability
             .tickets
@@ -449,7 +550,9 @@ impl TicketBroker {
         if !capability.publish_allowed || now_ms >= capability.mutation_expires_at_ms {
             return Err(TicketError::Denied);
         }
-        if receipt.snapshot_hash != capability.snapshot_hash
+        if receipt.authority_process_epoch != capability.authority_process_epoch
+            || receipt.authority_binding_digest != capability.authority_binding_digest
+            || receipt.snapshot_hash != capability.snapshot_hash
             || receipt.participant_id != capability.participant_id
             || receipt.source_node_id != capability.node_id
             || receipt.run_identity != capability.run_identity
@@ -467,15 +570,17 @@ impl TicketBroker {
             receipt.kind,
             &receipt.source_event_id,
         );
-        self.journal.record_conflict_ticket_signal(
-            now_ms,
-            capability.snapshot_hash.clone(),
-            receipt.participant_id.clone(),
-            receipt.source_node_id.clone(),
-            receipt.kind,
-            receipt.source_state_digest.clone(),
-            receipt.source_event_id.clone(),
-        )?;
+        let append = AuthorizedSignalAppend {
+            authority_process_epoch: receipt.authority_process_epoch,
+            authority_binding_digest: receipt.authority_binding_digest.clone(),
+            snapshot_hash: capability.snapshot_hash.clone(),
+            participant_id: receipt.participant_id.clone(),
+            source_node_id: receipt.source_node_id.clone(),
+            kind: receipt.kind,
+            source_state_digest: receipt.source_state_digest.clone(),
+            source_event_id: receipt.source_event_id.clone(),
+        };
+        self.append_authorized_signal(&append, now_ms)?;
         if receipt.kind == TicketSignalKind::ManifestChanged {
             self.evict_ticket_index(&capability.snapshot_hash, &capability.store_binding)?;
         }
@@ -489,7 +594,9 @@ impl TicketBroker {
         now_ms: u64,
     ) -> Result<(), TicketError> {
         self.validate_capability_shape(capability, now_ms)?;
-        if receipt.snapshot_hash != capability.snapshot_hash
+        if receipt.authority_process_epoch != capability.authority_process_epoch
+            || receipt.authority_binding_digest != capability.authority_binding_digest
+            || receipt.snapshot_hash != capability.snapshot_hash
             || receipt.participant_id != capability.participant_id
             || receipt.run_identity != capability.run_identity
             || receipt.fence != capability.fence
@@ -499,22 +606,116 @@ impl TicketBroker {
         {
             return Err(TicketError::InvalidReceipt);
         }
-        self.journal.record_conflict_ticket_acknowledgement(
+        let append = AuthorizedAcknowledgementAppend {
+            authority_process_epoch: receipt.authority_process_epoch,
+            authority_binding_digest: receipt.authority_binding_digest.clone(),
+            snapshot_hash: capability.snapshot_hash.clone(),
+            signal_id: receipt.signal_id.clone(),
+            participant_id: receipt.participant_id.clone(),
+            acknowledgement_digest: receipt.acknowledgement_digest.clone(),
+        };
+        self.append_authorized_acknowledgement(&append, now_ms)?;
+        Ok(())
+    }
+
+    fn require_authority(&self) -> Result<&TicketBrokerAuthority, TicketError> {
+        self.authority
+            .as_deref()
+            .ok_or(TicketError::ProductionDisabled)
+    }
+
+    /// Return only events needed to render this participant's mailbox. A snapshot-wide
+    /// revocation remains visible as state, but unrelated participant messages and receipts never
+    /// cross the capability boundary.
+    fn read_owner_filtered(
+        &self,
+        capability: &TicketMailboxCapability,
+    ) -> Result<Vec<super::journal::JournalEvent>, TicketError> {
+        let events = self.journal.read_verified()?;
+        Ok(events
+            .into_iter()
+            .filter(|event| match &event.payload {
+                JournalPayload::Revocation { snapshot_hash, .. } => {
+                    snapshot_hash == &capability.snapshot_hash
+                }
+                JournalPayload::ConflictTicket {
+                    snapshot_hash,
+                    conflict,
+                    ..
+                } => {
+                    snapshot_hash == &capability.snapshot_hash
+                        && (conflict.left_participant_id == capability.participant_id
+                            || conflict.right_participant_id == capability.participant_id)
+                }
+                JournalPayload::ConflictTicketSignal {
+                    snapshot_hash,
+                    actor_participant_id,
+                    signal_kind,
+                    ..
+                } => {
+                    snapshot_hash == &capability.snapshot_hash
+                        && (*signal_kind == TicketSignalKind::ManifestChanged
+                            || actor_participant_id == &capability.participant_id
+                            || capability.tickets.values().any(|ticket| {
+                                ticket.left.participant_id == *actor_participant_id
+                                    || ticket.right.participant_id == *actor_participant_id
+                            }))
+                }
+                JournalPayload::ConflictTicketAcknowledged {
+                    snapshot_hash,
+                    recipient_participant_id,
+                    ..
+                } => {
+                    snapshot_hash == &capability.snapshot_hash
+                        && recipient_participant_id == &capability.participant_id
+                }
+                _ => false,
+            })
+            .collect())
+    }
+
+    fn append_authorized_signal(
+        &self,
+        append: &AuthorizedSignalAppend,
+        now_ms: u64,
+    ) -> Result<(), TicketError> {
+        let authority = self.require_authority()?;
+        if append.authority_process_epoch != authority.process_epoch
+            || append.authority_binding_digest != authority.binding_digest
+        {
+            return Err(TicketError::InvalidAuthority);
+        }
+        self.journal.record_conflict_ticket_signal(
             now_ms,
-            capability.snapshot_hash.clone(),
-            receipt.signal_id.clone(),
-            receipt.participant_id.clone(),
-            receipt.acknowledgement_digest.clone(),
+            append.snapshot_hash.clone(),
+            append.participant_id.clone(),
+            append.source_node_id.clone(),
+            append.kind,
+            append.source_state_digest.clone(),
+            append.source_event_id.clone(),
         )?;
         Ok(())
     }
 
-    fn require_enabled(&self) -> Result<(), TicketError> {
-        if self.enabled {
-            Ok(())
-        } else {
-            Err(TicketError::ProductionDisabled)
+    fn append_authorized_acknowledgement(
+        &self,
+        append: &AuthorizedAcknowledgementAppend,
+        now_ms: u64,
+    ) -> Result<(), TicketError> {
+        let authority = self.require_authority()?;
+        if append.authority_process_epoch != authority.process_epoch
+            || append.authority_binding_digest != authority.binding_digest
+        {
+            return Err(TicketError::InvalidAuthority);
         }
+        self.journal.record_conflict_ticket_acknowledgement(
+            now_ms,
+            append.snapshot_hash.clone(),
+            append.signal_id.clone(),
+            append.participant_id.clone(),
+            append.acknowledgement_digest.clone(),
+        )?;
+        Ok(())
     }
 
     fn ticket_index(
@@ -612,6 +813,7 @@ impl TicketBroker {
         index: &TicketIndex,
         publish_allowed: bool,
     ) -> Result<TicketMailboxCapability, TicketError> {
+        let authority = self.require_authority()?;
         let participant = snapshot
             .participants()
             .iter()
@@ -634,6 +836,8 @@ impl TicketBroker {
         );
         Ok(TicketMailboxCapability {
             broker_epoch: self.broker_epoch,
+            authority_process_epoch: authority.process_epoch,
+            authority_binding_digest: authority.binding_digest.clone(),
             snapshot_hash: snapshot.snapshot_hash().to_string(),
             participant_id: participant.participant_id.clone(),
             node_id: participant.node_id.clone(),
@@ -662,7 +866,7 @@ impl TicketBroker {
         capability: &TicketMailboxCapability,
         now_ms: u64,
     ) -> Result<(), TicketError> {
-        self.require_enabled()?;
+        let authority = self.require_authority()?;
         let expected = digest_strings(
             b"perfect-planner:ticket-mailbox-set:v1",
             capability.allowed_ticket_ids.iter().map(String::as_str),
@@ -670,12 +874,15 @@ impl TicketBroker {
         let ticket_keys = capability.tickets.keys().cloned().collect::<BTreeSet<_>>();
         let expected_route_binding = mailbox_capability_route_binding_digest(capability);
         if capability.broker_epoch != self.broker_epoch
+            || capability.authority_process_epoch != authority.process_epoch
+            || capability.authority_binding_digest != authority.binding_digest
             || now_ms == 0
             || now_ms >= capability.route_expires_at_ms
             || expected != capability.allowed_ticket_set_digest
             || expected_route_binding != capability.route_binding_digest
             || ticket_keys != *capability.allowed_ticket_ids
             || !is_sha256(&capability.snapshot_hash)
+            || !is_sha256(&capability.authority_binding_digest)
             || !is_sha256(&capability.participant_id)
             || !is_sha256(&capability.run_identity)
             || !is_sha256(&capability.store_binding)
@@ -702,7 +909,10 @@ impl TicketBroker {
         route: &MachineMailboxRouteReceipt,
         now_ms: u64,
     ) -> Result<(), TicketError> {
-        if route.snapshot_hash != snapshot.snapshot_hash()
+        let authority = self.require_authority()?;
+        if route.authority_process_epoch != authority.process_epoch
+            || route.authority_binding_digest != authority.binding_digest
+            || route.snapshot_hash != snapshot.snapshot_hash()
             || route.participant_id != participant.participant_id
             || route.run_identity != participant.run_identity
             || route.fence != participant.fence
@@ -712,6 +922,7 @@ impl TicketBroker {
             || route.issuer_epoch == 0
             || route.route_expires_at_ms <= now_ms
             || !is_sha256(&route.snapshot_hash)
+            || !is_sha256(&route.authority_binding_digest)
             || !is_sha256(&route.participant_id)
             || !is_sha256(&route.orchestrator_id)
             || !is_sha256(&route.run_identity)
@@ -777,6 +988,8 @@ fn next_broker_epoch() -> u64 {
 
 fn mailbox_route_binding_digest(route: &MachineMailboxRouteReceipt) -> String {
     route_binding_digest(
+        route.authority_process_epoch,
+        &route.authority_binding_digest,
         &route.snapshot_hash,
         &route.participant_id,
         &route.orchestrator_id,
@@ -795,6 +1008,8 @@ fn mailbox_route_binding_digest(route: &MachineMailboxRouteReceipt) -> String {
 
 fn mailbox_capability_route_binding_digest(capability: &TicketMailboxCapability) -> String {
     route_binding_digest(
+        capability.authority_process_epoch,
+        &capability.authority_binding_digest,
         &capability.snapshot_hash,
         &capability.participant_id,
         &capability.orchestrator_id,
@@ -813,6 +1028,8 @@ fn mailbox_capability_route_binding_digest(capability: &TicketMailboxCapability)
 
 #[allow(clippy::too_many_arguments)]
 fn route_binding_digest(
+    authority_process_epoch: u64,
+    authority_binding_digest: &str,
     snapshot_hash: &str,
     participant_id: &str,
     orchestrator_id: &str,
@@ -827,6 +1044,7 @@ fn route_binding_digest(
     issuer_epoch: u64,
     route_expires_at_ms: u64,
 ) -> String {
+    let authority_process_epoch = authority_process_epoch.to_string();
     let fence = fence.to_string();
     let lease_generation = lease_generation.to_string();
     let route_generation = route_generation.to_string();
@@ -835,6 +1053,8 @@ fn route_binding_digest(
     digest_strings(
         b"perfect-planner:ticket-mailbox-route-binding:v1",
         [
+            authority_process_epoch.as_str(),
+            authority_binding_digest,
             snapshot_hash,
             participant_id,
             orchestrator_id,
@@ -914,10 +1134,14 @@ mod tests {
             .unwrap();
         (
             root,
-            TicketBroker::new_enabled_for_test(journal),
+            TicketBroker::new_authorized_for_test(journal),
             snapshot,
             receipt,
         )
+    }
+
+    fn test_authority() -> TicketBrokerAuthority {
+        TicketBrokerAuthority::new_for_test(1, &"f".repeat(64))
     }
 
     fn signal_receipt(
@@ -933,6 +1157,8 @@ mod tests {
             .find(|candidate| candidate.participant_id == participant_id)
             .unwrap();
         MachineTicketSignalReceipt {
+            authority_process_epoch: test_authority().process_epoch,
+            authority_binding_digest: test_authority().binding_digest,
             snapshot_hash: snapshot.snapshot_hash().to_string(),
             participant_id: participant.participant_id.clone(),
             source_node_id: participant.node_id.clone(),
@@ -956,6 +1182,8 @@ mod tests {
             .find(|candidate| candidate.participant_id == participant_id)
             .unwrap();
         MachineMailboxRouteReceipt {
+            authority_process_epoch: test_authority().process_epoch,
+            authority_binding_digest: test_authority().binding_digest,
             snapshot_hash: snapshot.snapshot_hash().to_string(),
             participant_id: participant.participant_id.clone(),
             orchestrator_id: digest_strings(
@@ -999,6 +1227,8 @@ mod tests {
             .find(|candidate| candidate.participant_id == participant_id)
             .unwrap();
         MachineTicketAcknowledgementReceipt {
+            authority_process_epoch: test_authority().process_epoch,
+            authority_binding_digest: test_authority().binding_digest,
             snapshot_hash: snapshot.snapshot_hash().to_string(),
             signal_id: signal_id.to_string(),
             participant_id: participant.participant_id.clone(),
@@ -1032,6 +1262,133 @@ mod tests {
         let source = include_str!("tickets.rs");
         assert!(!source.contains(&["crate::", "control_plane"].concat()));
         assert!(!source.contains(&["crate::", "connectors"].concat()));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn broker_authority_replaces_the_boolean_gate_and_is_not_cloneable() {
+        let source = include_str!("tickets.rs");
+        assert!(!source.contains(&["enabled", ": bool"].concat()));
+        assert!(!source.contains(&["impl Clone for ", "TicketBrokerAuthority"].concat()));
+        let declaration = source
+            .split("pub(crate) struct TicketBrokerAuthority")
+            .next()
+            .unwrap()
+            .rsplit("\n\n")
+            .next()
+            .unwrap();
+        assert!(!declaration.contains("#[derive(Clone"));
+        assert!(source.contains(&["authority: Option<Arc<", "TicketBrokerAuthority>>"].concat()));
+
+        let process_epoch = next_broker_epoch().saturating_add(1_000_000);
+        let scheduler_owner_digest = "d".repeat(64);
+        let issuer = SchedulerAuthorityIssuer::new_process(process_epoch).unwrap();
+        TicketBrokerAuthority::from_native_scheduler(
+            process_epoch,
+            &scheduler_owner_digest,
+            &issuer,
+        )
+        .unwrap();
+        assert!(matches!(
+            TicketBrokerAuthority::from_native_scheduler(
+                process_epoch,
+                &scheduler_owner_digest,
+                &issuer,
+            ),
+            Err(TicketError::InvalidAuthority)
+        ));
+    }
+
+    #[test]
+    fn route_transition_ack_and_capability_are_bound_to_one_ticket_authority() {
+        let (root, broker, snapshot, receipt) =
+            setup("authority-binding", ConflictDisposition::Wait);
+        let left_id = &snapshot.participants()[0].participant_id;
+        let right_id = &snapshot.participants()[1].participant_id;
+
+        let mut wrong_route = route_receipt(&snapshot, &receipt, left_id);
+        wrong_route.authority_process_epoch += 1;
+        assert!(matches!(
+            broker.materialize_for_participant(&snapshot, &receipt, &wrong_route, 1_200),
+            Err(TicketError::InvalidReceipt)
+        ));
+
+        let left = broker
+            .materialize_for_participant(
+                &snapshot,
+                &receipt,
+                &route_receipt(&snapshot, &receipt, left_id),
+                1_200,
+            )
+            .unwrap();
+        let right = broker
+            .materialize_for_participant(
+                &snapshot,
+                &receipt,
+                &route_receipt(&snapshot, &receipt, right_id),
+                1_200,
+            )
+            .unwrap();
+        let ticket_id = broker.list_own(&left, 0, 1, 1_300).unwrap().tickets[0]
+            .ticket_id
+            .clone();
+
+        let mut wrong_signal = signal_receipt(
+            &snapshot,
+            left_id,
+            &ticket_id,
+            TicketSignalKind::NodeDone,
+            &"8".repeat(64),
+        );
+        wrong_signal.authority_binding_digest = "e".repeat(64);
+        assert!(matches!(
+            broker.publish_signal(&left, &wrong_signal, 1_400),
+            Err(TicketError::InvalidReceipt)
+        ));
+
+        let signal = signal_receipt(
+            &snapshot,
+            left_id,
+            &ticket_id,
+            TicketSignalKind::NodeDone,
+            &"9".repeat(64),
+        );
+        let signal_id = broker.publish_signal(&left, &signal, 1_401).unwrap();
+        let mut wrong_ack = acknowledgement_receipt(&snapshot, right_id, &ticket_id, &signal_id);
+        wrong_ack.authority_process_epoch += 1;
+        assert!(matches!(
+            broker.acknowledge_signal(&right, &wrong_ack, 1_500),
+            Err(TicketError::InvalidReceipt)
+        ));
+
+        let disabled = TicketBroker::new_disabled(broker.journal.clone());
+        assert!(matches!(
+            disabled.publish_signal(&left, &signal, 1_501),
+            Err(TicketError::ProductionDisabled)
+        ));
+        assert_eq!(broker.journal.read_verified().unwrap().len(), 2);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn mailbox_reads_exclude_unowned_raw_journal_events() {
+        let (root, broker, snapshot, receipt) = setup("owner-filter", ConflictDisposition::Wait);
+        let participant_id = &snapshot.participants()[0].participant_id;
+        let capability = broker
+            .materialize_for_participant(
+                &snapshot,
+                &receipt,
+                &route_receipt(&snapshot, &receipt, participant_id),
+                1_200,
+            )
+            .unwrap();
+
+        assert!(broker.read_owner_filtered(&capability).unwrap().is_empty());
+        assert!(broker
+            .list_own_signals(&capability, 0, 100, 1_300)
+            .unwrap()
+            .signals
+            .is_empty());
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1071,7 +1428,7 @@ mod tests {
                 1_200,
             )
             .unwrap();
-        let restarted = TicketBroker::new_enabled_for_test(broker.journal.clone());
+        let restarted = TicketBroker::new_authorized_for_test(broker.journal.clone());
         assert!(matches!(
             restarted.list_own(&capability, 0, 100, 1_300),
             Err(TicketError::Denied)
@@ -1233,9 +1590,9 @@ mod tests {
 
         // Reopen from the actual journal path, mint a fresh epoch-bound mailbox, and resume the
         // persisted recipient delivery without registry or repository discovery.
-        let restarted = TicketBroker::new_enabled_for_test(AssessmentJournal::new_live_for_test(
-            root.join("assessment.jsonl"),
-        ));
+        let restarted = TicketBroker::new_authorized_for_test(
+            AssessmentJournal::new_live_for_test(root.join("assessment.jsonl")),
+        );
         assert!(matches!(
             restarted.list_own_signals(&right, 0, 100, 1_451),
             Err(TicketError::Denied)
@@ -1276,7 +1633,7 @@ mod tests {
             restarted.acknowledge_signal(&restarted_right, &contradictory_ack, 1_502,),
             Err(TicketError::Journal(_))
         ));
-        let reopened_again = TicketBroker::new_enabled_for_test(
+        let reopened_again = TicketBroker::new_authorized_for_test(
             AssessmentJournal::new_live_for_test(root.join("assessment.jsonl")),
         );
         let final_right = reopened_again
@@ -1465,7 +1822,7 @@ mod tests {
         let (recovered_snapshot, recovered_receipt) = reopened_store
             .read_for_ticket_recovery(snapshot.snapshot_hash(), &reopened_journal)
             .unwrap();
-        let restarted = TicketBroker::new_enabled_for_test(reopened_journal);
+        let restarted = TicketBroker::new_authorized_for_test(reopened_journal);
         let recipient_route = route_receipt(
             &recovered_snapshot,
             &recovered_receipt,
@@ -1506,7 +1863,7 @@ mod tests {
             Err(TicketError::Denied)
         ));
 
-        let reopened_again = TicketBroker::new_enabled_for_test(
+        let reopened_again = TicketBroker::new_authorized_for_test(
             AssessmentJournal::new_live_for_test(root.join("assessment.jsonl")),
         );
         let final_recipient = reopened_again
@@ -1710,7 +2067,7 @@ mod tests {
         journal
             .record_assessment(&snapshot, &stored, 1_100)
             .unwrap();
-        let broker = TicketBroker::new_enabled_for_test(journal);
+        let broker = TicketBroker::new_authorized_for_test(journal);
         let left = broker
             .materialize_for_participant(
                 &snapshot,
@@ -1752,7 +2109,7 @@ mod tests {
         let root = root("bounded-index-cache");
         let store = SnapshotStore::new_for_test(root.join("snapshots"));
         let journal = AssessmentJournal::new_live_for_test(root.join("assessment.jsonl"));
-        let broker = TicketBroker::new_enabled_for_test(journal.clone());
+        let broker = TicketBroker::new_authorized_for_test(journal.clone());
         let mut first: Option<(
             VerifiedAssessmentSnapshot,
             StoredSnapshotReceipt,
@@ -1830,7 +2187,7 @@ mod tests {
         journal
             .record_assessment(&snapshot, &stored, 1_100)
             .unwrap();
-        let broker = TicketBroker::new_enabled_for_test(journal);
+        let broker = TicketBroker::new_authorized_for_test(journal);
         let routes = snapshot
             .participants()
             .iter()
@@ -1920,7 +2277,7 @@ mod tests {
             .record_assessment(&snapshot, &stored, 1_100)
             .unwrap();
         assert!(std::fs::metadata(&journal_path).unwrap().len() < 1_048_576);
-        let broker = TicketBroker::new_enabled_for_test(journal);
+        let broker = TicketBroker::new_authorized_for_test(journal);
         let routes = snapshot
             .participants()
             .iter()
@@ -2038,7 +2395,7 @@ mod tests {
         journal
             .record_assessment(&snapshot, &stored, 1_100)
             .unwrap();
-        let broker = TicketBroker::new_enabled_for_test(journal);
+        let broker = TicketBroker::new_authorized_for_test(journal);
         let capabilities = snapshot
             .participants()
             .iter()
@@ -2155,7 +2512,7 @@ mod tests {
         journal
             .record_assessment(&snapshot, &stored, 1_100)
             .unwrap();
-        let broker = TicketBroker::new_enabled_for_test(journal);
+        let broker = TicketBroker::new_authorized_for_test(journal);
         let capabilities = snapshot
             .participants()
             .iter()

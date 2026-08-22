@@ -1,8 +1,11 @@
 pub mod api;
+pub mod authority_projection;
+pub(crate) mod authority_runtime;
 pub mod delivery;
 pub mod event_bus;
 pub mod evidence;
 pub mod model;
+pub(crate) mod preclaim_store;
 pub mod preflight;
 pub mod reconcile;
 pub mod release;
