@@ -23,6 +23,9 @@ const MAX_ANALYZER_CLAIMS: usize = 131_072;
 const MAX_DEPENDENCY_EDGES: usize = 262_144;
 const MAX_ANCESTOR_PROBES: usize = 1_048_576;
 const MAX_PAIR_PROBES: usize = 1_048_576;
+// The analyzer must finish deduplicating logical and physical-alias bases before the immutable
+// snapshot's stricter 8,192-ticket admission ceiling is applied. Keeping this bounded staging
+// ceiling avoids a false UNKNOWN while still failing closed at snapshot preparation.
 const MAX_CONFLICTS: usize = 65_536;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -57,9 +60,18 @@ pub(crate) struct CollisionConflict {
     pub(crate) left_claim_id: String,
     pub(crate) right_claim_id: String,
     pub(crate) bases: Vec<CollisionBasis>,
+    /// Exact, path-free collision identities frozen while discovery authority is live.
+    /// Each key is an opaque canonical claim/alias digest, never a foreign filesystem path.
+    pub(crate) overlaps: Vec<CollisionOverlap>,
     /// A conflict is still a fact when its two signed rules are absent or contradictory.
     /// Keeping the edge while withholding its disposition prevents UNKNOWN from hiding work.
     pub(crate) disposition: Option<ConflictDisposition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CollisionOverlap {
+    pub(crate) basis: CollisionBasis,
+    pub(crate) canonical_key: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -680,6 +692,14 @@ fn authorize_conflicts(
             }
         };
         let bases = pending.bases.into_iter().collect::<Vec<_>>();
+        let overlaps = bases
+            .iter()
+            .copied()
+            .map(|basis| CollisionOverlap {
+                basis,
+                canonical_key: collision_overlap_key(left.claim, right.claim, basis),
+            })
+            .collect();
         output.push(CollisionConflict {
             conflict_id: conflict_id(left.claim, right.claim, &bases),
             left_participant_id: left.claim.participant_id.clone(),
@@ -687,11 +707,47 @@ fn authorize_conflicts(
             left_claim_id: left.claim.claim_id.clone(),
             right_claim_id: right.claim.claim_id.clone(),
             bases,
+            overlaps,
             disposition,
         });
     }
     output.sort_by(|left, right| left.conflict_id.cmp(&right.conflict_id));
     (output, failure)
+}
+
+fn collision_overlap_key(
+    left: &CanonicalClaim,
+    right: &CanonicalClaim,
+    basis: CollisionBasis,
+) -> String {
+    match basis {
+        CollisionBasis::ExactFile | CollisionBasis::Resource => {
+            debug_assert_eq!(left.canonical_key, right.canonical_key);
+            left.canonical_key.clone()
+        }
+        CollisionBasis::PhysicalAlias => {
+            let left_alias = left.physical_alias_key.as_deref();
+            let right_alias = right.physical_alias_key.as_deref();
+            debug_assert_eq!(left_alias, right_alias);
+            left_alias.unwrap_or_default().to_string()
+        }
+        CollisionBasis::DirectoryPrefix => {
+            if left.canonical_key == right.canonical_key {
+                left.canonical_key.clone()
+            } else if right.ancestor_keys.contains(&left.canonical_key) {
+                left.canonical_key.clone()
+            } else if left.ancestor_keys.contains(&right.canonical_key) {
+                right.canonical_key.clone()
+            } else {
+                let shared = left
+                    .ancestor_keys
+                    .iter()
+                    .find(|key| right.ancestor_keys.binary_search(key).is_ok());
+                debug_assert!(shared.is_some());
+                shared.cloned().unwrap_or_default()
+            }
+        }
+    }
 }
 
 fn disposition_for(
@@ -1454,6 +1510,19 @@ mod tests {
             .conflicts
             .iter()
             .any(|conflict| conflict.bases == vec![CollisionBasis::PhysicalAlias]));
+        for conflict in &analysis.conflicts {
+            assert_eq!(conflict.overlaps.len(), conflict.bases.len());
+            assert!(conflict
+                .overlaps
+                .iter()
+                .zip(&conflict.bases)
+                .all(
+                    |(overlap, basis)| overlap.basis == *basis && is_sha256(&overlap.canonical_key)
+                ));
+        }
+        let encoded = format!("{:?}", analysis.conflicts);
+        assert!(!encoded.contains("resource:shared"));
+        assert!(!encoded.contains("alias-only"));
     }
 
     #[test]

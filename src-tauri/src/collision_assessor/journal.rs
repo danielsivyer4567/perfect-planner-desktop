@@ -1,6 +1,11 @@
 //! Strict, append-only, hash-chained collision assessor audit journal.
 
-use super::snapshot::{AssessmentVerdict, StoredSnapshotReceipt, VerifiedAssessmentSnapshot};
+use super::model::ConflictDisposition;
+use super::snapshot::{
+    verify_conflict_proof, AssessmentVerdict, ConflictProofStep, SnapshotConflict,
+    StoredSnapshotReceipt, VerifiedAssessmentSnapshot, VerifiedConflictProof,
+};
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -15,10 +20,11 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
-const JOURNAL_SCHEMA_VERSION: u32 = 1;
+const JOURNAL_SCHEMA_VERSION: u32 = 5;
 const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 const MAX_JOURNAL_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_LINE_BYTES: usize = 1024 * 1024;
+const MAX_TICKET_LINE_BYTES: usize = 16 * 1024;
 const MAX_EVENTS: usize = 200_000;
 const DEFAULT_LOCK_TIMEOUT: Duration = Duration::from_secs(5);
 const TRUST_LIVE_PROCESS: u8 = 1;
@@ -34,6 +40,16 @@ pub(crate) enum JournalVerdict {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum TicketSignalKind {
+    NodeDone,
+    LeaseReleased,
+    ManifestChanged,
+    DecisionRequired,
+    ReplanRequired,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 pub(crate) enum JournalPayload {
@@ -43,8 +59,13 @@ pub(crate) enum JournalPayload {
         census_input_digest: String,
         verdict: JournalVerdict,
         participant_count: u32,
-        participant_ids: Vec<String>,
+        /// Fixed-width binary commitments, base64 encoded as one bounded value. Each participant
+        /// contributes 32 bytes of participant ID plus 32 bytes of source-node digest.
+        participant_node_bindings_packed: String,
+        /// Sorted unique pairs of big-endian u16 indexes into the participant binding table.
+        participant_conflict_edges_packed: String,
         conflict_count: u32,
+        conflict_commitment_root: String,
         captured_at_ms: u64,
         expires_at_ms: u64,
         encoded_bytes: u64,
@@ -56,8 +77,28 @@ pub(crate) enum JournalPayload {
     },
     ConflictTicket {
         snapshot_hash: String,
+        ticket_id: String,
         conflict_id: String,
-        disposition: String,
+        conflict: SnapshotConflict,
+        leaf_index: u32,
+        leaf_count: u32,
+        proof: Vec<ConflictProofStep>,
+        commitment_root: String,
+    },
+    ConflictTicketSignal {
+        snapshot_hash: String,
+        signal_id: String,
+        actor_participant_id: String,
+        source_node_id: String,
+        signal_kind: TicketSignalKind,
+        source_state_digest: String,
+        source_event_id: String,
+    },
+    ConflictTicketAcknowledged {
+        snapshot_hash: String,
+        signal_id: String,
+        recipient_participant_id: String,
+        acknowledgement_digest: String,
     },
     ClearanceIssued {
         clearance_id_hash: String,
@@ -126,17 +167,38 @@ struct ClearanceJournalRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AssessmentJournalRecord {
     live: bool,
+    revoked_by_signal_id: Option<String>,
     verdict: JournalVerdict,
-    participant_ids: BTreeSet<String>,
+    participant_indices: BTreeMap<String, u16>,
+    participant_node_digests: BTreeMap<String, String>,
+    participant_conflict_edges: BTreeSet<(u16, u16)>,
     conflict_count: u32,
+    conflict_commitment_root: String,
+    captured_at_ms: u64,
     expires_at_ms: u64,
 }
 
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TicketJournalRecord {
+    snapshot_hash: String,
+    conflict: SnapshotConflict,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TicketSignalJournalRecord {
+    snapshot_hash: String,
+    actor_participant_id: String,
+}
+
+#[derive(Clone, Default)]
 struct ReplayState {
     assessments: BTreeMap<String, AssessmentJournalRecord>,
     clearances: BTreeMap<String, ClearanceJournalRecord>,
     conflict_tickets: BTreeSet<(String, String)>,
+    tickets: BTreeMap<String, TicketJournalRecord>,
+    ticket_signals: BTreeMap<String, TicketSignalJournalRecord>,
+    ticket_source_events: BTreeMap<(String, String, String, String), String>,
+    ticket_acknowledgements: BTreeSet<(String, String)>,
 }
 
 impl ReplayState {
@@ -145,20 +207,51 @@ impl ReplayState {
             JournalPayload::Assessment {
                 snapshot_hash,
                 verdict,
-                participant_ids,
+                participant_count,
+                participant_node_bindings_packed,
+                participant_conflict_edges_packed,
                 conflict_count,
+                conflict_commitment_root,
+                captured_at_ms,
                 expires_at_ms,
                 ..
             } => {
+                if recorded_at_ms < *captured_at_ms || recorded_at_ms >= *expires_at_ms {
+                    return Err(JournalError::InvalidEvent);
+                }
+                let participant_node_digests = unpack_participant_node_bindings(
+                    participant_node_bindings_packed,
+                    *participant_count,
+                )?;
+                let participant_indices = participant_node_digests
+                    .keys()
+                    .enumerate()
+                    .map(|(index, participant_id)| {
+                        Ok((
+                            participant_id.clone(),
+                            u16::try_from(index).map_err(|_| JournalError::LimitExceeded)?,
+                        ))
+                    })
+                    .collect::<Result<BTreeMap<_, _>, JournalError>>()?;
+                let participant_conflict_edges = unpack_participant_conflict_edges(
+                    participant_conflict_edges_packed,
+                    *participant_count,
+                    *conflict_count,
+                )?;
                 if self
                     .assessments
                     .insert(
                         snapshot_hash.clone(),
                         AssessmentJournalRecord {
                             live: true,
+                            revoked_by_signal_id: None,
                             verdict: *verdict,
-                            participant_ids: participant_ids.iter().cloned().collect(),
+                            participant_indices,
+                            participant_node_digests,
+                            participant_conflict_edges,
                             conflict_count: *conflict_count,
+                            conflict_commitment_root: conflict_commitment_root.clone(),
+                            captured_at_ms: *captured_at_ms,
                             expires_at_ms: *expires_at_ms,
                         },
                     )
@@ -171,24 +264,155 @@ impl ReplayState {
                 let Some(live) = self.assessments.get_mut(snapshot_hash) else {
                     return Err(JournalError::InvalidEvent);
                 };
-                if !live.live {
+                if !live.live || recorded_at_ms < live.captured_at_ms {
                     return Err(JournalError::InvalidEvent);
                 }
                 live.live = false;
+                live.revoked_by_signal_id = None;
             }
             JournalPayload::ConflictTicket {
                 snapshot_hash,
+                ticket_id,
                 conflict_id,
-                ..
+                conflict,
+                leaf_index,
+                leaf_count,
+                proof,
+                commitment_root,
             } => {
                 let Some(assessment) = self.assessments.get(snapshot_hash) else {
                     return Err(JournalError::InvalidEvent);
                 };
                 if !assessment.live
                     || assessment.conflict_count == 0
+                    || recorded_at_ms < assessment.captured_at_ms
+                    || recorded_at_ms >= assessment.expires_at_ms
+                    || *leaf_count != assessment.conflict_count
+                    || commitment_root != &assessment.conflict_commitment_root
+                    || conflict_id != &conflict.conflict_id
+                    || conflict.disposition.is_none()
+                    || !assessment
+                        .participant_indices
+                        .contains_key(&conflict.left_participant_id)
+                    || !assessment
+                        .participant_indices
+                        .contains_key(&conflict.right_participant_id)
+                    || !ticket_disposition_matches(assessment.verdict, conflict.disposition)
+                    || !verify_conflict_proof(
+                        conflict,
+                        *leaf_index,
+                        *leaf_count,
+                        proof,
+                        commitment_root,
+                    )
+                    || ticket_id != &conflict_ticket_id(snapshot_hash, commitment_root, conflict_id)
                     || !self
                         .conflict_tickets
                         .insert((snapshot_hash.clone(), conflict_id.clone()))
+                    || self
+                        .tickets
+                        .insert(
+                            ticket_id.clone(),
+                            TicketJournalRecord {
+                                snapshot_hash: snapshot_hash.clone(),
+                                conflict: conflict.clone(),
+                            },
+                        )
+                        .is_some()
+                {
+                    return Err(JournalError::InvalidEvent);
+                }
+            }
+            JournalPayload::ConflictTicketSignal {
+                snapshot_hash,
+                signal_id,
+                actor_participant_id,
+                source_node_id,
+                signal_kind,
+                source_state_digest,
+                source_event_id,
+            } => {
+                let Some(assessment) = self.assessments.get(snapshot_hash) else {
+                    return Err(JournalError::InvalidEvent);
+                };
+                let source_slot = (
+                    snapshot_hash.clone(),
+                    actor_participant_id.clone(),
+                    source_node_id.clone(),
+                    source_event_id.clone(),
+                );
+                if !assessment.live
+                    || recorded_at_ms < assessment.captured_at_ms
+                    || recorded_at_ms >= assessment.expires_at_ms
+                    || assessment.participant_node_digests.get(actor_participant_id)
+                        != Some(&source_node_digest(source_node_id))
+                    || !transition_signal_matches_verdict(*signal_kind, assessment.verdict)
+                    || !is_sha256(source_state_digest)
+                    || !is_sha256(source_event_id)
+                    || signal_id
+                        != &conflict_ticket_signal_id(
+                            snapshot_hash,
+                            actor_participant_id,
+                            source_node_id,
+                            *signal_kind,
+                            source_event_id,
+                        )
+                    || self
+                        .ticket_source_events
+                        .insert(source_slot, signal_id.clone())
+                        .is_some()
+                    || self
+                        .ticket_signals
+                        .insert(
+                            signal_id.clone(),
+                            TicketSignalJournalRecord {
+                                snapshot_hash: snapshot_hash.clone(),
+                                actor_participant_id: actor_participant_id.clone(),
+                            },
+                        )
+                        .is_some()
+                {
+                    return Err(JournalError::InvalidEvent);
+                }
+                if *signal_kind == TicketSignalKind::ManifestChanged {
+                    let assessment = self
+                        .assessments
+                        .get_mut(snapshot_hash)
+                        .expect("the assessment was validated above");
+                    assessment.live = false;
+                    assessment.revoked_by_signal_id = Some(signal_id.clone());
+                }
+            }
+            JournalPayload::ConflictTicketAcknowledged {
+                snapshot_hash,
+                signal_id,
+                recipient_participant_id,
+                acknowledgement_digest,
+            } => {
+                let Some(assessment) = self.assessments.get(snapshot_hash) else {
+                    return Err(JournalError::InvalidEvent);
+                };
+                let Some(signal) = self.ticket_signals.get(signal_id) else {
+                    return Err(JournalError::InvalidEvent);
+                };
+                if recorded_at_ms < assessment.captured_at_ms
+                    || signal.snapshot_hash != *snapshot_hash
+                    || signal.actor_participant_id == *recipient_participant_id
+                    || !assessment
+                        .participant_indices
+                        .contains_key(recipient_participant_id)
+                    || !assessment.participant_conflict_edges.contains(
+                        &participant_index_edge(
+                            &assessment.participant_indices,
+                            &signal.actor_participant_id,
+                            recipient_participant_id,
+                        )
+                        .ok_or(JournalError::InvalidEvent)?,
+                    )
+                    || !is_sha256(acknowledgement_digest)
+                    || !self
+                        .ticket_acknowledgements
+                        .insert((signal_id.clone(), recipient_participant_id.clone()))
                 {
                     return Err(JournalError::InvalidEvent);
                 }
@@ -206,7 +430,8 @@ impl ReplayState {
                 if !assessment.live
                     || assessment.verdict != JournalVerdict::Clear
                     || assessment.conflict_count != 0
-                    || !assessment.participant_ids.contains(participant_id)
+                    || !assessment.participant_indices.contains_key(participant_id)
+                    || recorded_at_ms < assessment.captured_at_ms
                     || *expires_at_ms > assessment.expires_at_ms
                     || *expires_at_ms <= recorded_at_ms
                     || self.clearances.contains_key(clearance_id_hash)
@@ -282,6 +507,74 @@ impl ReplayState {
         Ok(())
     }
 
+    /// Replays an exact lost-response retry against the current state while temporarily removing
+    /// only its already-occupied idempotency slot. A ticket or signal therefore cannot report
+    /// success after a concurrent revocation; an acknowledgement remains audit-only and may be
+    /// repeated after revocation while the snapshot delivery window is still open.
+    fn validate_idempotent_retry(
+        &self,
+        payload: &JournalPayload,
+        recorded_at_ms: u64,
+    ) -> Result<(), JournalError> {
+        let mut candidate_state = self.clone();
+        match payload {
+            JournalPayload::ConflictTicket {
+                snapshot_hash,
+                ticket_id,
+                conflict_id,
+                ..
+            } => {
+                candidate_state
+                    .conflict_tickets
+                    .remove(&(snapshot_hash.clone(), conflict_id.clone()));
+                candidate_state.tickets.remove(ticket_id);
+            }
+            JournalPayload::ConflictTicketSignal {
+                snapshot_hash,
+                signal_id,
+                actor_participant_id,
+                source_node_id,
+                source_event_id,
+                ..
+            } => {
+                candidate_state.ticket_signals.remove(signal_id);
+                candidate_state.ticket_source_events.remove(&(
+                    snapshot_hash.clone(),
+                    actor_participant_id.clone(),
+                    source_node_id.clone(),
+                    source_event_id.clone(),
+                ));
+                if let JournalPayload::ConflictTicketSignal {
+                    snapshot_hash,
+                    signal_kind: TicketSignalKind::ManifestChanged,
+                    ..
+                } = payload
+                {
+                    let assessment = candidate_state
+                        .assessments
+                        .get_mut(snapshot_hash)
+                        .ok_or(JournalError::InvalidEvent)?;
+                    if assessment.revoked_by_signal_id.as_deref() != Some(signal_id) {
+                        return Err(JournalError::InvalidEvent);
+                    }
+                    assessment.live = true;
+                    assessment.revoked_by_signal_id = None;
+                }
+            }
+            JournalPayload::ConflictTicketAcknowledged {
+                signal_id,
+                recipient_participant_id,
+                ..
+            } => {
+                candidate_state
+                    .ticket_acknowledgements
+                    .remove(&(signal_id.clone(), recipient_participant_id.clone()));
+            }
+            _ => return Err(JournalError::InvalidEvent),
+        }
+        candidate_state.apply(payload, recorded_at_ms)
+    }
+
     fn transition_clearance(
         &mut self,
         clearance_id_hash: &str,
@@ -321,6 +614,266 @@ impl ReplayState {
             && recorded_at_ms < assessment.expires_at_ms
             && recorded_at_ms < clearance.expires_at_ms
     }
+}
+
+fn ticket_disposition_matches(
+    verdict: JournalVerdict,
+    disposition: Option<ConflictDisposition>,
+) -> bool {
+    matches!(
+        (verdict, disposition),
+        (JournalVerdict::Wait, Some(ConflictDisposition::Wait))
+            | (JournalVerdict::Replan, Some(ConflictDisposition::Replan))
+            | (
+                JournalVerdict::UserDecision,
+                Some(ConflictDisposition::UserDecision)
+            )
+    )
+}
+
+fn transition_signal_matches_verdict(kind: TicketSignalKind, verdict: JournalVerdict) -> bool {
+    match kind {
+        TicketSignalKind::DecisionRequired => verdict == JournalVerdict::UserDecision,
+        TicketSignalKind::ReplanRequired => verdict == JournalVerdict::Replan,
+        TicketSignalKind::NodeDone
+        | TicketSignalKind::LeaseReleased
+        | TicketSignalKind::ManifestChanged => true,
+    }
+}
+
+pub(crate) fn conflict_ticket_id(
+    snapshot_hash: &str,
+    commitment_root: &str,
+    conflict_id: &str,
+) -> String {
+    journal_digest(
+        b"perfect-planner:conflict-ticket-id:v1",
+        &[snapshot_hash, commitment_root, conflict_id],
+    )
+}
+
+pub(crate) fn conflict_ticket_signal_id(
+    snapshot_hash: &str,
+    actor_participant_id: &str,
+    source_node_id: &str,
+    kind: TicketSignalKind,
+    source_event_id: &str,
+) -> String {
+    let kind = match kind {
+        TicketSignalKind::NodeDone => "NODE_DONE",
+        TicketSignalKind::LeaseReleased => "LEASE_RELEASED",
+        TicketSignalKind::ManifestChanged => "MANIFEST_CHANGED",
+        TicketSignalKind::DecisionRequired => "DECISION_REQUIRED",
+        TicketSignalKind::ReplanRequired => "REPLAN_REQUIRED",
+    };
+    journal_digest(
+        b"perfect-planner:conflict-ticket-signal-id:v1",
+        &[
+            snapshot_hash,
+            actor_participant_id,
+            source_node_id,
+            kind,
+            source_event_id,
+        ],
+    )
+}
+
+fn source_node_digest(node_id: &str) -> String {
+    journal_digest(b"perfect-planner:participant-source-node:v1", &[node_id])
+}
+
+fn participant_index_edge(
+    participant_indices: &BTreeMap<String, u16>,
+    left_participant_id: &str,
+    right_participant_id: &str,
+) -> Option<(u16, u16)> {
+    let left = *participant_indices.get(left_participant_id)?;
+    let right = *participant_indices.get(right_participant_id)?;
+    (left != right).then_some(if left < right { (left, right) } else { (right, left) })
+}
+
+fn decode_sha256_hex(value: &str) -> Option<[u8; 32]> {
+    if !is_sha256(value) {
+        return None;
+    }
+    let mut decoded = [0u8; 32];
+    for (index, byte) in decoded.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16).ok()?;
+    }
+    Some(decoded)
+}
+
+fn encode_sha256_hex(value: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(value.len() * 2);
+    for byte in value {
+        encoded.push(HEX[(byte >> 4) as usize] as char);
+        encoded.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    encoded
+}
+
+fn pack_participant_node_bindings(
+    snapshot: &VerifiedAssessmentSnapshot,
+) -> Result<String, JournalError> {
+    let mut participants = snapshot.participants().iter().collect::<Vec<_>>();
+    participants.sort_by(|left, right| left.participant_id.cmp(&right.participant_id));
+    let mut packed = Vec::with_capacity(participants.len().saturating_mul(64));
+    for participant in participants {
+        let participant_id = decode_sha256_hex(&participant.participant_id)
+            .ok_or(JournalError::InvalidEvent)?;
+        if !is_bounded_id(&participant.node_id) {
+            return Err(JournalError::InvalidEvent);
+        }
+        let node_digest = decode_sha256_hex(&source_node_digest(&participant.node_id))
+            .ok_or(JournalError::InvalidEvent)?;
+        packed.extend_from_slice(&participant_id);
+        packed.extend_from_slice(&node_digest);
+    }
+    Ok(BASE64_STANDARD.encode(packed))
+}
+
+fn unpack_participant_node_bindings(
+    packed: &str,
+    participant_count: u32,
+) -> Result<BTreeMap<String, String>, JournalError> {
+    let expected_count = usize::try_from(participant_count).map_err(|_| JournalError::LimitExceeded)?;
+    if expected_count == 0 || expected_count > 4_096 {
+        return Err(JournalError::LimitExceeded);
+    }
+    let bytes = BASE64_STANDARD
+        .decode(packed)
+        .map_err(|_| JournalError::InvalidEvent)?;
+    if bytes.len() != expected_count.saturating_mul(64) {
+        return Err(JournalError::InvalidEvent);
+    }
+    let mut bindings = BTreeMap::new();
+    let mut previous: Option<String> = None;
+    for chunk in bytes.chunks_exact(64) {
+        let participant_id = encode_sha256_hex(&chunk[..32]);
+        let node_digest = encode_sha256_hex(&chunk[32..]);
+        if previous
+            .as_ref()
+            .is_some_and(|prior| prior >= &participant_id)
+            || bindings
+                .insert(participant_id.clone(), node_digest)
+                .is_some()
+        {
+            return Err(JournalError::InvalidEvent);
+        }
+        previous = Some(participant_id);
+    }
+    Ok(bindings)
+}
+
+fn pack_participant_conflict_edges(
+    snapshot: &VerifiedAssessmentSnapshot,
+) -> Result<String, JournalError> {
+    let participant_indices = snapshot
+        .participants()
+        .iter()
+        .map(|participant| participant.participant_id.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .enumerate()
+        .map(|(index, participant_id)| {
+            Ok((
+                participant_id,
+                u16::try_from(index).map_err(|_| JournalError::LimitExceeded)?,
+            ))
+        })
+        .collect::<Result<BTreeMap<_, _>, JournalError>>()?;
+    let edges = snapshot
+        .conflicts()
+        .iter()
+        .map(|conflict| {
+            participant_index_edge(
+                &participant_indices,
+                &conflict.left_participant_id,
+                &conflict.right_participant_id,
+            )
+            .ok_or(JournalError::InvalidEvent)
+        })
+        .collect::<Result<BTreeSet<_>, JournalError>>()?;
+    let mut packed = Vec::with_capacity(edges.len().saturating_mul(4));
+    for (left, right) in edges {
+        packed.extend_from_slice(&left.to_be_bytes());
+        packed.extend_from_slice(&right.to_be_bytes());
+    }
+    Ok(BASE64_STANDARD.encode(packed))
+}
+
+fn unpack_participant_conflict_edges(
+    packed: &str,
+    participant_count: u32,
+    conflict_count: u32,
+) -> Result<BTreeSet<(u16, u16)>, JournalError> {
+    let bytes = BASE64_STANDARD
+        .decode(packed)
+        .map_err(|_| JournalError::InvalidEvent)?;
+    if bytes.len() % 4 != 0 || bytes.len() / 4 > 8_192 {
+        return Err(JournalError::LimitExceeded);
+    }
+    let edge_count = bytes.len() / 4;
+    if edge_count > usize::try_from(conflict_count).map_err(|_| JournalError::LimitExceeded)?
+        || (conflict_count > 0 && edge_count == 0)
+    {
+        return Err(JournalError::InvalidEvent);
+    }
+    let mut edges = BTreeSet::new();
+    let mut previous: Option<(u16, u16)> = None;
+    for chunk in bytes.chunks_exact(4) {
+        let edge = (
+            u16::from_be_bytes([chunk[0], chunk[1]]),
+            u16::from_be_bytes([chunk[2], chunk[3]]),
+        );
+        if edge.0 >= edge.1
+            || u32::from(edge.1) >= participant_count
+            || previous.is_some_and(|prior| prior >= edge)
+            || !edges.insert(edge)
+        {
+            return Err(JournalError::InvalidEvent);
+        }
+        previous = Some(edge);
+    }
+    Ok(edges)
+}
+
+fn assessment_payload(
+    snapshot: &VerifiedAssessmentSnapshot,
+    receipt: &StoredSnapshotReceipt,
+) -> Result<JournalPayload, JournalError> {
+    if !receipt.matches(snapshot) {
+        return Err(JournalError::InvalidEvent);
+    }
+    Ok(JournalPayload::Assessment {
+        snapshot_hash: snapshot.snapshot_hash().to_string(),
+        registry_generation: snapshot.registry_generation(),
+        census_input_digest: snapshot.census_input_digest().to_string(),
+        verdict: snapshot.verdict().into(),
+        participant_count: u32::try_from(snapshot.participants().len())
+            .map_err(|_| JournalError::LimitExceeded)?,
+        participant_node_bindings_packed: pack_participant_node_bindings(snapshot)?,
+        participant_conflict_edges_packed: pack_participant_conflict_edges(snapshot)?,
+        conflict_count: u32::try_from(snapshot.conflicts().len())
+            .map_err(|_| JournalError::LimitExceeded)?,
+        conflict_commitment_root: snapshot.conflict_commitment_root(),
+        captured_at_ms: snapshot.captured_at_ms(),
+        expires_at_ms: snapshot.expires_at_ms(),
+        encoded_bytes: receipt.encoded_bytes(),
+        store_binding: receipt.store_binding().to_string(),
+    })
+}
+
+fn journal_digest(domain: &[u8], values: &[&str]) -> String {
+    let mut digest = Sha256::new();
+    digest.update((domain.len() as u64).to_le_bytes());
+    digest.update(domain);
+    for value in values {
+        digest.update((value.len() as u64).to_le_bytes());
+        digest.update(value.as_bytes());
+    }
+    format!("{:x}", digest.finalize())
 }
 
 pub(crate) enum JournalError {
@@ -424,6 +977,23 @@ impl AssessmentJournal {
         recorded_at_ms: u64,
         payload: JournalPayload,
     ) -> Result<JournalEvent, JournalError> {
+        self.append_internal(recorded_at_ms, payload, false)
+    }
+
+    fn append_idempotent(
+        &self,
+        recorded_at_ms: u64,
+        payload: JournalPayload,
+    ) -> Result<JournalEvent, JournalError> {
+        self.append_internal(recorded_at_ms, payload, true)
+    }
+
+    fn append_internal(
+        &self,
+        recorded_at_ms: u64,
+        payload: JournalPayload,
+        idempotent: bool,
+    ) -> Result<JournalEvent, JournalError> {
         if recorded_at_ms == 0 {
             return Err(JournalError::InvalidEvent);
         }
@@ -452,6 +1022,12 @@ impl AssessmentJournal {
         self.enforce_high_water(events.last(), file_len)?;
         let last = events.last().cloned();
         let mut replay = replay_events(&events)?;
+        if idempotent {
+            if let Some(existing) = find_idempotent_event(&events, &payload)? {
+                replay.validate_idempotent_retry(&payload, recorded_at_ms)?;
+                return Ok(existing.clone());
+            }
+        }
         if last
             .as_ref()
             .is_some_and(|event| event.sequence as usize >= MAX_EVENTS)
@@ -482,7 +1058,14 @@ impl AssessmentJournal {
         replay.apply(&event.payload, event.recorded_at_ms)?;
         let mut encoded = serde_json::to_vec(&event)?;
         encoded.push(b'\n');
+        let is_ticket_event = matches!(
+            &event.payload,
+            JournalPayload::ConflictTicket { .. }
+                | JournalPayload::ConflictTicketSignal { .. }
+                | JournalPayload::ConflictTicketAcknowledged { .. }
+        );
         if encoded.len() > MAX_LINE_BYTES
+            || (is_ticket_event && encoded.len() > MAX_TICKET_LINE_BYTES)
             || file_len
                 .checked_add(encoded.len() as u64)
                 .is_none_or(|size| size > MAX_JOURNAL_BYTES)
@@ -524,31 +1107,7 @@ impl AssessmentJournal {
         receipt: &StoredSnapshotReceipt,
         recorded_at_ms: u64,
     ) -> Result<JournalEvent, JournalError> {
-        if !receipt.matches(snapshot) {
-            return Err(JournalError::InvalidEvent);
-        }
-        self.append(
-            recorded_at_ms,
-            JournalPayload::Assessment {
-                snapshot_hash: snapshot.snapshot_hash().to_string(),
-                registry_generation: snapshot.registry_generation(),
-                census_input_digest: snapshot.census_input_digest().to_string(),
-                verdict: snapshot.verdict().into(),
-                participant_count: u32::try_from(snapshot.participants().len())
-                    .map_err(|_| JournalError::LimitExceeded)?,
-                participant_ids: snapshot
-                    .participants()
-                    .iter()
-                    .map(|participant| participant.participant_id.clone())
-                    .collect(),
-                conflict_count: u32::try_from(snapshot.conflicts().len())
-                    .map_err(|_| JournalError::LimitExceeded)?,
-                captured_at_ms: snapshot.captured_at_ms(),
-                expires_at_ms: snapshot.expires_at_ms(),
-                encoded_bytes: receipt.encoded_bytes(),
-                store_binding: receipt.store_binding().to_string(),
-            },
-        )
+        self.append(recorded_at_ms, assessment_payload(snapshot, receipt)?)
     }
 
     pub(crate) fn assessment_is_live(
@@ -559,40 +1118,161 @@ impl AssessmentJournal {
         if !receipt.matches(snapshot) {
             return Ok(false);
         }
-        let expected = JournalPayload::Assessment {
-            snapshot_hash: snapshot.snapshot_hash().to_string(),
-            registry_generation: snapshot.registry_generation(),
-            census_input_digest: snapshot.census_input_digest().to_string(),
-            verdict: snapshot.verdict().into(),
-            participant_count: u32::try_from(snapshot.participants().len())
-                .map_err(|_| JournalError::LimitExceeded)?,
-            participant_ids: snapshot
-                .participants()
-                .iter()
-                .map(|participant| participant.participant_id.clone())
-                .collect(),
-            conflict_count: u32::try_from(snapshot.conflicts().len())
-                .map_err(|_| JournalError::LimitExceeded)?,
-            captured_at_ms: snapshot.captured_at_ms(),
-            expires_at_ms: snapshot.expires_at_ms(),
-            encoded_bytes: receipt.encoded_bytes(),
-            store_binding: receipt.store_binding().to_string(),
-        };
+        let expected = assessment_payload(snapshot, receipt)?;
         let events = self.read_verified()?;
-        let mut found = false;
-        let mut revoked = false;
-        for event in events {
-            match event.payload {
-                payload if payload == expected => found = true,
-                JournalPayload::Revocation { snapshot_hash, .. }
-                    if snapshot_hash == snapshot.snapshot_hash() =>
-                {
-                    revoked = true;
-                }
-                _ => {}
-            }
+        let found = events.iter().any(|event| event.payload == expected);
+        let replay = replay_events(&events)?;
+        Ok(found
+            && replay
+                .assessments
+                .get(snapshot.snapshot_hash())
+                .is_some_and(|assessment| assessment.live))
+    }
+
+    /// Confirms the exact immutable snapshot/store receipt was journaled, regardless of its
+    /// current liveness. This is read/audit recovery authority only; mutation replay still enforces
+    /// live assessment state for every new ticket or signal.
+    pub(crate) fn assessment_was_recorded(
+        &self,
+        snapshot: &VerifiedAssessmentSnapshot,
+        receipt: &StoredSnapshotReceipt,
+    ) -> Result<bool, JournalError> {
+        if !receipt.matches(snapshot) {
+            return Ok(false);
         }
-        Ok(found && !revoked)
+        let expected = assessment_payload(snapshot, receipt)?;
+        Ok(self
+            .read_verified()?
+            .iter()
+            .any(|event| event.payload == expected))
+    }
+
+    pub(super) fn conflict_ticket_was_recorded(
+        &self,
+        snapshot: &VerifiedAssessmentSnapshot,
+        proof: &VerifiedConflictProof,
+    ) -> Result<bool, JournalError> {
+        let conflict = proof.conflict();
+        let ticket_id = conflict_ticket_id(
+            snapshot.snapshot_hash(),
+            proof.commitment_root(),
+            &conflict.conflict_id,
+        );
+        Ok(self.read_verified()?.iter().any(|event| {
+            matches!(
+                &event.payload,
+                JournalPayload::ConflictTicket {
+                    snapshot_hash,
+                    ticket_id: recorded_ticket_id,
+                    conflict_id,
+                    conflict: recorded_conflict,
+                    leaf_index,
+                    leaf_count,
+                    proof: recorded_proof,
+                    commitment_root,
+                } if snapshot_hash == snapshot.snapshot_hash()
+                    && recorded_ticket_id == &ticket_id
+                    && conflict_id == &conflict.conflict_id
+                    && recorded_conflict == conflict
+                    && *leaf_index == proof.leaf_index()
+                    && *leaf_count == proof.leaf_count()
+                    && recorded_proof == proof.steps()
+                    && commitment_root == proof.commitment_root()
+            )
+        }))
+    }
+
+    pub(super) fn record_conflict_ticket(
+        &self,
+        snapshot: &VerifiedAssessmentSnapshot,
+        receipt: &StoredSnapshotReceipt,
+        proof: &VerifiedConflictProof,
+        recorded_at_ms: u64,
+    ) -> Result<JournalEvent, JournalError> {
+        let conflict = proof.conflict();
+        if !receipt.matches(snapshot)
+            || recorded_at_ms == 0
+            || recorded_at_ms >= snapshot.expires_at_ms()
+            || proof.commitment_root() != snapshot.conflict_commitment_root()
+            || proof.leaf_count() as usize != snapshot.conflicts().len()
+            || snapshot
+                .conflicts()
+                .binary_search_by(|item| item.conflict_id.cmp(&conflict.conflict_id))
+                .ok()
+                .and_then(|index| snapshot.conflicts().get(index))
+                != Some(conflict)
+            || !self.assessment_is_live(snapshot, receipt)?
+        {
+            return Err(JournalError::InvalidEvent);
+        }
+        let ticket_id = conflict_ticket_id(
+            snapshot.snapshot_hash(),
+            proof.commitment_root(),
+            &conflict.conflict_id,
+        );
+        self.append_idempotent(
+            recorded_at_ms,
+            JournalPayload::ConflictTicket {
+                snapshot_hash: snapshot.snapshot_hash().to_string(),
+                ticket_id,
+                conflict_id: conflict.conflict_id.clone(),
+                conflict: conflict.clone(),
+                leaf_index: proof.leaf_index(),
+                leaf_count: proof.leaf_count(),
+                proof: proof.steps().to_vec(),
+                commitment_root: proof.commitment_root().to_string(),
+            },
+        )
+    }
+
+    pub(super) fn record_conflict_ticket_signal(
+        &self,
+        recorded_at_ms: u64,
+        snapshot_hash: String,
+        actor_participant_id: String,
+        source_node_id: String,
+        kind: TicketSignalKind,
+        source_state_digest: String,
+        source_event_id: String,
+    ) -> Result<JournalEvent, JournalError> {
+        let signal_id = conflict_ticket_signal_id(
+            &snapshot_hash,
+            &actor_participant_id,
+            &source_node_id,
+            kind,
+            &source_event_id,
+        );
+        self.append_idempotent(
+            recorded_at_ms,
+            JournalPayload::ConflictTicketSignal {
+                snapshot_hash,
+                signal_id,
+                actor_participant_id,
+                source_node_id,
+                signal_kind: kind,
+                source_state_digest,
+                source_event_id,
+            },
+        )
+    }
+
+    pub(super) fn record_conflict_ticket_acknowledgement(
+        &self,
+        recorded_at_ms: u64,
+        snapshot_hash: String,
+        signal_id: String,
+        recipient_participant_id: String,
+        acknowledgement_digest: String,
+    ) -> Result<JournalEvent, JournalError> {
+        self.append_idempotent(
+            recorded_at_ms,
+            JournalPayload::ConflictTicketAcknowledged {
+                snapshot_hash,
+                signal_id,
+                recipient_participant_id,
+                acknowledgement_digest,
+            },
+        )
     }
 
     pub(crate) fn record_clearance_issued(
@@ -833,6 +1513,53 @@ fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, JournalError> {
     Ok(state)
 }
 
+fn find_idempotent_event<'a>(
+    events: &'a [JournalEvent],
+    candidate: &JournalPayload,
+) -> Result<Option<&'a JournalEvent>, JournalError> {
+    for event in events {
+        let same_slot = match (&event.payload, candidate) {
+            (
+                JournalPayload::ConflictTicket {
+                    ticket_id: left, ..
+                },
+                JournalPayload::ConflictTicket {
+                    ticket_id: right, ..
+                },
+            ) => left == right,
+            (
+                JournalPayload::ConflictTicketSignal {
+                    signal_id: left, ..
+                },
+                JournalPayload::ConflictTicketSignal {
+                    signal_id: right, ..
+                },
+            ) => left == right,
+            (
+                JournalPayload::ConflictTicketAcknowledged {
+                    signal_id: left_signal,
+                    recipient_participant_id: left_recipient,
+                    ..
+                },
+                JournalPayload::ConflictTicketAcknowledged {
+                    signal_id: right_signal,
+                    recipient_participant_id: right_recipient,
+                    ..
+                },
+            ) => left_signal == right_signal && left_recipient == right_recipient,
+            _ => false,
+        };
+        if same_slot {
+            return if event.payload == *candidate {
+                Ok(Some(event))
+            } else {
+                Err(JournalError::InvalidEvent)
+            };
+        }
+    }
+    Ok(None)
+}
+
 fn validate_event(
     event: &JournalEvent,
     previous: Option<&JournalEvent>,
@@ -861,23 +1588,35 @@ fn validate_payload(payload: &JournalPayload) -> Result<(), JournalError> {
             census_input_digest,
             verdict,
             participant_count,
-            participant_ids,
+            participant_node_bindings_packed,
+            participant_conflict_edges_packed,
             conflict_count,
+            conflict_commitment_root,
             captured_at_ms,
             expires_at_ms,
             encoded_bytes,
             store_binding,
         } => {
+            let bindings = unpack_participant_node_bindings(
+                participant_node_bindings_packed,
+                *participant_count,
+            );
+            let edges = unpack_participant_conflict_edges(
+                participant_conflict_edges_packed,
+                *participant_count,
+                *conflict_count,
+            );
             is_sha256(snapshot_hash)
                 && *registry_generation > 0
                 && is_sha256(census_input_digest)
                 && *participant_count > 0
-                && usize::try_from(*participant_count) == Ok(participant_ids.len())
-                && participant_ids
-                    .iter()
-                    .all(|participant_id| is_sha256(participant_id))
-                && participant_ids.windows(2).all(|pair| pair[0] < pair[1])
+                && bindings.is_ok()
+                && edges.is_ok()
+                && (*conflict_count == 0
+                    || (*participant_count >= 2
+                        && edges.as_ref().is_ok_and(|value| !value.is_empty())))
                 && (*verdict != JournalVerdict::Clear || *conflict_count == 0)
+                && is_sha256(conflict_commitment_root)
                 && *captured_at_ms > 0
                 && *expires_at_ms > *captured_at_ms
                 && *encoded_bytes > 0
@@ -889,12 +1628,57 @@ fn validate_payload(payload: &JournalPayload) -> Result<(), JournalError> {
         } => is_sha256(snapshot_hash) && is_sha256(reason_digest),
         JournalPayload::ConflictTicket {
             snapshot_hash,
+            ticket_id,
             conflict_id,
-            disposition,
+            conflict,
+            leaf_index,
+            leaf_count,
+            proof,
+            commitment_root,
         } => {
             is_sha256(snapshot_hash)
+                && is_sha256(ticket_id)
                 && is_sha256(conflict_id)
-                && matches!(disposition.as_str(), "WAIT" | "REPLAN" | "USER_DECISION")
+                && *conflict_id == conflict.conflict_id
+                && is_sha256(&conflict.left_participant_id)
+                && is_sha256(&conflict.right_participant_id)
+                && is_sha256(&conflict.left_claim_id)
+                && is_sha256(&conflict.right_claim_id)
+                && conflict.left_participant_id < conflict.right_participant_id
+                && conflict.disposition.is_some()
+                && *leaf_count > 0
+                && *leaf_index < *leaf_count
+                && *leaf_count <= 8_192
+                && proof.len() <= 13
+                && proof.iter().all(|step| is_sha256(&step.sibling_hash))
+                && is_sha256(commitment_root)
+        }
+        JournalPayload::ConflictTicketSignal {
+            snapshot_hash,
+            signal_id,
+            actor_participant_id,
+            source_node_id,
+            source_state_digest,
+            source_event_id,
+            ..
+        } => {
+            is_sha256(snapshot_hash)
+                && is_sha256(signal_id)
+                && is_sha256(actor_participant_id)
+                && is_bounded_id(source_node_id)
+                && is_sha256(source_state_digest)
+                && is_sha256(source_event_id)
+        }
+        JournalPayload::ConflictTicketAcknowledged {
+            snapshot_hash,
+            signal_id,
+            recipient_participant_id,
+            acknowledgement_digest,
+        } => {
+            is_sha256(snapshot_hash)
+                && is_sha256(signal_id)
+                && is_sha256(recipient_participant_id)
+                && is_sha256(acknowledgement_digest)
         }
         JournalPayload::ClearanceIssued {
             clearance_id_hash,
@@ -995,6 +1779,15 @@ fn is_sha256(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+
+fn is_bounded_id(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    !bytes.is_empty()
+        && bytes.len() <= 128
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'-' | b'_' | b'.' | b':'))
 }
 
 fn lock_path(path: &Path) -> PathBuf {
@@ -1144,14 +1937,21 @@ mod tests {
     }
 
     fn assessment(index: usize) -> JournalPayload {
+        let mut participant_binding = Vec::with_capacity(64);
+        participant_binding.extend_from_slice(&decode_sha256_hex(&"d".repeat(64)).unwrap());
+        participant_binding.extend_from_slice(
+            &decode_sha256_hex(&source_node_digest("node-a")).unwrap(),
+        );
         JournalPayload::Assessment {
             snapshot_hash: format!("{index:064x}"),
             registry_generation: 7,
             census_input_digest: "a".repeat(64),
             verdict: JournalVerdict::Clear,
             participant_count: 1,
-            participant_ids: vec!["d".repeat(64)],
+            participant_node_bindings_packed: BASE64_STANDARD.encode(participant_binding),
+            participant_conflict_edges_packed: String::new(),
             conflict_count: 0,
+            conflict_commitment_root: "c".repeat(64),
             captured_at_ms: 900,
             expires_at_ms: 5_000,
             encoded_bytes: 512,
@@ -1167,6 +1967,61 @@ mod tests {
             issuer_epoch: 7,
             expires_at_ms: 5_000,
         }
+    }
+
+    #[test]
+    fn maximum_participant_and_unique_edge_assessment_fits_and_restarts() {
+        let snapshot =
+            super::super::snapshot::tests::fixture_maximum_unique_edge_snapshot();
+        assert_eq!(snapshot.participants().len(), 4_096);
+        assert_eq!(snapshot.conflicts().len(), 8_192);
+        let journal = temp_journal("maximum-packed-assessment");
+        let root = journal.path.parent().unwrap().to_path_buf();
+        let store = super::super::snapshot::SnapshotStore::new_for_test(root.join("snapshots"));
+        let receipt = store.persist(&snapshot).unwrap();
+
+        journal.record_assessment(&snapshot, &receipt, 1_000).unwrap();
+        let line_bytes = fs::metadata(&journal.path).unwrap().len();
+        assert!(line_bytes < MAX_LINE_BYTES as u64, "{line_bytes}");
+        let events = journal.read_verified().unwrap();
+        assert_eq!(events.len(), 1);
+        let JournalPayload::Assessment {
+            participant_count,
+            participant_node_bindings_packed,
+            participant_conflict_edges_packed,
+            conflict_count,
+            ..
+        } = &events[0].payload
+        else {
+            panic!("expected assessment");
+        };
+        assert_eq!(*participant_count, 4_096);
+        assert_eq!(*conflict_count, 8_192);
+        assert_eq!(
+            unpack_participant_node_bindings(
+                participant_node_bindings_packed,
+                *participant_count,
+            )
+            .unwrap()
+            .len(),
+            4_096
+        );
+        assert_eq!(
+            unpack_participant_conflict_edges(
+                participant_conflict_edges_packed,
+                *participant_count,
+                *conflict_count,
+            )
+            .unwrap()
+            .len(),
+            8_192
+        );
+
+        let restarted = AssessmentJournal::new(&journal.path);
+        assert!(restarted
+            .assessment_was_recorded(&snapshot, &receipt)
+            .unwrap());
+        let _ = fs::remove_dir_all(root);
     }
 
     fn consuming(clearance: &str, snapshot: &str, participant: &str) -> JournalPayload {
@@ -1338,6 +2193,39 @@ mod tests {
     }
 
     #[test]
+    fn assessment_and_clearance_timestamps_stay_inside_snapshot_window() {
+        for (index, recorded_at_ms) in [899u64, 5_000, 5_001].into_iter().enumerate() {
+            let journal = temp_journal(&format!("assessment-time-boundary-{index}"));
+            assert!(matches!(
+                journal.append(recorded_at_ms, assessment(index + 1)),
+                Err(JournalError::InvalidEvent)
+            ));
+            assert!(journal.read_verified().unwrap().is_empty());
+            let _ = fs::remove_dir_all(journal.path.parent().unwrap());
+        }
+
+        let journal = temp_journal("clearance-capture-lower-bound");
+        let snapshot = format!("{:064x}", 9);
+        journal.append(1_000, assessment(9)).unwrap();
+        assert!(matches!(
+            journal.append(899, issued(&"c".repeat(64), &snapshot, &"d".repeat(64))),
+            Err(JournalError::InvalidEvent)
+        ));
+        assert_eq!(journal.read_verified().unwrap().len(), 1);
+        let _ = fs::remove_dir_all(journal.path.parent().unwrap());
+
+        let journal = temp_journal("revocation-capture-lower-bound");
+        let snapshot = format!("{:064x}", 10);
+        journal.append(1_000, assessment(10)).unwrap();
+        assert!(matches!(
+            journal.record_revocation(899, snapshot, "a".repeat(64)),
+            Err(JournalError::InvalidEvent)
+        ));
+        assert_eq!(journal.read_verified().unwrap().len(), 1);
+        let _ = fs::remove_dir_all(journal.path.parent().unwrap());
+    }
+
+    #[test]
     fn clearance_lifecycle_is_ordered_single_use_and_binding_exact() {
         let journal = temp_journal("clearance-lifecycle");
         let snapshot = format!("{:064x}", 1);
@@ -1425,8 +2313,12 @@ mod tests {
         {
             let journal = temp_journal(&format!("non-clear-{index}"));
             let mut payload = assessment(index + 1);
+            let snapshot = format!("{:064x}", index + 1);
             let JournalPayload::Assessment {
                 verdict: stored_verdict,
+                participant_count,
+                participant_node_bindings_packed,
+                participant_conflict_edges_packed,
                 conflict_count,
                 ..
             } = &mut payload
@@ -1434,8 +2326,18 @@ mod tests {
                 unreachable!();
             };
             *stored_verdict = verdict;
+            *participant_count = 2;
+            let mut bindings = BASE64_STANDARD
+                .decode(participant_node_bindings_packed.as_bytes())
+                .unwrap();
+            bindings.extend_from_slice(&decode_sha256_hex(&"e".repeat(64)).unwrap());
+            bindings.extend_from_slice(
+                &decode_sha256_hex(&source_node_digest("node-b")).unwrap(),
+            );
+            *participant_node_bindings_packed = BASE64_STANDARD.encode(bindings);
+            *participant_conflict_edges_packed =
+                BASE64_STANDARD.encode([0u8, 0u8, 0u8, 1u8]);
             *conflict_count = 1;
-            let snapshot = format!("{:064x}", index + 1);
             journal.append(1_000, payload).unwrap();
             assert!(matches!(
                 journal.append(1_001, issued(&"c".repeat(64), &snapshot, &"d".repeat(64))),

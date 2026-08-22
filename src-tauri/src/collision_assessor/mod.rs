@@ -9,3 +9,4 @@ pub(crate) mod journal;
 pub mod model;
 pub mod registry;
 pub(crate) mod snapshot;
+pub(crate) mod tickets;

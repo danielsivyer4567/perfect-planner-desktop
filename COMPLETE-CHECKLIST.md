@@ -437,3 +437,19 @@
 <!-- PP-EVENT dee68bc3dc84b093bd78f2b3c97415846fe4e4470fabcb5a15877cadda318fef -->
 | 2026-08-21T21:09:15.801Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | done | B07 | gpt-5.6-codex | s-a1b7589d |  | 3f8dceece589* | Primitive implemented and production-disabled; B09/B15/B20 remain mandatory for end-to-end worker admission |  |
 <!-- PP-EVENT 680b3c088cfc3421e507d513060462c828e7a512fcc85659dad34d99e6c1df33 -->
+| 2026-08-21T21:09:48.726Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | start | B08 | gpt-5.6-codex | s-a1b7589d |  | 057abe5eb7c9 |  |  |
+<!-- PP-EVENT ecfa3960aee4e3769e73318f68c7fc5064e20af7793db594e2678ed0045843a0 -->
+| 2026-08-21T21:09:50.275Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-codex | s-a1b7589d |  | 057abe5eb7c9* | B08 start: one root writer, three read-only adversarial reviewers; exact snapshot-bound ticket broker only |  |
+<!-- PP-EVENT 5135ca72540b2eb0727692d47c92fa9d6b0f689b33cbba574cc01c50fb7753d4 -->
+| 2026-08-21T21:13:26.060Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | log |  | gpt-5.6-codex | s-a1b7589d |  | 057abe5eb7c9* | B08 AMBER re-plan: reviewer proved snapshots dropped canonical overlap identities; added analyzer.rs and froze exact path-free claim identities to avoid TOCTOU and foreign-path leakage |  |
+<!-- PP-EVENT 6fd585ec5b96156fcdfd8a5399ba1f305da7932bdeb417945c5d513654dccfb6 -->
+| 2026-08-22T02:32:01.499Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | notes-edited | B08 | browser | s-9d83ef6f |  |  |  |  |
+<!-- PP-EVENT 1c724ee3de9824bbdbd74b1855fe76001a5ccbcea11b2fecf1855b3f18441950 -->
+| 2026-08-22T02:32:01.502Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | item-added | B15:6 | browser | s-9d83ef6f |  |  | Remove or gate generic main-window control-plane authority before ticket activation; every effective renderer call must be sealed to the exact registered task and route rather than caller-supplied scope |  |
+<!-- PP-EVENT 7a9104277e566356809d913b1c0d350d093f1530d2e39fd617e8e6d239cd79ab -->
+| 2026-08-22T02:32:01.504Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | item-added | B15:7 | browser | s-9d83ef6f |  |  | Require a fresh revocable native route for live and audit-resume mailboxes, and prove stale, dead, reassigned, restarted and cross-task routes cannot remint authority |  |
+<!-- PP-EVENT d41b1fbeb9918e42f0855992d552321fe65673d2fd54dfdf2b520c2992e03cc7 -->
+| 2026-08-22T02:32:01.505Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | item-added | B20:9 | browser | s-9d83ef6f |  |  | Replace the broker enabled boolean with a non-cloneable process-epoch TicketBrokerAuthority owned only by the native scheduler and bind every route, transition and acknowledgement to that authority |  |
+<!-- PP-EVENT 0e5c6494e4596cf8313be9294335e1558514e424205b1d77fbf47ecf0b6be324 -->
+| 2026-08-22T02:32:01.507Z | Perfect Planner Desktop | PP-002 | Cross-repository Collision Assessor | feature/tauri-orchestrator-messaging-20260821-223935 | item-added | B20:10 | browser | s-9d83ef6f |  |  | Close crate-internal ticket bypasses by exposing only owner-filtered reads and sealed native-authority append operations before registering any production command |  |
+<!-- PP-EVENT 8d5963d14ac8eaeb72a73a5c175a93729e7879994f07dc8c62cb2ba4ac6e3713 -->

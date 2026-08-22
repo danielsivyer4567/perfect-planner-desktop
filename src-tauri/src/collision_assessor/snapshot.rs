@@ -19,7 +19,7 @@ pub(crate) const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 const MAX_SNAPSHOT_TTL_MS: u64 = 10 * 60 * 1_000;
 const MAX_SNAPSHOT_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_PARTICIPANTS: usize = 4_096;
-const MAX_CONFLICTS: usize = 16_384;
+const MAX_CONFLICTS: usize = 8_192;
 const MAX_DEPENDENCY_EDGES: usize = 65_536;
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -155,15 +155,68 @@ impl From<CollisionBasis> for SnapshotConflictBasis {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SnapshotConflictOverlap {
+    pub(crate) basis: SnapshotConflictBasis,
+    /// Opaque canonical claim/alias digest. This identifies the exact overlap without leaking a
+    /// foreign repository path or resource spelling.
+    pub(crate) canonical_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct SnapshotConflict {
     pub(crate) conflict_id: String,
     pub(crate) left_participant_id: String,
     pub(crate) right_participant_id: String,
+    pub(crate) left_plan_id: String,
+    pub(crate) left_node_id: String,
+    pub(crate) right_plan_id: String,
+    pub(crate) right_node_id: String,
     pub(crate) left_claim_id: String,
     pub(crate) right_claim_id: String,
     pub(crate) bases: Vec<SnapshotConflictBasis>,
+    pub(crate) overlaps: Vec<SnapshotConflictOverlap>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) disposition: Option<ConflictDisposition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ConflictProofStep {
+    pub(crate) sibling_hash: String,
+    pub(crate) sibling_on_left: bool,
+}
+
+/// Sealed inclusion proof for one exact conflict in the immutable snapshot commitment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct VerifiedConflictProof {
+    conflict: SnapshotConflict,
+    leaf_index: u32,
+    leaf_count: u32,
+    steps: Vec<ConflictProofStep>,
+    commitment_root: String,
+}
+
+impl VerifiedConflictProof {
+    pub(crate) fn conflict(&self) -> &SnapshotConflict {
+        &self.conflict
+    }
+
+    pub(crate) fn leaf_index(&self) -> u32 {
+        self.leaf_index
+    }
+
+    pub(crate) fn leaf_count(&self) -> u32 {
+        self.leaf_count
+    }
+
+    pub(crate) fn steps(&self) -> &[ConflictProofStep] {
+        &self.steps
+    }
+
+    pub(crate) fn commitment_root(&self) -> &str {
+        &self.commitment_root
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -235,6 +288,35 @@ impl VerifiedAssessmentSnapshot {
     pub(crate) fn expires_at_ms(&self) -> u64 {
         self.0.expires_at_ms
     }
+
+    pub(crate) fn conflict_commitment_root(&self) -> String {
+        conflict_commitment_root(&self.0.conflicts)
+    }
+
+    pub(crate) fn conflict_proof(&self, conflict_id: &str) -> Option<VerifiedConflictProof> {
+        let index = self
+            .0
+            .conflicts
+            .binary_search_by(|conflict| conflict.conflict_id.as_str().cmp(conflict_id))
+            .ok()?;
+        let leaf_hashes = self
+            .0
+            .conflicts
+            .iter()
+            .map(conflict_leaf_hash)
+            .collect::<Vec<_>>();
+        let levels = merkle_levels(&leaf_hashes);
+        let steps = merkle_proof_from_levels(&levels, index);
+        let top = merkle_root_from_levels(&levels);
+        Some(VerifiedConflictProof {
+            conflict: self.0.conflicts[index].clone(),
+            leaf_index: u32::try_from(index).ok()?,
+            leaf_count: u32::try_from(leaf_hashes.len()).ok()?,
+            steps,
+            commitment_root: wrap_conflict_root(&top, leaf_hashes.len()),
+        })
+    }
+
 }
 
 /// Sealed proof that exact snapshot bytes were fsynced, published without replacement, reopened,
@@ -457,16 +539,40 @@ fn prepare_assessment_snapshot_inner(
     let conflicts = analysis
         .conflicts
         .iter()
-        .map(|conflict| SnapshotConflict {
-            conflict_id: conflict.conflict_id.clone(),
-            left_participant_id: conflict.left_participant_id.clone(),
-            right_participant_id: conflict.right_participant_id.clone(),
-            left_claim_id: conflict.left_claim_id.clone(),
-            right_claim_id: conflict.right_claim_id.clone(),
-            bases: conflict.bases.iter().copied().map(Into::into).collect(),
-            disposition: conflict.disposition,
+        .map(|conflict| {
+            let left = participants
+                .binary_search_by(|item| item.participant_id.cmp(&conflict.left_participant_id))
+                .ok()
+                .and_then(|index| participants.get(index))
+                .ok_or(SnapshotError::InvalidAnalysis)?;
+            let right = participants
+                .binary_search_by(|item| item.participant_id.cmp(&conflict.right_participant_id))
+                .ok()
+                .and_then(|index| participants.get(index))
+                .ok_or(SnapshotError::InvalidAnalysis)?;
+            Ok(SnapshotConflict {
+                conflict_id: conflict.conflict_id.clone(),
+                left_participant_id: conflict.left_participant_id.clone(),
+                right_participant_id: conflict.right_participant_id.clone(),
+                left_plan_id: left.plan_id.clone(),
+                left_node_id: left.node_id.clone(),
+                right_plan_id: right.plan_id.clone(),
+                right_node_id: right.node_id.clone(),
+                left_claim_id: conflict.left_claim_id.clone(),
+                right_claim_id: conflict.right_claim_id.clone(),
+                bases: conflict.bases.iter().copied().map(Into::into).collect(),
+                overlaps: conflict
+                    .overlaps
+                    .iter()
+                    .map(|overlap| SnapshotConflictOverlap {
+                        basis: overlap.basis.into(),
+                        canonical_key: overlap.canonical_key.clone(),
+                    })
+                    .collect(),
+                disposition: conflict.disposition,
+            })
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, SnapshotError>>()?;
     let mut snapshot = AssessmentSnapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
         registry_generation: document.generation,
@@ -565,6 +671,16 @@ fn validate_assessment_snapshot(snapshot: &AssessmentSnapshot) -> Result<(), Sna
         return Err(SnapshotError::InvalidAnalysis);
     }
     for conflict in &snapshot.conflicts {
+        let left = snapshot
+            .participants
+            .binary_search_by(|item| item.participant_id.cmp(&conflict.left_participant_id))
+            .ok()
+            .and_then(|index| snapshot.participants.get(index));
+        let right = snapshot
+            .participants
+            .binary_search_by(|item| item.participant_id.cmp(&conflict.right_participant_id))
+            .ok()
+            .and_then(|index| snapshot.participants.get(index));
         if !is_sha256(&conflict.conflict_id)
             || !is_sha256(&conflict.left_participant_id)
             || !is_sha256(&conflict.right_participant_id)
@@ -574,8 +690,24 @@ fn validate_assessment_snapshot(snapshot: &AssessmentSnapshot) -> Result<(), Sna
             || conflict.left_participant_id >= conflict.right_participant_id
             || !participant_ids.contains(conflict.left_participant_id.as_str())
             || !participant_ids.contains(conflict.right_participant_id.as_str())
+            || left.is_none_or(|participant| {
+                participant.plan_id != conflict.left_plan_id
+                    || participant.node_id != conflict.left_node_id
+            })
+            || right.is_none_or(|participant| {
+                participant.plan_id != conflict.right_plan_id
+                    || participant.node_id != conflict.right_node_id
+            })
             || conflict.bases.is_empty()
             || conflict.bases.windows(2).any(|pair| pair[0] >= pair[1])
+            || conflict.overlaps.len() != conflict.bases.len()
+            || conflict
+                .overlaps
+                .iter()
+                .zip(&conflict.bases)
+                .any(|(overlap, basis)| {
+                    overlap.basis != *basis || !is_sha256(&overlap.canonical_key)
+                })
         {
             return Err(SnapshotError::InvalidAnalysis);
         }
@@ -649,6 +781,134 @@ fn assessment_snapshot_hash(snapshot: &AssessmentSnapshot) -> Result<String, Sna
     digest.update((payload.len() as u64).to_le_bytes());
     digest.update(payload);
     Ok(format!("{:x}", digest.finalize()))
+}
+
+fn conflict_leaf_hash(conflict: &SnapshotConflict) -> String {
+    let payload = serde_json::to_vec(conflict).expect("snapshot conflicts are serializable");
+    digest_parts(
+        b"perfect-planner:conflict-ticket-leaf:v1",
+        &[payload.as_slice()],
+    )
+}
+
+fn merkle_node_hash(left: &str, right: &str) -> String {
+    digest_parts(
+        b"perfect-planner:conflict-ticket-node:v1",
+        &[left.as_bytes(), right.as_bytes()],
+    )
+}
+
+fn empty_conflict_root() -> String {
+    digest_parts(b"perfect-planner:conflict-ticket-empty:v1", &[])
+}
+
+fn merkle_top(leaves: &[String]) -> String {
+    let levels = merkle_levels(leaves);
+    merkle_root_from_levels(&levels)
+}
+
+fn merkle_levels(leaves: &[String]) -> Vec<Vec<String>> {
+    if leaves.is_empty() {
+        return Vec::new();
+    }
+    let mut levels = vec![leaves.to_vec()];
+    while levels.last().is_some_and(|level| level.len() > 1) {
+        let level = levels.last().expect("a non-empty Merkle level exists");
+        let mut next = Vec::with_capacity(level.len().div_ceil(2));
+        for pair in level.chunks(2) {
+            let right = pair.get(1).unwrap_or(&pair[0]);
+            next.push(merkle_node_hash(&pair[0], right));
+        }
+        levels.push(next);
+    }
+    levels
+}
+
+fn merkle_root_from_levels(levels: &[Vec<String>]) -> String {
+    levels
+        .last()
+        .and_then(|level| level.first())
+        .cloned()
+        .unwrap_or_else(empty_conflict_root)
+}
+
+fn wrap_conflict_root(top: &str, leaf_count: usize) -> String {
+    digest_parts(
+        b"perfect-planner:conflict-ticket-root:v1",
+        &[&(leaf_count as u64).to_le_bytes(), top.as_bytes()],
+    )
+}
+
+fn conflict_commitment_root(conflicts: &[SnapshotConflict]) -> String {
+    let leaves = conflicts.iter().map(conflict_leaf_hash).collect::<Vec<_>>();
+    wrap_conflict_root(&merkle_top(&leaves), leaves.len())
+}
+
+fn merkle_proof_from_levels(levels: &[Vec<String>], mut index: usize) -> Vec<ConflictProofStep> {
+    let mut proof = Vec::new();
+    for level in levels.iter().take(levels.len().saturating_sub(1)) {
+        let sibling_index = if index % 2 == 0 {
+            (index + 1).min(level.len() - 1)
+        } else {
+            index - 1
+        };
+        proof.push(ConflictProofStep {
+            sibling_hash: level[sibling_index].clone(),
+            sibling_on_left: sibling_index < index,
+        });
+        index /= 2;
+    }
+    proof
+}
+
+pub(crate) fn verify_conflict_proof(
+    conflict: &SnapshotConflict,
+    leaf_index: u32,
+    leaf_count: u32,
+    steps: &[ConflictProofStep],
+    commitment_root: &str,
+) -> bool {
+    let leaf_count = leaf_count as usize;
+    let leaf_index = leaf_index as usize;
+    if leaf_count == 0
+        || leaf_count > MAX_CONFLICTS
+        || leaf_index >= leaf_count
+        || !is_sha256(commitment_root)
+        || steps.len() > 13
+    {
+        return false;
+    }
+    let mut width = leaf_count;
+    let mut index = leaf_index;
+    let mut current = conflict_leaf_hash(conflict);
+    for step in steps {
+        if width <= 1 || !is_sha256(&step.sibling_hash) {
+            return false;
+        }
+        let expected_left = index % 2 == 1;
+        if step.sibling_on_left != expected_left {
+            return false;
+        }
+        current = if step.sibling_on_left {
+            merkle_node_hash(&step.sibling_hash, &current)
+        } else {
+            merkle_node_hash(&current, &step.sibling_hash)
+        };
+        index /= 2;
+        width = width.div_ceil(2);
+    }
+    width == 1 && wrap_conflict_root(&current, leaf_count) == commitment_root
+}
+
+fn digest_parts(domain: &[u8], parts: &[&[u8]]) -> String {
+    let mut digest = Sha256::new();
+    digest.update((domain.len() as u64).to_le_bytes());
+    digest.update(domain);
+    for part in parts {
+        digest.update((part.len() as u64).to_le_bytes());
+        digest.update(part);
+    }
+    format!("{:x}", digest.finalize())
 }
 
 #[derive(Clone)]
@@ -771,6 +1031,21 @@ impl SnapshotStore {
     ) -> Result<(VerifiedAssessmentSnapshot, StoredSnapshotReceipt), SnapshotError> {
         let (snapshot, receipt) = self.read_unrecorded(snapshot_hash)?;
         if !journal.assessment_is_live(&snapshot, &receipt)? {
+            return Err(SnapshotError::AlreadyExistsMismatch);
+        }
+        Ok((snapshot, receipt))
+    }
+
+    /// Reopen immutable snapshot bytes for an already-recorded ticket inbox after revocation or
+    /// expiry. The caller receives no live assessment authority; the broker only permits audit
+    /// reads and acknowledgement of an existing inbound signal from this recovery path.
+    pub(crate) fn read_for_ticket_recovery(
+        &self,
+        snapshot_hash: &str,
+        journal: &AssessmentJournal,
+    ) -> Result<(VerifiedAssessmentSnapshot, StoredSnapshotReceipt), SnapshotError> {
+        let (snapshot, receipt) = self.read_unrecorded(snapshot_hash)?;
+        if !journal.assessment_was_recorded(&snapshot, &receipt)? {
             return Err(SnapshotError::AlreadyExistsMismatch);
         }
         Ok((snapshot, receipt))
@@ -997,6 +1272,208 @@ pub(crate) mod tests {
         };
         snapshot.snapshot_hash = assessment_snapshot_hash(&snapshot).unwrap();
         VerifiedAssessmentSnapshot(snapshot)
+    }
+
+    pub(crate) fn fixture_conflict_snapshot(
+        disposition: ConflictDisposition,
+    ) -> VerifiedAssessmentSnapshot {
+        let verdict = match disposition {
+            ConflictDisposition::Wait => AssessmentVerdict::Wait,
+            ConflictDisposition::Replan => AssessmentVerdict::Replan,
+            ConflictDisposition::UserDecision => AssessmentVerdict::UserDecision,
+        };
+        let mut snapshot = fixture_snapshot(verdict);
+        snapshot
+            .0
+            .participants
+            .push(fixture_participant("c", "node-b"));
+        snapshot
+            .0
+            .participants
+            .sort_by(|left, right| left.participant_id.cmp(&right.participant_id));
+        let left = &snapshot.0.participants[0];
+        let right = &snapshot.0.participants[1];
+        snapshot.0.conflicts = vec![SnapshotConflict {
+            conflict_id: "d".repeat(64),
+            left_participant_id: left.participant_id.clone(),
+            right_participant_id: right.participant_id.clone(),
+            left_plan_id: left.plan_id.clone(),
+            left_node_id: left.node_id.clone(),
+            right_plan_id: right.plan_id.clone(),
+            right_node_id: right.node_id.clone(),
+            left_claim_id: "e".repeat(64),
+            right_claim_id: "f".repeat(64),
+            bases: vec![SnapshotConflictBasis::Resource],
+            overlaps: vec![SnapshotConflictOverlap {
+                basis: SnapshotConflictBasis::Resource,
+                canonical_key: "1".repeat(64),
+            }],
+            disposition: Some(disposition),
+        }];
+        rehash_snapshot(&mut snapshot);
+        validate_assessment_snapshot(&snapshot.0).unwrap();
+        snapshot
+    }
+
+    pub(crate) fn fixture_conflict_snapshot_with_count(
+        disposition: ConflictDisposition,
+        conflict_count: usize,
+    ) -> VerifiedAssessmentSnapshot {
+        assert!((1..=MAX_CONFLICTS).contains(&conflict_count));
+        let mut snapshot = fixture_conflict_snapshot(disposition);
+        let template = snapshot.0.conflicts[0].clone();
+        snapshot.0.conflicts = (0..conflict_count)
+            .map(|index| SnapshotConflict {
+                conflict_id: format!("{index:064x}"),
+                ..template.clone()
+            })
+            .collect();
+        rehash_snapshot(&mut snapshot);
+        validate_assessment_snapshot(&snapshot.0).unwrap();
+        snapshot
+    }
+
+    pub(crate) fn fixture_conflict_snapshot_with_generation(
+        disposition: ConflictDisposition,
+        registry_generation: u64,
+    ) -> VerifiedAssessmentSnapshot {
+        assert!(registry_generation > 0);
+        let mut snapshot = fixture_conflict_snapshot(disposition);
+        snapshot.0.registry_generation = registry_generation;
+        rehash_snapshot(&mut snapshot);
+        validate_assessment_snapshot(&snapshot.0).unwrap();
+        snapshot
+    }
+
+    pub(crate) fn fixture_participant_chain_snapshot(
+        participant_count: usize,
+    ) -> VerifiedAssessmentSnapshot {
+        assert!((2..=MAX_PARTICIPANTS).contains(&participant_count));
+        let mut snapshot = fixture_snapshot(AssessmentVerdict::Wait);
+        snapshot.0.participants = (0..participant_count)
+            .map(|index| {
+                let mut participant = fixture_participant("b", &format!("node-{index:03}"));
+                participant.repository_identity = format!("{:064x}", index + 1);
+                participant.planner_id = format!("planner-{index:03}");
+                participant.plan_id = format!("plan-{index:03}");
+                participant.node_id = format!("node-{index:03}");
+                participant.participant_id = participant_binding(
+                    &participant.repository_identity,
+                    &participant.planner_id,
+                    &participant.plan_id,
+                    &participant.node_id,
+                );
+                participant.run_identity = format!("{:064x}", index + 1_000);
+                participant.worker_identity = format!("{:064x}", index + 2_000);
+                participant.fence = index as u64 + 1;
+                participant.lease_generation = index as u64 + 1;
+                participant
+            })
+            .collect();
+        snapshot
+            .0
+            .participants
+            .sort_by(|left, right| left.participant_id.cmp(&right.participant_id));
+        snapshot.0.conflicts = snapshot
+            .0
+            .participants
+            .windows(2)
+            .enumerate()
+            .map(|(index, pair)| SnapshotConflict {
+                conflict_id: format!("{index:064x}"),
+                left_participant_id: pair[0].participant_id.clone(),
+                right_participant_id: pair[1].participant_id.clone(),
+                left_plan_id: pair[0].plan_id.clone(),
+                left_node_id: pair[0].node_id.clone(),
+                right_plan_id: pair[1].plan_id.clone(),
+                right_node_id: pair[1].node_id.clone(),
+                left_claim_id: format!("{:064x}", index * 2 + 10_000),
+                right_claim_id: format!("{:064x}", index * 2 + 10_001),
+                bases: vec![SnapshotConflictBasis::Resource],
+                overlaps: vec![SnapshotConflictOverlap {
+                    basis: SnapshotConflictBasis::Resource,
+                    canonical_key: format!("{:064x}", index + 20_000),
+                }],
+                disposition: Some(ConflictDisposition::Wait),
+            })
+            .collect();
+        rehash_snapshot(&mut snapshot);
+        validate_assessment_snapshot(&snapshot.0).unwrap();
+        snapshot
+    }
+
+    pub(crate) fn fixture_participant_clique_snapshot(
+        participant_count: usize,
+    ) -> VerifiedAssessmentSnapshot {
+        assert!((2..=100).contains(&participant_count));
+        let mut snapshot = fixture_participant_chain_snapshot(participant_count);
+        let mut conflicts = Vec::with_capacity(participant_count * (participant_count - 1) / 2);
+        for left_index in 0..participant_count {
+            for right_index in (left_index + 1)..participant_count {
+                let index = conflicts.len();
+                let left = &snapshot.0.participants[left_index];
+                let right = &snapshot.0.participants[right_index];
+                conflicts.push(SnapshotConflict {
+                    conflict_id: format!("{index:064x}"),
+                    left_participant_id: left.participant_id.clone(),
+                    right_participant_id: right.participant_id.clone(),
+                    left_plan_id: left.plan_id.clone(),
+                    left_node_id: left.node_id.clone(),
+                    right_plan_id: right.plan_id.clone(),
+                    right_node_id: right.node_id.clone(),
+                    left_claim_id: format!("{:064x}", index * 2 + 100_000),
+                    right_claim_id: format!("{:064x}", index * 2 + 100_001),
+                    bases: vec![SnapshotConflictBasis::Resource],
+                    overlaps: vec![SnapshotConflictOverlap {
+                        basis: SnapshotConflictBasis::Resource,
+                        canonical_key: format!("{:064x}", index + 200_000),
+                    }],
+                    disposition: Some(ConflictDisposition::Wait),
+                });
+            }
+        }
+        assert!(conflicts.len() <= MAX_CONFLICTS);
+        snapshot.0.conflicts = conflicts;
+        rehash_snapshot(&mut snapshot);
+        validate_assessment_snapshot(&snapshot.0).unwrap();
+        snapshot
+    }
+
+    pub(crate) fn fixture_maximum_unique_edge_snapshot() -> VerifiedAssessmentSnapshot {
+        let mut snapshot = fixture_participant_chain_snapshot(MAX_PARTICIPANTS);
+        let mut conflicts = Vec::with_capacity(MAX_CONFLICTS);
+        'outer: for left_index in 0..MAX_PARTICIPANTS {
+            for right_index in (left_index + 1)..MAX_PARTICIPANTS {
+                let index = conflicts.len();
+                let left = &snapshot.0.participants[left_index];
+                let right = &snapshot.0.participants[right_index];
+                conflicts.push(SnapshotConflict {
+                    conflict_id: format!("{index:064x}"),
+                    left_participant_id: left.participant_id.clone(),
+                    right_participant_id: right.participant_id.clone(),
+                    left_plan_id: left.plan_id.clone(),
+                    left_node_id: left.node_id.clone(),
+                    right_plan_id: right.plan_id.clone(),
+                    right_node_id: right.node_id.clone(),
+                    left_claim_id: format!("{:064x}", index * 2 + 300_000),
+                    right_claim_id: format!("{:064x}", index * 2 + 300_001),
+                    bases: vec![SnapshotConflictBasis::Resource],
+                    overlaps: vec![SnapshotConflictOverlap {
+                        basis: SnapshotConflictBasis::Resource,
+                        canonical_key: format!("{:064x}", index + 400_000),
+                    }],
+                    disposition: Some(ConflictDisposition::Wait),
+                });
+                if conflicts.len() == MAX_CONFLICTS {
+                    break 'outer;
+                }
+            }
+        }
+        assert_eq!(conflicts.len(), MAX_CONFLICTS);
+        snapshot.0.conflicts = conflicts;
+        rehash_snapshot(&mut snapshot);
+        validate_assessment_snapshot(&snapshot.0).unwrap();
+        snapshot
     }
 
     pub(crate) fn fixture_snapshot_with_drift(
@@ -1268,13 +1745,23 @@ pub(crate) mod tests {
             .sort_by(|left, right| left.participant_id.cmp(&right.participant_id));
         let left_participant_id = snapshot.0.participants[0].participant_id.clone();
         let right_participant_id = snapshot.0.participants[1].participant_id.clone();
+        let left_node_id = snapshot.0.participants[0].node_id.clone();
+        let right_node_id = snapshot.0.participants[1].node_id.clone();
         snapshot.0.conflicts.push(SnapshotConflict {
             conflict_id: "d".repeat(64),
             left_participant_id,
             right_participant_id,
+            left_plan_id: "plan-a".into(),
+            left_node_id,
+            right_plan_id: "plan-a".into(),
+            right_node_id,
             left_claim_id: "e".repeat(64),
             right_claim_id: "f".repeat(64),
             bases: vec![SnapshotConflictBasis::Resource],
+            overlaps: vec![SnapshotConflictOverlap {
+                basis: SnapshotConflictBasis::Resource,
+                canonical_key: "1".repeat(64),
+            }],
             disposition: Some(ConflictDisposition::Wait),
         });
         rehash_snapshot(&mut snapshot);
@@ -1334,13 +1821,23 @@ pub(crate) mod tests {
             .participants
             .sort_by(|left, right| left.participant_id.cmp(&right.participant_id));
         mismatched.0.verdict = AssessmentVerdict::Wait;
+        let left_node_id = mismatched.0.participants[0].node_id.clone();
+        let right_node_id = mismatched.0.participants[1].node_id.clone();
         mismatched.0.conflicts.push(SnapshotConflict {
             conflict_id: "d".repeat(64),
             left_participant_id: mismatched.0.participants[0].participant_id.clone(),
             right_participant_id: mismatched.0.participants[1].participant_id.clone(),
+            left_plan_id: "plan-a".into(),
+            left_node_id,
+            right_plan_id: "plan-a".into(),
+            right_node_id,
             left_claim_id: "e".repeat(64),
             right_claim_id: "f".repeat(64),
             bases: vec![SnapshotConflictBasis::Resource],
+            overlaps: vec![SnapshotConflictOverlap {
+                basis: SnapshotConflictBasis::Resource,
+                canonical_key: "1".repeat(64),
+            }],
             disposition: Some(ConflictDisposition::Replan),
         });
         rehash_snapshot(&mut mismatched);
@@ -1348,5 +1845,139 @@ pub(crate) mod tests {
             validate_assessment_snapshot(&mismatched.0),
             Err(SnapshotError::InvalidAnalysis)
         ));
+    }
+
+    #[test]
+    fn conflict_commitment_proves_every_exact_field_and_rejects_splices() {
+        let snapshot = fixture_conflict_snapshot(ConflictDisposition::Wait);
+        let proof = snapshot
+            .conflict_proof(&snapshot.conflicts()[0].conflict_id)
+            .unwrap();
+        assert!(verify_conflict_proof(
+            proof.conflict(),
+            proof.leaf_index(),
+            proof.leaf_count(),
+            proof.steps(),
+            proof.commitment_root(),
+        ));
+
+        let mut mutations = Vec::new();
+        let original = proof.conflict().clone();
+        let mut changed = original.clone();
+        changed.left_claim_id = "2".repeat(64);
+        mutations.push(changed);
+        let mut changed = original.clone();
+        changed.left_plan_id = "other-plan".into();
+        mutations.push(changed);
+        let mut changed = original.clone();
+        changed.left_node_id = "other-node".into();
+        mutations.push(changed);
+        let mut changed = original.clone();
+        changed.overlaps[0].canonical_key = "3".repeat(64);
+        mutations.push(changed);
+        let mut changed = original.clone();
+        changed.disposition = Some(ConflictDisposition::Replan);
+        mutations.push(changed);
+        for changed in mutations {
+            assert!(!verify_conflict_proof(
+                &changed,
+                proof.leaf_index(),
+                proof.leaf_count(),
+                proof.steps(),
+                proof.commitment_root(),
+            ));
+        }
+        assert!(!verify_conflict_proof(
+            proof.conflict(),
+            proof.leaf_index(),
+            proof.leaf_count() + 1,
+            proof.steps(),
+            proof.commitment_root(),
+        ));
+        assert!(!verify_conflict_proof(
+            proof.conflict(),
+            proof.leaf_count(),
+            proof.leaf_count(),
+            proof.steps(),
+            proof.commitment_root(),
+        ));
+    }
+
+    #[test]
+    fn non_power_of_two_commitments_reject_truncated_extra_and_flipped_proofs() {
+        for count in [3usize, 5, 16, 383] {
+            let snapshot = fixture_conflict_snapshot_with_count(ConflictDisposition::Wait, count);
+            for index in [0usize, count / 2, count - 1] {
+                let proof = snapshot.conflict_proof(&format!("{index:064x}")).unwrap();
+                assert!(verify_conflict_proof(
+                    proof.conflict(),
+                    proof.leaf_index(),
+                    proof.leaf_count(),
+                    proof.steps(),
+                    proof.commitment_root(),
+                ));
+
+                let mut truncated = proof.steps().to_vec();
+                truncated.pop();
+                assert!(!verify_conflict_proof(
+                    proof.conflict(),
+                    proof.leaf_index(),
+                    proof.leaf_count(),
+                    &truncated,
+                    proof.commitment_root(),
+                ));
+
+                let mut extra = proof.steps().to_vec();
+                extra.push(proof.steps()[0].clone());
+                assert!(!verify_conflict_proof(
+                    proof.conflict(),
+                    proof.leaf_index(),
+                    proof.leaf_count(),
+                    &extra,
+                    proof.commitment_root(),
+                ));
+
+                let mut flipped = proof.steps().to_vec();
+                flipped[0].sibling_on_left = !flipped[0].sibling_on_left;
+                assert!(!verify_conflict_proof(
+                    proof.conflict(),
+                    proof.leaf_index(),
+                    proof.leaf_count(),
+                    &flipped,
+                    proof.commitment_root(),
+                ));
+            }
+            let mut reversed = snapshot.conflicts().to_vec();
+            reversed.reverse();
+            assert_ne!(
+                conflict_commitment_root(snapshot.conflicts()),
+                conflict_commitment_root(&reversed)
+            );
+        }
+    }
+
+    #[test]
+    fn maximum_conflict_commitment_has_bounded_thirteen_hash_proofs() {
+        let mut snapshot = fixture_conflict_snapshot(ConflictDisposition::Wait);
+        let template = snapshot.0.conflicts[0].clone();
+        snapshot.0.conflicts = (0..MAX_CONFLICTS)
+            .map(|index| SnapshotConflict {
+                conflict_id: format!("{index:064x}"),
+                ..template.clone()
+            })
+            .collect();
+        rehash_snapshot(&mut snapshot);
+        validate_assessment_snapshot(&snapshot.0).unwrap();
+        for index in [0, MAX_CONFLICTS / 2, MAX_CONFLICTS - 1] {
+            let proof = snapshot.conflict_proof(&format!("{index:064x}")).unwrap();
+            assert_eq!(proof.steps().len(), 13);
+            assert!(verify_conflict_proof(
+                proof.conflict(),
+                proof.leaf_index(),
+                proof.leaf_count(),
+                proof.steps(),
+                proof.commitment_root(),
+            ));
+        }
     }
 }

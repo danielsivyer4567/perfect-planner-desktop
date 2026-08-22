@@ -3749,7 +3749,7 @@
       "spineId": "P4",
       "side": "R",
       "title": "Conflict-ticket walkie-talkie broker",
-      "status": "pending",
+      "status": "in-progress",
       "dependsOn": [
         "B06",
         "B07"
@@ -3759,6 +3759,7 @@
         "minutes": 120
       },
       "files": [
+        "src-tauri/src/collision_assessor/analyzer.rs",
         "src-tauri/src/collision_assessor/journal.rs",
         "src-tauri/src/collision_assessor/snapshot.rs",
         "src-tauri/src/collision_assessor/tickets.rs",
@@ -3770,10 +3771,10 @@
         "protocol:conflict-ticket",
         "connector:registered-orchestrator-destination"
       ],
-      "notes": "After discovery revocation, orchestrators may only read and write tickets created by their own assessment. The broker exposes no plan enumeration or repository read path.",
+      "notes": "Dormant, production-disabled conflict-ticket primitive only. It reconstructs exact path-free snapshot-bound tickets, owner-scoped inboxes and idempotent global transitions without reopening discovery. There is no production ticket command or authority. B15 must supply a durable revocable native orchestrator/chat route and isolate the generic main-window control-plane surface; B20 must replace the test boolean with non-cloneable native scheduler authority, construct sealed route/signal/ack receipts and close crate-internal raw journal bypasses before activation.",
       "checklist": [
         {
-          "text": "Create durable tickets naming both plan/node identities, exact colliding files/resources, snapshot hash and required disposition",
+          "text": "Create durable tickets naming both plan/node identities, exact path-free canonical colliding file/resource identities, snapshot hash and required disposition",
           "built": false,
           "tested": false,
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
@@ -3802,7 +3803,15 @@
           "tested": false,
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
         }
-      ]
+      ],
+      "startSha": "057abe5eb7c925a85bafdcdff09bca066c9a815f",
+      "startedAt": "2026-08-21T21:09:48.726Z",
+      "startedBy": {
+        "model": "gpt-5.6-codex",
+        "user": "danielsivyer4567",
+        "session": "s-a1b7589d",
+        "at": "2026-08-21T21:09:48.726Z"
+      }
     },
     {
       "id": "B09",
@@ -3896,7 +3905,10 @@
         "src-tauri/src/lib.rs",
         "src/services/boards.ts",
         "scripts/pp-control.mjs",
-        "tests/approval_chat_bridge_e2e.py"
+        "tests/approval_chat_bridge_e2e.py",
+        "src-tauri/src/control_plane_api.rs",
+        "src-tauri/capabilities/main-read-only.json",
+        "src-tauri/permissions/control-plane.toml"
       ],
       "resources": [
         "app-data:control-plane-ledger",
@@ -3942,6 +3954,18 @@
           "tested": false,
           "verify": "npm run test:e2e",
           "ui": true
+        },
+        {
+          "text": "Remove or gate generic main-window control-plane authority before ticket activation; every effective renderer call must be sealed to the exact registered task and route rather than caller-supplied scope",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Require a fresh revocable native route for live and audit-resume mailboxes, and prove stale, dead, reassigned, restarted and cross-task routes cannot remint authority",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
         }
       ]
     },
@@ -6133,7 +6157,8 @@
         "src-tauri/src/orchestrator/mod.rs",
         "src-tauri/src/orchestrator/model.rs",
         "src-tauri/src/orchestrator/scheduler.rs",
-        "src-tauri/tests/collision_authority_issuer_contract.rs"
+        "src-tauri/tests/collision_authority_issuer_contract.rs",
+        "src-tauri/src/collision_assessor/tickets.rs"
       ],
       "resources": [
         "protocol:exclusive-authority-issuer",
@@ -6193,6 +6218,18 @@
         },
         {
           "text": "Construct snapshot store, journal anchor, issuer epoch and secret factories atomically in the native owner and zeroize every temporary token or key on all fallible paths",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Replace the broker enabled boolean with a non-cloneable process-epoch TicketBrokerAuthority owned only by the native scheduler and bind every route, transition and acknowledgement to that authority",
+          "built": false,
+          "tested": false,
+          "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
+        },
+        {
+          "text": "Close crate-internal ticket bypasses by exposing only owner-filtered reads and sealed native-authority append operations before registering any production command",
           "built": false,
           "tested": false,
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
