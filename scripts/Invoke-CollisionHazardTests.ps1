@@ -35,6 +35,15 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# A Windows PowerShell child launched through Node/cmd can inherit PowerShell 7's PSModulePath
+# ordering and try to auto-load an incompatible Microsoft.PowerShell.Utility module. Pin the
+# utility module to this engine's own PSHOME so proof runners and direct shells behave identically.
+$utilityModule = Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1'
+if (-not (Test-Path -LiteralPath $utilityModule -PathType Leaf)) {
+    throw "Built-in PowerShell Utility module is missing: $utilityModule"
+}
+Import-Module -Name $utilityModule -ErrorAction Stop
+
 $script:RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $script:ManifestPath = Join-Path $PSScriptRoot 'collision-hazard-tests.psd1'
 $script:CargoManifest = Join-Path $script:RepoRoot 'src-tauri\Cargo.toml'
