@@ -16,7 +16,9 @@ use crate::collision_assessor::authority::{
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(not(windows))]
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
@@ -32,6 +34,38 @@ pub(crate) struct SchedulerAuthorityRuntime {
     epoch: u64,
     issuer: Mutex<SchedulerAuthorityIssuer>,
     projections: Mutex<BTreeMap<String, AuthorityProjection>>,
+}
+
+/// Native-only proof that one exact CLEAR receipt was consumed and signed by the live owner.
+/// Private fields prevent renderer-shaped or deserialized input from constructing a lease grant.
+pub(crate) struct AuthorizedLeaseGrant {
+    scope_id: String,
+    authorization: ClaimAuthorization,
+    signed_authority: SignedAuthorityEnvelope,
+    verification: AuthorityVerificationMaterial,
+}
+
+impl AuthorizedLeaseGrant {
+    pub(crate) fn scope_id(&self) -> &str {
+        &self.scope_id
+    }
+
+    pub(crate) fn authorization(&self) -> &ClaimAuthorization {
+        &self.authorization
+    }
+
+    pub(crate) fn verify(&self, now_ms: u64) -> Result<(), String> {
+        self.verification
+            .verify(&self.signed_authority, now_ms)
+            .map_err(|error| format!("signed scheduler authority rejected: {error}"))?;
+        if self.authorization.binding.epoch != self.verification.issuer_epoch
+            || self.authorization.expires_at_ms != self.signed_authority.expires_at_ms
+            || self.authorization.issued_at_ms != self.signed_authority.issued_at_ms
+        {
+            return Err("signed scheduler authority does not match the claim window".to_string());
+        }
+        Ok(())
+    }
 }
 
 impl SchedulerAuthorityRuntime {
@@ -132,6 +166,41 @@ impl SchedulerAuthorityRuntime {
         })
     }
 
+    /// Consume CLEAR and sign the resulting authorization while the one process owner is held.
+    /// The returned value is not a worker token; only `SchedulerStore::claim_authorized` may turn
+    /// it into a persisted lease.
+    pub(crate) fn consume_and_sign_clearance(
+        &self,
+        scope_id: &str,
+        request: ClaimRequest,
+        native_binding: &ReservationBinding,
+        payload_digest: [u8; 32],
+        now_ms: u64,
+    ) -> Result<(AuthorizedLeaseGrant, AuthorityProjectionCheckpoint), String> {
+        if request.requested_at_ms != now_ms {
+            return Err(
+                "claim authorization must be issued at the scheduler transaction time".to_string(),
+            );
+        }
+        let (authorization, checkpoint) = self.consume_clearance(scope_id, request, now_ms)?;
+        let ttl_ms = authorization
+            .expires_at_ms
+            .checked_sub(now_ms)
+            .filter(|ttl| *ttl > 0)
+            .ok_or_else(|| "claim authorization already expired".to_string())?;
+        let signed_authority =
+            self.issue_reservation_authority(native_binding, payload_digest, now_ms, ttl_ms)?;
+        let verification = self.verification_material()?;
+        let grant = AuthorizedLeaseGrant {
+            scope_id: scope_id.to_string(),
+            authorization,
+            signed_authority,
+            verification,
+        };
+        grant.verify(now_ms)?;
+        Ok((grant, checkpoint))
+    }
+
     pub(crate) fn invalidate(&self, scope_id: &str) -> Result<(), String> {
         self.projections
             .lock()
@@ -228,6 +297,11 @@ fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::orchestrator::authority_projection::{
+        AuthorityBinding, CensusVerdict, ProjectionStatus,
+    };
+    use crate::orchestrator::scheduler::{NodeStatus, ScheduledNode, SchedulerStore};
+    use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir() -> PathBuf {
@@ -261,6 +335,115 @@ mod tests {
             restarted_material.key_fingerprint
         );
         drop(restarted);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn signed_clearance_grant_and_replay_consumption_persist_with_the_lease() {
+        let root = temp_dir();
+        let runtime = SchedulerAuthorityRuntime::open(&root).expect("authority owner");
+        let binding = AuthorityBinding {
+            organization_id: "org-a".to_string(),
+            repository_id: "repo-a".to_string(),
+            plan_id: "PP-002".to_string(),
+            node_id: "B20".to_string(),
+            epoch: runtime.epoch(),
+            generation: 1,
+            fence: 1,
+            plan_digest: "a".repeat(64),
+            manifest_digest: "b".repeat(64),
+            collision_digest: "c".repeat(64),
+        };
+        let scope = "org-a/repo-a/PP-002/B20/g1";
+        runtime
+            .reserve(
+                scope,
+                PreclaimReservation {
+                    receipt_id: "reservation-1".to_string(),
+                    binding: binding.clone(),
+                    issued_at_ms: 100,
+                    expires_at_ms: 10_000,
+                },
+                100,
+            )
+            .expect("reserve");
+        runtime
+            .publish_authority(
+                scope,
+                AuthorityPublicationReceipt {
+                    receipt_id: "publication-1".to_string(),
+                    reservation_receipt_id: "reservation-1".to_string(),
+                    binding: binding.clone(),
+                    published_at_ms: 101,
+                    expires_at_ms: 9_000,
+                },
+                101,
+            )
+            .expect("publish");
+        runtime
+            .accept_clear_census(
+                scope,
+                CensusClearReceipt {
+                    receipt_id: "clearance-1".to_string(),
+                    reservation_receipt_id: "reservation-1".to_string(),
+                    publication_receipt_id: "publication-1".to_string(),
+                    binding: binding.clone(),
+                    census_digest: "d".repeat(64),
+                    verdict: CensusVerdict::Clear,
+                    observed_at_ms: 102,
+                    expires_at_ms: 8_000,
+                },
+                102,
+            )
+            .expect("clear census");
+        let native_binding = ReservationBinding::from_native_digests(
+            [1; 32], [2; 32], [3; 32], [4; 32], [5; 32], 1, 1, 1,
+        )
+        .expect("native binding");
+        let (grant, checkpoint) = runtime
+            .consume_and_sign_clearance(
+                scope,
+                ClaimRequest {
+                    request_id: "authorization-1".to_string(),
+                    worker_id: "worker-1".to_string(),
+                    clearance_receipt_id: "clearance-1".to_string(),
+                    binding,
+                    requested_at_ms: 103,
+                    expires_at_ms: 5_000,
+                },
+                &native_binding,
+                [6; 32],
+                103,
+            )
+            .expect("signed claim grant");
+        assert_eq!(checkpoint.status, ProjectionStatus::ClaimAuthorized);
+
+        let scheduler = SchedulerStore::open(
+            root.join("scheduler.json"),
+            root.clone(),
+            vec![ScheduledNode {
+                id: "B20".to_string(),
+                wave: 1,
+                depends_on: Vec::new(),
+                attempts: 0,
+                status: NodeStatus::Ready,
+                lease: None,
+                stall_alarm_fence: None,
+            }],
+        )
+        .expect("scheduler");
+        let lease = scheduler
+            .claim_authorized(&grant, 103)
+            .expect("authorized lease");
+        assert_eq!(lease.authority_epoch, Some(runtime.epoch()));
+        assert_eq!(lease.authorization_id.as_deref(), Some("authorization-1"));
+        assert!(scheduler.claim_authorized(&grant, 103).is_err());
+        let persisted = scheduler.snapshot().expect("snapshot");
+        assert!(persisted
+            .consumed_authorization_ids
+            .contains("authorization-1"));
+        drop(scheduler);
+        drop(runtime);
         let _ = fs::remove_dir_all(root);
     }
 }

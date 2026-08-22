@@ -225,3 +225,36 @@ fn renderer_claim_and_heartbeat_clients_throw_instead_of_invoking_native_admissi
     assert!(claim.contains("B20 scheduler-owned collision authority issuer is not active"));
     assert!(heartbeat.contains("B09/B20 authority-backed admission is not active"));
 }
+
+#[test]
+fn sealed_signed_grant_is_the_only_authority_backed_scheduler_claim_path() {
+    let runtime = source("src/orchestrator/authority_runtime.rs");
+    let scheduler = source("src/orchestrator/scheduler.rs");
+    let grant_marker = "pub(crate) struct AuthorizedLeaseGrant";
+    let grant_attributes = attributes_before(&runtime, grant_marker);
+    let grant_body = item_body(&runtime, grant_marker);
+    assert!(!grant_attributes.contains("Deserialize"));
+    assert!(!runtime.contains("#[tauri::command]"));
+    for field in ["authorization:", "signed_authority:", "verification:"] {
+        let line = grant_body
+            .lines()
+            .find(|line| line.contains(field))
+            .unwrap_or_else(|| panic!("missing sealed grant field {field}"));
+        assert!(!line.trim_start().starts_with("pub"));
+    }
+
+    let authorized_claim = item_body(&scheduler, "fn claim_authorized");
+    for required in [
+        "grant.verify(now_ms)",
+        "consumed_authorization_ids",
+        "authorization.binding.fence",
+        "authority_epoch: Some",
+        "authorization_id: Some",
+    ] {
+        assert!(
+            authorized_claim.contains(required),
+            "authorized scheduler claim must bind `{required}`"
+        );
+    }
+    assert!(!attributes_before(&scheduler, "fn claim_authorized").contains("#[tauri::command]"));
+}

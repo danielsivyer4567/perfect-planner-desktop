@@ -1,12 +1,14 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+use super::authority_runtime::AuthorizedLeaseGrant;
 
 const MAX_ATTEMPTS: u32 = 3;
 const AUTHORITY_SCHEMA_VERSION: u32 = 1;
@@ -20,6 +22,10 @@ pub struct NodeLease {
     pub token: String,
     pub fence: u64,
     pub expires_at_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authority_epoch: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -59,6 +65,8 @@ pub struct SchedulerState {
     pub authority_schema_version: u32,
     #[serde(default)]
     pub pending_legacy_revocations: Vec<LegacyLeaseRevocation>,
+    #[serde(default)]
+    pub consumed_authorization_ids: BTreeSet<String>,
     pub next_fence: u64,
     pub nodes: BTreeMap<String, ScheduledNode>,
 }
@@ -98,6 +106,7 @@ impl SchedulerStore {
             let state = SchedulerState {
                 authority_schema_version: AUTHORITY_SCHEMA_VERSION,
                 pending_legacy_revocations: Vec::new(),
+                consumed_authorization_ids: BTreeSet::new(),
                 next_fence: 1,
                 nodes: nodes
                     .into_iter()
@@ -211,10 +220,88 @@ impl SchedulerStore {
                 token,
                 fence,
                 expires_at_ms: now_ms.saturating_add(lease_ms),
+                authority_epoch: None,
+                authorization_id: None,
             };
             node.status = NodeStatus::Running;
             node.lease = Some(lease.clone());
             node.stall_alarm_fence = None;
+            Ok(lease)
+        })
+    }
+
+    /// The only B20 path from a consumed, signed CLEAR result to a persisted worker lease.
+    /// The authorization ID and authority epoch are committed in the same scheduler state write
+    /// as the lease, so a crash cannot persist write authority without also consuming replay.
+    pub(crate) fn claim_authorized(
+        &self,
+        grant: &AuthorizedLeaseGrant,
+        now_ms: u64,
+    ) -> Result<NodeLease, String> {
+        grant.verify(now_ms)?;
+        let authorization = grant.authorization();
+        if authorization.issued_at_ms != now_ms || authorization.expires_at_ms <= now_ms {
+            return Err("authorized lease grant has a stale or non-exact issue time".to_string());
+        }
+        let node_id = authorization.binding.node_id.as_str();
+        let worker_id = authorization.worker_id.as_str();
+        self.mutate(|state| {
+            if state
+                .consumed_authorization_ids
+                .contains(&authorization.authorization_id)
+            {
+                return Err("authorized lease grant was already consumed".to_string());
+            }
+            let dependencies_ready = {
+                let node = state
+                    .nodes
+                    .get(node_id)
+                    .ok_or_else(|| format!("unknown node {node_id}"))?;
+                node.depends_on.iter().all(|dependency| {
+                    state
+                        .nodes
+                        .get(dependency)
+                        .is_some_and(|value| value.status == NodeStatus::Done)
+                })
+            };
+            if !dependencies_ready {
+                return Err(format!("node {node_id} has incomplete dependencies"));
+            }
+            let fence = state.next_fence.max(1);
+            if authorization.binding.fence != fence
+                || authorization.binding.epoch == 0
+                || authorization.binding.generation == 0
+                || grant.scope_id().trim().is_empty()
+            {
+                return Err(
+                    "authorized lease grant drifted from scheduler fence or scope".to_string(),
+                );
+            }
+            let node = state
+                .nodes
+                .get_mut(node_id)
+                .ok_or_else(|| format!("unknown node {node_id}"))?;
+            if node.status != NodeStatus::Ready || node.lease.is_some() {
+                return Err(format!("node {node_id} is not claimable"));
+            }
+            node.attempts = node.attempts.saturating_add(1);
+            let token = lease_token(node_id, worker_id, fence, now_ms);
+            let lease = NodeLease {
+                node_id: node_id.to_string(),
+                worker_id: worker_id.to_string(),
+                token,
+                fence,
+                expires_at_ms: authorization.expires_at_ms,
+                authority_epoch: Some(authorization.binding.epoch),
+                authorization_id: Some(authorization.authorization_id.clone()),
+            };
+            node.status = NodeStatus::Running;
+            node.lease = Some(lease.clone());
+            node.stall_alarm_fence = None;
+            state.next_fence = fence.saturating_add(1);
+            state
+                .consumed_authorization_ids
+                .insert(authorization.authorization_id.clone());
             Ok(lease)
         })
     }
