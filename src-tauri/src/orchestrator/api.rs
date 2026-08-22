@@ -55,8 +55,7 @@ pub struct ScopedRunRequest {
 pub struct CreateRunApiRequest {
     pub repository_root: PathBuf,
     pub run_id: String,
-    pub branch: String,
-    pub allowed_files: Vec<PathBuf>,
+    pub plan_path: PathBuf,
     #[serde(default)]
     pub next_actions: Vec<String>,
     pub nodes: Vec<ScheduledNode>,
@@ -283,7 +282,6 @@ pub fn orchestrator_create_run(
 ) -> Result<CreateRunApiResponse, String> {
     let repository_root = canonical_repository(&request.repository_root)?;
     validate_run_id(&request.run_id)?;
-    validate_text("branch", &request.branch)?;
     if request.nodes.is_empty() {
         return Err("scheduler requires at least one node".to_string());
     }
@@ -292,8 +290,7 @@ pub fn orchestrator_create_run(
     let scope = RunScope::create(CreateRunScope {
         repository_root: repository_root.clone(),
         run_id: request.run_id.clone(),
-        branch: request.branch,
-        allowed_files: request.allowed_files,
+        plan_path: request.plan_path,
         next_actions: request.next_actions,
     })?;
     let context = open_context(&ScopedRunRequest {
@@ -628,46 +625,8 @@ pub fn orchestrator_deliver(request: DeliveryApiRequest) -> Result<DeliveryOutco
 fn open_context(request: &ScopedRunRequest) -> Result<ScopedContext, String> {
     let repository_root = canonical_repository(&request.repository_root)?;
     validate_run_id(&request.run_id)?;
-    let scratch = repository_root
-        .join(".claude")
-        .join("scratch")
-        .join("orchestrator")
-        .canonicalize()
-        .map_err(|error| format!("cannot resolve repository orchestrator root: {error}"))?;
-    if !scratch.starts_with(&repository_root) {
-        return Err("orchestrator scratch root escapes the repository".to_string());
-    }
-    let run_dir = scratch
-        .join(&request.run_id)
-        .canonicalize()
-        .map_err(|error| format!("cannot resolve scoped run directory: {error}"))?;
-    if run_dir.parent() != Some(scratch.as_path()) || !run_dir.is_dir() {
-        return Err(
-            "run directory is not a direct child of the repository orchestrator root".to_string(),
-        );
-    }
-
-    let manifest_path = contained_existing_file(&run_dir, "manifest.json")?;
-    let audit_path = contained_existing_file(&run_dir, "audit.jsonl")?;
-    let events_path = contained_existing_file(&run_dir, "events.jsonl")?;
-    let hot_resume_path = contained_existing_file(&run_dir, "hot-resume.json")?;
-    let manifest: AllowedFileManifest = serde_json::from_slice(
-        &fs::read(&manifest_path).map_err(|error| format!("cannot read run manifest: {error}"))?,
-    )
-    .map_err(|error| format!("cannot parse run manifest: {error}"))?;
-    if manifest.run_id != request.run_id
-        || manifest.repository_root.canonicalize().ok().as_ref() != Some(&repository_root)
-    {
-        return Err("run manifest identity does not match its repository scope".to_string());
-    }
-    let scope = RunScope {
-        root: run_dir.clone(),
-        manifest_path,
-        audit_path,
-        events_path,
-        hot_resume_path,
-        manifest,
-    };
+    let scope = RunScope::open(&repository_root, &request.run_id)?;
+    let run_dir = scope.root.clone();
     Ok(ScopedContext {
         repository_root,
         run_dir,
@@ -1119,17 +1078,6 @@ fn canonical_repository(path: &Path) -> Result<PathBuf, String> {
     Ok(repository)
 }
 
-fn contained_existing_file(run_dir: &Path, name: &str) -> Result<PathBuf, String> {
-    let path = run_dir
-        .join(name)
-        .canonicalize()
-        .map_err(|error| format!("cannot resolve run file {name}: {error}"))?;
-    if path.parent() != Some(run_dir) || !path.is_file() {
-        return Err(format!("run file {name} escapes the scoped run directory"));
-    }
-    Ok(path)
-}
-
 fn open_scheduler(
     context: &ScopedContext,
     nodes: Vec<ScheduledNode>,
@@ -1569,7 +1517,41 @@ mod tests {
                 std::process::id(),
                 TEMP_ID.fetch_add(1, Ordering::Relaxed)
             ));
-            fs::create_dir_all(path.join(".git")).unwrap();
+            fs::create_dir_all(&path).unwrap();
+            run_git(&path, &["init", "-q", "-b", "feature/api"]);
+            run_git(
+                &path,
+                &["config", "user.email", "perfect-planner@example.invalid"],
+            );
+            run_git(&path, &["config", "user.name", "Perfect Planner Test"]);
+            fs::write(path.join("seed.txt"), "seed\n").unwrap();
+            run_git(&path, &["add", "seed.txt"]);
+            run_git(&path, &["commit", "-q", "-m", "seed"]);
+            let plan_path = path.join(".claude/scratch/perfect-plan/api-plan.json");
+            fs::create_dir_all(plan_path.parent().unwrap()).unwrap();
+            let plan = serde_json::json!({
+                "title": "API test plan",
+                "goal": "Exercise native commands",
+                "approved": "yes @ test",
+                "meta": { "number": "PP-API", "branch": "feature/api" },
+                "spine": [{ "id": "P1", "title": "API" }],
+                "vertebrae": [{
+                    "id": "A01",
+                    "spineId": "P1",
+                    "title": "Exercise API",
+                    "status": "pending",
+                    "dependsOn": [],
+                    "files": ["src/lib.rs"],
+                    "resources": [],
+                    "checklist": [{
+                        "text": "API passes",
+                        "built": false,
+                        "tested": false,
+                        "verify": "cargo test"
+                    }]
+                }]
+            });
+            fs::write(plan_path, serde_json::to_vec_pretty(&plan).unwrap()).unwrap();
             Self(path)
         }
 
@@ -1577,8 +1559,7 @@ mod tests {
             RunScope::create(CreateRunScope {
                 repository_root: self.0.clone(),
                 run_id: run_id.to_string(),
-                branch: "feature/api".to_string(),
-                allowed_files: vec![PathBuf::from("src/lib.rs")],
+                plan_path: PathBuf::from(".claude/scratch/perfect-plan/api-plan.json"),
                 next_actions: vec!["claim node".to_string()],
             })
             .unwrap()
@@ -1605,6 +1586,21 @@ mod tests {
                 scheduler.complete("A01", &lease.token, 2).unwrap();
             }
         }
+    }
+
+    fn run_git(repository: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(repository)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     impl Drop for TempRepo {
@@ -1636,7 +1632,7 @@ mod tests {
     }
 
     #[test]
-    fn manifest_identity_mismatch_fails_closed() {
+    fn manifest_tampering_fails_closed_before_identity_use() {
         let repository = TempRepo::new();
         let scope = repository.create_scope("run-1");
         let mut manifest: Value =
@@ -1653,7 +1649,7 @@ mod tests {
             run_id: "run-1".to_string(),
         })
         .unwrap_err()
-        .contains("identity does not match"));
+        .contains("digest does not verify"));
     }
 
     #[test]
@@ -1934,8 +1930,7 @@ mod tests {
         let create = orchestrator_create_run(CreateRunApiRequest {
             repository_root: repository_root.clone(),
             run_id: scope_request.run_id.clone(),
-            branch: "feature/public-proof".to_string(),
-            allowed_files: vec![PathBuf::from("src/lib.rs")],
+            plan_path: PathBuf::from(".claude/scratch/perfect-plan/api-plan.json"),
             next_actions: vec!["claim A01".to_string()],
             nodes: vec![ScheduledNode {
                 id: "A01".to_string(),
@@ -2062,7 +2057,7 @@ mod tests {
                 run_id: scope_request.run_id.clone(),
                 plan_id: "PP-001".to_string(),
                 title: "Public command proof".to_string(),
-                branch: "feature/public-proof".to_string(),
+                branch: "feature/api".to_string(),
                 commit_sha: "abc123".to_string(),
                 pull_request_url: Some("https://example.test/pull/1".to_string()),
                 merge_sha: Some("def456".to_string()),

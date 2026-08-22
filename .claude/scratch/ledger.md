@@ -1,4 +1,98 @@
 # Ledger: Perfect Planner Tauri — fail-closed orchestration pipeline
+
+## Live finish pass — 2026-08-23 (supersedes the completion claim below)
+
+Approved: yes (user-directed execution in this task)
+Plan: PP-002 — Cross-repository Collision Assessor
+Session: s-049651b9
+Repository: C:\repos\perfect-planner-tauri
+Worktree: C:\repos\perfect-planner-tauri
+Branch: feature/tauri-orchestrator-messaging-20260821-223935
+Baseline commit: 177208f653bdfe622f6c292b212c02417996346b
+Remote delivery: forbidden; local commits only after a coherent verified slice
+
+The earlier TO-01..TO-09 record is retained below as historical evidence, but it is not proof for
+this repository. It binds a different worktree and cites release/UI artifacts that are absent here.
+Every historical checkbox is therefore reopened unless current-root source inspection, automated
+tests and native/manual evidence re-establish it.
+
+### Live dependency spine
+
+#### LF-01 — Audit and evidence reconciliation [completed]
+
+- Ownership: `.claude/scratch/ledger.md`, PP-002 proof records, audit-only generated reports.
+- Depends on: none.
+- Accept: repository/branch/worktree/remotes/status, native commands, frontend call paths, scripts,
+  tests, plan state and prior artifacts are proved from `C:\repos\perfect-planner-tauri`.
+- Evidence: captured command output, current-root plan integrity, focused baseline build/test/lint.
+- Stop: any sibling plan/file collision, unexpected remote/worktree, or pre-existing product-file diff.
+- Result: exact root/branch/worktree/remotes/status, command surfaces, call paths, scripts, plan proof
+  integrity and prior artifact claims revalidated; stale old-worktree evidence is not being reused.
+
+#### LF-02 — Exact run scope, plan approval and manifest binding [completed]
+
+- Ownership: `src-tauri/src/orchestrator/run_scope.rs`, the create/load boundary in
+  `src-tauri/src/orchestrator/api.rs`, `model.rs`, and focused Rust integration tests.
+- Depends on: LF-01.
+- Accept: create-or-load is idempotent only for the same physical worktree, branch, plan identity,
+  plan digest, approval receipt and canonical allowed-file manifest; stale/cross-scope input fails closed.
+- Evidence: negative-path Rust tests plus persisted manifest/hot-resume inspection after restart.
+- Stop: Git identity cannot be derived natively or an existing run cannot be migrated fail-closed.
+- Result: schema-v2 run manifests derive the physical Git worktree/common directories, live branch,
+  baseline commit, stable approved plan contract, approval receipt and canonical plan-wide file union.
+  Exact create is idempotent, every scoped command revalidates live binding, and drift/tamper fails closed.
+
+#### LF-03 — Native authority admission and secret lease ownership [in progress]
+
+- Ownership: `src-tauri/src/collision_assessor/{authority,clearance,registry,snapshot}.rs`,
+  `src-tauri/src/orchestrator/{preclaim_store,scheduler,api}.rs`, `src-tauri/src/lib.rs`, permissions
+  and command-contract tests.
+- Depends on: LF-02 and PP-002 B20.
+- Accept: reserve -> publish -> census -> CLEAR -> single-use signed grant -> claim is one native flow;
+  renderer/worker never receives issuer keys or raw lease secrets; duplicate/stale/replayed grants fail.
+- Evidence: race/replay/restart tests, command allowlist tests and durable audit events.
+- Stop: incomplete census coverage, unknown registry state, lock/epoch loss, or scope digest drift.
+
+#### LF-04 — Native heartbeat, evidence, recovery and atomic completion [pending]
+
+- Ownership: `src-tauri/src/orchestrator/{worker,evidence,event_bus,reconcile,release,delivery,api,run_scope,scheduler}.rs`
+  and focused Rust tests.
+- Depends on: LF-03.
+- Accept: native-held lease renews truthfully; actual Git changes are checked against the manifest;
+  completion validates evidence and gates before an idempotent durable terminal receipt/hot-resume update;
+  restart recovery resolves prepared/committed state without duplicate completion.
+- Evidence: manifest-escape, dirty-state, evidence-gap, crash-window and idempotency tests plus run files.
+- Stop: actual repository changes cannot be attributed safely or any partial terminal write can claim done.
+
+#### LF-05 — Real Tauri lifecycle controls [pending]
+
+- Ownership: `src/services/orchestratorPipeline.ts`, `src/components/PipelineConsole.tsx`, `src/App.tsx`,
+  `src/index.css`, browser/native UI tests.
+- Depends on: LF-02 through LF-04.
+- Accept: create/load, preflight, approve, admit, observe/heartbeat, validate/complete and recover use
+  registered native commands; unavailable actions are disabled with the exact fail-closed reason.
+- Evidence: TypeScript build, browser regression, real packaged-app interactions, screenshots and clean logs.
+- Stop: any UI control reports success without a native durable state transition.
+
+#### LF-06 — Certification, packaging and evidence matrix [pending]
+
+- Ownership: test scripts, `design-qa.md`, handover/evidence documents and generated release artifacts.
+- Depends on: LF-01 through LF-05.
+- Accept: formatting, full Rust tests, warnings-denied Clippy, frontend build, browser E2E, hazard suite,
+  fresh Tauri release, real app launch and one safe bounded lifecycle demonstration all pass.
+- Evidence: command logs, artifact hashes, screenshots, refreshed console/native logs, manual interaction notes,
+  changed-file summary and requirement-to-proof matrix.
+- Stop: any lifecycle requirement lacks both implementation evidence and an honest result/limitation.
+
+### Global edit protocol
+
+Before every product edit: rerun PP-002 collision scan, verify the target is owned by the current live
+slice, inspect its diff and direct callers, and record dependency impact. No reset, stash, discard,
+branch switch, worktree removal, network sync, merge, rebase, push, PR or remote mutation is allowed.
+No slice is complete on compilation alone; focused tests precede full regression and evidence capture.
+
+## Historical ledger (untrusted until revalidated)
+
 Approved: yes @ 2026-08-22 (chat)
 Graph: existing graph queried; direct source verification required before each edit
 Run ID: ORCH-20260822-001
