@@ -822,6 +822,10 @@ def main() -> None:
         )
 
         page.goto(APP_URL, wait_until="networkidle")
+        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
+        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "false")
+        orchestrator_toggle.evaluate("element => element.click()")
+        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
         root = page.locator("#pp-orch-pipeline-console")
         expect(root).to_be_visible(timeout=10_000)
         assert page.evaluate(

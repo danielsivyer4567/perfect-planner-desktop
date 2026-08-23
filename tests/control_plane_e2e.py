@@ -127,6 +127,11 @@ def main():
         expect(alpha).to_be_visible()
         alpha.evaluate("element => element.click()")
 
+        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
+        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "false")
+        orchestrator_toggle.evaluate("element => element.click()")
+        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
+
         messenger = page.locator("#pp-region-orchestrator-messenger")
         expect(messenger).to_be_visible()
         expect(page.locator("#pp-badge-orchestrator-inbox")).to_contain_text("0")
@@ -150,6 +155,12 @@ def main():
         expect(page.locator('[data-delivery-state="DELIVERED"]')).to_have_count(1)
         expect(page.locator('[data-delivery-state="UNROUTED"]')).to_have_count(1)
         expect(page.locator("#pp-badge-orchestrator-unrouted")).to_contain_text("1")
+        expect(page.locator("#pp-status-workspace-messages")).to_contain_text(
+            "awaiting delivery"
+        )
+        expect(page.locator(".orchestrator-activity")).to_contain_text(
+            "Provider access is blocked"
+        )
         assert page.get_by_text("SENT", exact=True).count() == 0, (
             "the UI claimed a delivery was sent without connector proof"
         )
@@ -189,9 +200,11 @@ def main():
             }
             """
         )
-        expect(page.get_by_text("Worker note: OAuth consent is required", exact=False)).to_be_visible(
-            timeout=8_000
-        )
+        expect(
+            page.locator("#pp-list-worker-notes").get_by_text(
+                "Worker note: OAuth consent is required", exact=False
+            )
+        ).to_be_visible(timeout=8_000)
         incoming = page.locator(f'[data-message-id="{incoming_id}"]')
         expect(incoming).to_have_attribute("data-delivery-state", "DELIVERED")
         incoming.get_by_role("button", name="ACKNOWLEDGE").evaluate(
@@ -210,6 +223,9 @@ def main():
         beta.evaluate("element => element.click()")
         expect(page.locator("#pp-badge-orchestrator-inbox")).to_contain_text("0")
         expect(page.locator("#pp-badge-orchestrator-outbox")).to_contain_text("0")
+        expect(page.locator(".orchestrator-activity")).not_to_contain_text(
+            "Provider access is blocked"
+        )
         page.locator("#pp-btn-open-worker-notes-s-worker-beta").evaluate(
             "element => element.click()"
         )

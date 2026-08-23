@@ -36,6 +36,10 @@ def main():
         assert target_port and target_port.isdigit(), "selected live row has no board port"
         target.click()
         expect(target).to_have_class(re.compile(r"\bon\b"))
+        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
+        if orchestrator_toggle.get_attribute("aria-expanded") == "false":
+            orchestrator_toggle.evaluate("element => element.click()")
+        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
         expect(page.locator("iframe.board")).to_have_attribute("src", re.compile(rf":{target_port}/$"))
         target_topic = target.locator(".rail-topic").inner_text()
         expect(page.locator(".crumb")).to_contain_text(target_topic)

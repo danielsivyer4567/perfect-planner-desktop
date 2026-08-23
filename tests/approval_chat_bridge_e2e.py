@@ -152,6 +152,14 @@ def main():
         context.route("http://127.0.0.1:5231/**", mock_board)
         page.goto(APP_URL, wait_until="networkidle")
 
+        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
+        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "false")
+        # The embedded board may still be settling a routed navigation. Dispatch the
+        # semantic button click and assert the resulting state instead of coupling this
+        # shell control to Playwright's unrelated iframe-navigation wait.
+        orchestrator_toggle.evaluate("element => element.click()")
+        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
+
         exact_row = page.locator('[data-board-port="5230"]')
         blocked_row = page.locator('[data-board-port="5231"]')
         expect(exact_row.locator('[data-approval-bridge-state="UNVERIFIED_BOARD_CLAIM"]')).to_be_visible()
@@ -170,6 +178,10 @@ def main():
             raise AssertionError("exact board iframe did not load")
         frame.locator("#approve").click()
         page.reload(wait_until="networkidle")
+        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
+        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "false")
+        orchestrator_toggle.evaluate("element => element.click()")
+        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
 
         exact_row = page.locator('[data-board-port="5230"]')
         blocked_row = page.locator('[data-board-port="5231"]')

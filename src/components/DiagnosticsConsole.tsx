@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import type { Board } from "../services/boards";
 import type { OrchestratorSnapshot } from "../services/orchestratorPipeline";
 import type { PlanSnapshot, Vertebra } from "../types/plan";
@@ -33,10 +33,6 @@ export function DiagnosticsConsole({
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   const issueCount = useMemo(
     () => entries.filter((entry) => entry.level !== "info").length,
-    [entries]
-  );
-  const errorCount = useMemo(
-    () => entries.filter((entry) => entry.level === "error").length,
     [entries]
   );
   const incompleteNodes = useMemo(() => {
@@ -118,10 +114,6 @@ export function DiagnosticsConsole({
       detail: `Native collision census approved ${pipelineSnapshot.runApproval.collisionAssessments.length} node${pipelineSnapshot.runApproval.collisionAssessments.length === 1 ? "" : "s"}; admission remains native-only.`,
     } as const;
   }, [pipelineSnapshot]);
-
-  useEffect(() => {
-    if (errorCount) setOpen(true);
-  }, [errorCount]);
 
   return (
     <section

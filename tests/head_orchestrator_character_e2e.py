@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APP_URL = "http://127.0.0.1:5180/"
 PLAN_PATH = r"C:\fixtures\head-orchestrator-character.json"
 SCREENSHOT = ROOT / "artifacts" / "head-orchestrator-character-3x.png"
+MINIMIZED_SCREENSHOT = ROOT / "artifacts" / "head-orchestrator-minimized-3x.png"
 
 
 def main() -> None:
@@ -93,8 +94,48 @@ def main() -> None:
         speech = page.locator("#pp-status-head-orchestrator-speech")
         worker_route = page.locator("#pp-list-worker-reports")
         spinner = page.locator("#pp-status-looplet-live-feed")
+        minimize_toggle = page.locator("#pp-btn-toggle-orchestrator")
+        orchestrator_details = page.locator("#pp-panel-orchestrator-details")
+        pipeline_details = page.locator("#pp-panel-orchestrator-pipeline")
+        board_frame = page.locator("#pp-frame-active-board")
 
         expect(head).to_be_visible()
+        expect(page.locator("#pp-panel-diagnostics-console")).to_be_hidden()
+        expect(minimize_toggle).to_be_visible()
+        expect(minimize_toggle).to_have_attribute("aria-expanded", "false")
+        expect(minimize_toggle).to_have_accessible_name("Expand orchestrator header")
+        expect(head).to_have_attribute("data-minimized", "true")
+        expect(orchestrator_details).to_be_hidden()
+        expect(pipeline_details).to_be_hidden()
+        expect(board_frame).to_be_visible()
+        minimized_frame_box = board_frame.bounding_box()
+        assert minimized_frame_box, "the minimized planner frame has no layout box"
+
+        minimize_toggle.evaluate("element => element.click()")
+        expect(minimize_toggle).to_have_attribute("aria-expanded", "true")
+        expect(minimize_toggle).to_have_accessible_name("Minimise orchestrator header")
+        expect(head).to_have_attribute("data-minimized", "false")
+        expect(orchestrator_details).to_be_visible()
+        expect(pipeline_details).to_be_visible()
+        expanded_frame_box = board_frame.bounding_box()
+        assert expanded_frame_box, "the expanded planner frame has no layout box"
+        assert expanded_frame_box["y"] - minimized_frame_box["y"] >= 140, (
+            "minimising the orchestrator did not move the planner viewport and right scrollbar high enough"
+        )
+
+        # Expansion is deliberately temporary: every fresh load must return the
+        # planner canvas to the high, compact starting position.
+        page.reload()
+        page.wait_for_load_state("networkidle")
+        expect(minimize_toggle).to_have_attribute("aria-expanded", "false")
+        expect(head).to_have_attribute("data-minimized", "true")
+        page.screenshot(path=str(MINIMIZED_SCREENSHOT), full_page=False)
+        minimized_image_size = MINIMIZED_SCREENSHOT.stat().st_size
+        assert minimized_image_size > 100_000, (
+            f"minimized 3x screenshot is unexpectedly small: {minimized_image_size} bytes"
+        )
+        minimize_toggle.evaluate("element => element.click()")
+
         expect(actor).to_be_visible()
         expect(actor).to_have_attribute("data-role", "head-orchestrator-character")
         expect(actor).to_have_attribute("data-orchestrator-id", head.get_attribute("data-entity-id"))
@@ -159,6 +200,7 @@ def main() -> None:
 
     print("head orchestrator character e2e: 1 scenario passed")
     print(f"screenshot: {SCREENSHOT}")
+    print(f"minimized screenshot: {MINIMIZED_SCREENSHOT}")
 
 
 if __name__ == "__main__":

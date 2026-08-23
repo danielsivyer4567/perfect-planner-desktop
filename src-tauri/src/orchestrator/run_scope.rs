@@ -47,6 +47,28 @@ pub struct AllowedFileManifest {
     pub manifest_digest: String,
 }
 
+/// Only an explicit `port:<u16>` resource claim becomes a host preflight prerequisite.
+/// Other resource namespaces remain available to the collision assessor but cannot be
+/// guessed into process ownership checks.
+pub fn declared_required_ports(manifest: &AllowedFileManifest) -> Result<BTreeSet<u16>, String> {
+    manifest
+        .allowed_resources
+        .iter()
+        .filter_map(|resource| {
+            resource
+                .strip_prefix("port:")
+                .map(|value| (resource, value))
+        })
+        .map(|(resource, value)| {
+            value
+                .parse::<u16>()
+                .ok()
+                .filter(|port| *port > 0)
+                .ok_or_else(|| format!("invalid declared port resource {resource}"))
+        })
+        .collect()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AllowedNodeManifest {
@@ -1187,6 +1209,41 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static TEMP_ID: AtomicU64 = AtomicU64::new(1);
+
+    #[test]
+    fn declared_ports_are_explicit_and_fail_closed() {
+        let mut manifest = AllowedFileManifest {
+            schema_version: 2,
+            run_id: "run-ports".into(),
+            repository_root: PathBuf::from("C:/repo"),
+            worktree_git_dir: PathBuf::from("C:/repo/.git"),
+            git_common_dir: PathBuf::from("C:/repo/.git"),
+            worktree_id: "worktree".into(),
+            branch: "feature/ports".into(),
+            baseline_commit: "abc123".into(),
+            plan_id: "PP-PORTS".into(),
+            plan_path: PathBuf::from("C:/repo/plan.json"),
+            plan_contract_digest: "contract".into(),
+            approval_receipt_digest: "approval".into(),
+            allowed_files: vec![PathBuf::from("src/main.rs")],
+            allowed_resources: vec![
+                "runtime:worker".into(),
+                "port:5233".into(),
+                "port:8770".into(),
+            ],
+            nodes: vec![],
+            manifest_digest: "manifest".into(),
+        };
+        assert_eq!(
+            declared_required_ports(&manifest).unwrap(),
+            [5233, 8770].into_iter().collect()
+        );
+
+        manifest.allowed_resources.push("port:not-a-number".into());
+        assert!(declared_required_ports(&manifest)
+            .unwrap_err()
+            .contains("invalid declared port resource"));
+    }
 
     struct TempRepo(PathBuf);
 

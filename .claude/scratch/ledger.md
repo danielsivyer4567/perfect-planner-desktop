@@ -1,5 +1,108 @@
 # Ledger: Perfect Planner Tauri — fail-closed orchestration pipeline
 
+## Architecture deep dive and finish — 2026-08-23
+
+Approved: yes (the user explicitly directed implementation, verification and a local commit)
+Repository: `C:\repos\perfect-planner-tauri`
+Worktree: `C:\repos\perfect-planner-tauri`
+Branch: `feature/tauri-orchestrator-messaging-20260821-223935`
+Baseline commit: `77abb60cbbba9f964e04461e68e237b0255a9fd1`
+Remote delivery: forbidden; create one verified local commit only
+
+### Current lifecycle
+
+```text
+board discovery -> selected port -> plan JSON -> native run manifest
+       |                 |              |              |
+ legacy reports      iframe canvas   approval bridge  preflight -> approve
+       |                                |              -> admit/lease
+ session reaper -> exact-board clear    |              -> evidence/complete
+                                        +-> control-plane messages
+
+native durable truth: app-data JSONL + run-scoped manifest/scheduler/evidence/events
+UI truth today: App + PipelineConsole + Messenger poll and present those streams separately
+CI/release truth: persisted model can be displayed, but the renderer cannot invent or run it
+```
+
+### Required lifecycle
+
+```text
+explicit repository tab -> scoped plan -> native preflight -> safe recommendation
+          |                   |               |
+          +-- visual fence ---+        conflict / dirty / prerequisite truth
+                                                  |
+task registry + routed activity <---- admit/lease/heartbeat/result/recovery
+          |                                       |
+          +---- evidence gate (tests/build/smoke/risks) ----> ready for CI
+                                                               |
+                                             CI result -> complete / blocked / decision
+```
+
+### Prioritised gaps found before implementation
+
+1. **P0 — fragmented operational truth:** run nodes, legacy workers, approval routing and messages
+   are separately polled and cannot be read as one scoped lifecycle in the command surface.
+2. **P0 — canvas displacement:** expanding orchestration inserts large pipeline and messaging panels
+   into document flow, moving the active plan hundreds of pixels down the window.
+3. **P0 — weak scope visibility:** repository identity exists in the left rail and breadcrumb but there
+   is no compact repository tab/fence beside the active plan and health state.
+4. **P0 — preflight blind spot:** the UI sends an empty required-port list, so declared port conflicts
+   cannot become a decision before admission.
+5. **P0 — CI readiness ambiguity:** native evidence/reconciliation/release state exists, but the primary
+   surface does not distinguish unknown CI, blocked local evidence and genuinely ready-for-CI state.
+6. **P1 — persistence/ownership:** the selected recorded run is renderer memory, while the catalog is
+   durable; reload can require explicit re-selection. This pass will surface that honestly, not guess.
+7. **P1 — actionable failure language:** several warnings name a subsystem but not the selected
+   repository/plan and do not consistently give one safe next action.
+8. **P1 — test gaps:** there is no single focused suite proving repository visual separation, declared
+   port conflict derivation, interrupted recovery, message routing state, lifecycle transitions and
+   CI-readiness presentation together.
+
+### Execution slices
+
+#### AF-01 — Scoped lifecycle projection [completed]
+
+- Ownership: `src/services/orchestrationWorkspace.ts`, focused unit/browser fixtures.
+- Depends on: architecture audit above.
+- Accept: exact repository/plan inputs derive health, activity, task and CI-readiness labels without
+  treating absent data as success; no cross-repository item may enter the projection.
+- Stop: any projection requires fabricated worker, message, run or CI state.
+
+#### AF-02 — Manifest-derived preflight conflicts [completed]
+
+- Ownership: native run/preflight API, frontend pipeline service/console, focused Rust and UI tests.
+- Depends on: AF-01.
+- Accept: explicit plan port resources are derived from the immutable native manifest and checked by
+  preflight; undeclared or malformed resources remain non-authoritative and visible as unknown/absent.
+- Stop: renderer input can broaden native scope or stop an unowned process.
+
+#### AF-03 — Command surface and non-displacing inspector [completed]
+
+- Ownership: `src/App.tsx`, `src/components/OrchestratorMessenger.tsx`, `src/index.css`, UI regressions.
+- Depends on: AF-01.
+- Accept: compact full-width header shows repo, plan, health, orchestration, messaging and CI state;
+  repository tabs visibly fence scope; diagnostics/pipeline/message detail lives in an accessible fixed
+  inspector; collapsed canvas starts directly below the header.
+- Stop: inspector traps focus incorrectly, obscures the canvas without a close path, or duplicates polls.
+
+#### AF-04 — Verification, evidence and local commit [completed]
+
+- Ownership: focused tests, existing verification scripts, screenshots, final diff and this ledger.
+- Depends on: AF-01 through AF-03.
+- Accept: formatting/typecheck, Rust tests, focused integration/browser tests, production build, fresh
+  packaged Tauri smoke, screenshot plus refreshed console/native logs, and an exact staged-file review.
+- Stop: any failing check, unexplained cross-repository assumption, or missing UI evidence.
+
+### Design direction
+
+- Palette: preserve the existing planner parchment and dark evergreen control plane; use semantic
+  mint/amber/coral only for proven healthy/waiting/blocked state.
+- Type: preserve the product's existing editorial heading and compact mono operations labels.
+- Layout: the plan is the workspace; controls form a shallow scope strip and low-frequency detail slides
+  over the right edge as an inspector rather than becoming another page section.
+- Signature: an always-visible repository scope rail that reads like a physical switchboard and makes
+  cross-repository context changes explicit.
+
 ## Live finish pass — 2026-08-23 (supersedes the completion claim below)
 
 Approved: yes (user-directed execution in this task)

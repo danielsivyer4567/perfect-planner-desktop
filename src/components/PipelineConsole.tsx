@@ -19,6 +19,7 @@ import {
   PipelineStageId,
   PipelineWarning,
   ScheduledNode,
+  declaredRequiredPorts,
   orchestratorApproveRun,
   orchestratorClaim,
   orchestratorComplete,
@@ -298,11 +299,24 @@ function PreflightPanel({
   const report = snapshot.preflight;
   const approval = snapshot.runApproval;
   const [running, setRunning] = useState(false);
+  let requiredPorts: number[] = [];
+  let requiredPortError: string | null = snapshot.manifest
+    ? null
+    : "Immutable run manifest unavailable; required ports are unknown";
+  try {
+    if (snapshot.manifest) requiredPorts = declaredRequiredPorts(snapshot.manifest);
+  } catch (cause) {
+    requiredPortError = cause instanceof Error ? cause.message : String(cause);
+  }
   const inspect = async () => {
     if (!repositoryRoot || !runId || running) return;
+    if (requiredPortError) {
+      onError?.(`${requiredPortError}. Correct the plan resource claim before preflight.`);
+      return;
+    }
     setRunning(true);
     try {
-      await orchestratorPreflight({ repositoryRoot, runId, requiredPorts: [] });
+      await orchestratorPreflight({ repositoryRoot, runId, requiredPorts });
       onRan?.();
     } catch (cause) {
       onError?.(cause instanceof Error ? cause.message : String(cause));
@@ -331,7 +345,13 @@ function PreflightPanel({
         </button>
       </header>
       {!report ? (
-        <p id="pp-orch-empty-preflight">Execution remains blocked until preflight is recorded.</p>
+        <p id="pp-orch-empty-preflight">
+          Execution remains blocked until preflight is recorded. {requiredPortError
+            ? requiredPortError
+            : requiredPorts.length
+              ? `Declared ports checked: ${requiredPorts.join(", ")}.`
+              : "This plan declares no port prerequisites."}
+        </p>
       ) : (
         <>
           {!snapshot.preflightFresh ? (

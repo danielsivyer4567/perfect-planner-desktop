@@ -147,7 +147,9 @@ export function ActionContextMenu({ onPlanAction, onLog }: ActionContextMenuProp
       if (!(event.target instanceof Element) || !event.target.closest("#pp-context-menu")) setTarget(null);
     };
     const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setTarget(null);
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      setTarget(null);
     };
     const blur = () => setTarget(null);
     document.addEventListener("contextmenu", open, true);

@@ -48,6 +48,8 @@ import {
   SupervisorSnapshot,
 } from "./services/sessionSupervisor";
 import { ControlPlaneScope } from "./services/controlPlane";
+import type { ControlPlaneSnapshot } from "./services/controlPlane";
+import { deriveWorkspaceStatus } from "./services/orchestrationWorkspace";
 
 const SOUND_KEY = "perfect-planner:stall-sound";
 const VOLUME_KEY = "perfect-planner:stall-volume";
@@ -223,7 +225,9 @@ export const App: React.FC = () => {
     planPath: string;
   } | null>(null);
   const [pipelineSnapshot, setPipelineSnapshot] = useState<OrchestratorSnapshot | null>(null);
+  const [controlPlaneSnapshot, setControlPlaneSnapshot] = useState<ControlPlaneSnapshot | null>(null);
   const [dismissedPlans, setDismissedPlans] = useState<Set<string>>(storedDismissedPlans);
+  const [orchestratorMinimized, setOrchestratorMinimized] = useState(true);
   const [resourceGuard, setResourceGuard] = useState<ResourceGuardState>({
     status: "checking",
     result: null,
@@ -243,6 +247,8 @@ export const App: React.FC = () => {
   const lastResourceDiagnosticRef = useRef("");
   const activePortRef = useRef<number | null>(null);
   const activePortMissesRef = useRef(0);
+  const orchestratorToggleRef = useRef<HTMLButtonElement>(null);
+  const orchestratorInspectorRef = useRef<HTMLElement>(null);
 
   const activateBoardPort = useCallback((port: number | null) => {
     activePortRef.current = port;
@@ -728,6 +734,7 @@ export const App: React.FC = () => {
   useEffect(() => {
     setSelectedPipelineScope(null);
     setPipelineSnapshot(null);
+    setControlPlaneSnapshot(null);
   }, [active?.planPath]);
   const selectPipelineRun = useCallback((run: PipelineRunSummary) => {
     if (!active?.planPath) return;
@@ -774,6 +781,40 @@ export const App: React.FC = () => {
       })),
     [active?.planPath, visibleWorkerReports]
   );
+  const workspaceStatus = useMemo(() => deriveWorkspaceStatus({
+    board: active,
+    pipeline: boundPipelineSnapshot,
+    controlPlane: controlPlaneSnapshot,
+    workers: visibleWorkerReports
+      .filter((report) => report.planPath === active?.planPath)
+      .map((report) => report.worker),
+    decisionCount: decisionBoards.length,
+    identityError,
+    supervisorError,
+  }), [
+    active,
+    boundPipelineSnapshot,
+    controlPlaneSnapshot,
+    decisionBoards.length,
+    identityError,
+    supervisorError,
+    visibleWorkerReports,
+  ]);
+
+  useEffect(() => {
+    if (orchestratorMinimized) return;
+    const inspector = orchestratorInspectorRef.current;
+    const closeButton = inspector?.querySelector<HTMLButtonElement>("[data-inspector-close]");
+    closeButton?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (document.querySelector("#pp-context-menu, #pp-panel-worker-notes")) return;
+      setOrchestratorMinimized(true);
+      window.setTimeout(() => orchestratorToggleRef.current?.focus(), 0);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [orchestratorMinimized]);
 
   const toggleSound = () => {
     const next = !soundEnabledRef.current;
@@ -871,6 +912,10 @@ export const App: React.FC = () => {
     }
     activateBoardPort(boards[0]?.port ?? null);
     void scan();
+  };
+
+  const toggleOrchestratorMinimized = () => {
+    setOrchestratorMinimized((current) => !current);
   };
 
   const handleContextPlanAction = useCallback((action: "select" | "remove" | "open", planPath: string) => {
@@ -1160,7 +1205,8 @@ export const App: React.FC = () => {
           data-repository-call-sign={activeRepositoryCallSign}
           data-project-name={pipelineProjectLabel}
           data-branch-name={pipelineBranchLabel}
-          className={`orchestrator${decisionBoards.length ? " decision" : ""}${!boundPipelineSnapshot && (identityError || supervisorError) ? " identity-error" : ""}`}
+          className={`orchestrator${orchestratorMinimized ? " minimized" : ""}${decisionBoards.length ? " decision" : ""}${!boundPipelineSnapshot && (identityError || supervisorError) ? " identity-error" : ""}`}
+          data-minimized={orchestratorMinimized}
           aria-label="Head orchestrator"
         >
           <div className="orchestrator-head">
@@ -1199,14 +1245,96 @@ export const App: React.FC = () => {
                       ? "STOPPED"
                       : "INSPECTING SETUP"}
             </span>
+            <span
+              className={`workspace-status workspace-status-${workspaceStatus.tone}`}
+              id="pp-status-workspace-health"
+              title={workspaceStatus.nextAction}
+            >
+              <b>{workspaceStatus.healthLabel}</b>
+              <small>{workspaceStatus.orchestrationLabel}</small>
+            </span>
+            <span className="workspace-status" id="pp-status-workspace-messages">
+              <b>{workspaceStatus.messagingLabel}</b>
+              <small>{workspaceStatus.ciLabel}</small>
+            </span>
             <span className="head-stat" id="pp-stat-worker-reports"><b>{workerReportCount}</b> {boundPipelineSnapshot ? "nodes" : "reports"}</span>
             <span className="head-stat" id="pp-stat-active"><b>{activeWorkers}</b> active</span>
             <span className={`head-stat${scopedStalled ? " bad" : ""}`} id="pp-stat-held"><b>{scopedStalled}</b> {boundPipelineSnapshot ? "blocked" : "grace"}</span>
             <span className="head-stat" id="pp-stat-completed"><b>{scopedCleared}</b> {boundPipelineSnapshot ? "done" : "cleared"}</span>
             <span className={`head-stat${decisionBoards.length ? " needs" : ""}`}><b>{decisionBoards.length}</b> decisions</span>
             <ResourceGuard state={resourceGuard} onRefresh={refreshResourceGuard} />
+            <button
+              ref={orchestratorToggleRef}
+              id="pp-btn-toggle-orchestrator"
+              type="button"
+              className="orchestrator-toggle"
+              aria-expanded={!orchestratorMinimized}
+              aria-controls="pp-panel-orchestrator-inspector"
+              aria-label={`${orchestratorMinimized ? "Open" : "Close"} orchestration inspector`}
+              title={`${orchestratorMinimized ? "Open" : "Close"} orchestration inspector`}
+              onClick={toggleOrchestratorMinimized}
+            >
+              <span aria-hidden="true">{orchestratorMinimized ? "+" : "−"}</span>
+              {orchestratorMinimized ? "Inspect" : "Close"}
+            </button>
           </div>
+        </section>
 
+        <nav className="repository-scope-tabs" aria-label="Repository scope">
+          {repositoryGroups.map((repository) => {
+            const repositoryBoards = repository.branches.flatMap((branch) => branch.boards);
+            const selected = repository.scope.id === activeRepository?.id;
+            return (
+              <button
+                key={repository.scope.id}
+                id={`pp-btn-repository-tab-${stableEntityId("repository-tab", repository.scope.id)}`}
+                type="button"
+                className={selected ? "selected" : ""}
+                aria-current={selected ? "page" : undefined}
+                onClick={() => activateBoardPort(repositoryBoards[0]?.port ?? null)}
+                title={`Show ${repository.scope.label} only`}
+              >
+                <span>{repository.callSign}</span>
+                <strong>{repository.scope.label}</strong>
+                <small>{repository.boardCount} plan{repository.boardCount === 1 ? "" : "s"}</small>
+              </button>
+            );
+          })}
+        </nav>
+
+        <aside
+          ref={orchestratorInspectorRef}
+          id="pp-panel-orchestrator-inspector"
+          className="orchestrator-inspector"
+          aria-label={`Orchestration inspector for ${pipelineRepositoryLabel} ${active?.number || "no plan"}`}
+          hidden={orchestratorMinimized}
+        >
+          <header className="orchestrator-inspector-head">
+            <div>
+              <span>SCOPED INSPECTOR · {activeRepositoryCallSign}</span>
+              <strong>{pipelineRepositoryLabel} · {active ? boardLabel(active) : "No plan selected"}</strong>
+              <small>{workspaceStatus.nextAction}</small>
+            </div>
+            <button
+              id="pp-btn-close-orchestrator-inspector"
+              type="button"
+              data-inspector-close
+              onClick={() => {
+                setOrchestratorMinimized(true);
+                window.setTimeout(() => orchestratorToggleRef.current?.focus(), 0);
+              }}
+            >
+              Close inspector
+            </button>
+          </header>
+          <div className="orchestrator-activity" role="status" aria-live="polite">
+            <span>Latest meaningful activity</span>
+            <p>{workspaceStatus.latestActivity}</p>
+          </div>
+          <div
+            id="pp-panel-orchestrator-details"
+            className="orchestrator-details"
+          >
           <div className="worker-wire" id="pp-list-worker-reports" role="list" aria-label="Worker reports">
             {boundPipelineSnapshot ? pipelineNodes.length ? pipelineNodes.map((node) => {
               const completion = boundPipelineSnapshot.scheduler.completions?.[node.id];
@@ -1291,19 +1419,23 @@ export const App: React.FC = () => {
             scope={controlPlaneScope}
             orchestratorId={orchestratorId}
             workers={controlPlaneWorkers}
+            onSnapshotChange={setControlPlaneSnapshot}
           />
-        </section>
+          </div>
 
-        <PipelineConsole
-          runId={pipelineScope?.runId}
-          repositoryRoot={pipelineScope?.repositoryRoot || active?.repoRoot}
-          planPath={active?.planPath}
-          snapshotSeed={pipelineSnapshotSeed}
-          onSelectRun={selectPipelineRun}
-          onRunCreated={selectCreatedPipelineRun}
-          onSnapshotChange={setPipelineSnapshot}
-          onDiagnostic={recordPipelineDiagnostic}
-        />
+        <div id="pp-panel-orchestrator-pipeline">
+          <PipelineConsole
+            runId={pipelineScope?.runId}
+            repositoryRoot={pipelineScope?.repositoryRoot || active?.repoRoot}
+            planPath={active?.planPath}
+            snapshotSeed={pipelineSnapshotSeed}
+            onSelectRun={selectPipelineRun}
+            onRunCreated={selectCreatedPipelineRun}
+            onSnapshotChange={setPipelineSnapshot}
+            onDiagnostic={recordPipelineDiagnostic}
+          />
+        </div>
+        </aside>
 
         {active ? (
           <>

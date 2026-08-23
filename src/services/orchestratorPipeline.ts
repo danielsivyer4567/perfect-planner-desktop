@@ -233,6 +233,19 @@ export interface AllowedFileManifest {
   manifestDigest: string;
 }
 
+export function declaredRequiredPorts(manifest: AllowedFileManifest): number[] {
+  return [...new Set(manifest.allowedResources.flatMap((resource) => {
+    if (!resource.startsWith("port:")) return [];
+    const value = resource.slice("port:".length);
+    if (!/^\d+$/.test(value)) throw new Error(`Invalid declared port resource ${resource}`);
+    const port = Number(value);
+    if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+      throw new Error(`Invalid declared port resource ${resource}`);
+    }
+    return [port];
+  }))].sort((left, right) => left - right);
+}
+
 export interface RunApprovalReceipt {
   manifestDigest: string;
   planContractDigest: string;
@@ -516,6 +529,7 @@ export interface PipelineStage {
 export interface OrchestratorSnapshot {
   nowMs: number;
   preflightFresh: boolean;
+  manifest?: AllowedFileManifest;
   run: PipelineRunSummary;
   stages: PipelineStage[];
   preflight: PreflightReport | null;
@@ -867,6 +881,7 @@ export function consoleSnapshotFromPipelineResponse(
   return {
     nowMs,
     preflightFresh,
+    manifest: response.manifest,
     run,
     stages,
     preflight,

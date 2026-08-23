@@ -13,6 +13,7 @@ import {
   postControlMessage,
   recordControlDelivery,
   type ControlMessage,
+  type ControlPlaneSnapshot,
   type ControlPlaneScope,
 } from "../services/controlPlane";
 
@@ -28,6 +29,7 @@ export interface OrchestratorMessengerProps {
   orchestratorId: string | null;
   workers: OrchestratorWorker[];
   refreshToken?: number;
+  onSnapshotChange?: (snapshot: ControlPlaneSnapshot | null) => void;
   chatDestination?: {
     registrationId?: string;
     address?: string;
@@ -316,6 +318,7 @@ export function OrchestratorMessenger({
   orchestratorId,
   workers,
   refreshToken,
+  onSnapshotChange,
   chatDestination,
 }: OrchestratorMessengerProps) {
   const isNativeTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -342,6 +345,7 @@ export function OrchestratorMessenger({
   const refresh = useCallback(async () => {
     if (!scope) {
       setSnapshot(null);
+      onSnapshotChange?.(null);
       return;
     }
     if (refreshRunningRef.current) return;
@@ -382,13 +386,14 @@ export function OrchestratorMessenger({
         }
       }
       setSnapshot(next);
+      onSnapshotChange?.(next);
       setSyncError(null);
     } catch (cause) {
       setSyncError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       refreshRunningRef.current = false;
     }
-  }, [orchestratorId, scope]);
+  }, [onSnapshotChange, orchestratorId, scope]);
 
   useEffect(() => {
     void refresh();

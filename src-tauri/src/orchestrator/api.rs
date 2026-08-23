@@ -14,7 +14,8 @@ use super::preflight::{
 use super::reconcile::{reconcile, ReconciliationInput, ReconciliationResult};
 use super::release::{evaluate_release, ReleaseGateInput, ReleaseGateResult};
 use super::run_scope::{
-    AllowedFileManifest, CreateRunScope, HotResumeState, RunAuditEvent, RunScope,
+    declared_required_ports, AllowedFileManifest, CreateRunScope, HotResumeState, RunAuditEvent,
+    RunScope,
 };
 use super::scheduler::{
     AdmissionGitBaseline, NodeCompletion, NodeLease, NodeStatus, PublicNodeLease,
@@ -647,11 +648,18 @@ pub fn orchestrator_preflight_inspect(
     request: PreflightInspectApiRequest,
 ) -> Result<PreflightReport, String> {
     let context = open_context(&request.scope)?;
+    let required_ports = declared_required_ports(&context.scope.manifest)?;
+    if request.required_ports != required_ports {
+        return Err(format!(
+            "preflight required ports must exactly match immutable manifest claims: expected {:?}, received {:?}",
+            required_ports, request.required_ports
+        ));
+    }
     let probe = Pwsh7SystemProbe::fixed()?;
     let engine = PreflightEngine::new(probe, DenyProcessAdapter);
     let report = engine.run(&PreflightRequest {
         repository_root: context.repository_root.clone(),
-        required_ports: request.required_ports,
+        required_ports,
         process_allowlist: BTreeSet::new(),
         stop_allowlisted_conflicts: false,
     })?;

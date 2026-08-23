@@ -39,6 +39,10 @@ def select_run(page) -> None:
     card = page.locator(f'[data-board-port="{BOARD_PORT}"]')
     expect(card).to_be_visible(timeout=15_000)
     card.dispatch_event("click")
+    orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
+    if orchestrator_toggle.get_attribute("aria-expanded") == "false":
+        orchestrator_toggle.dispatch_event("click")
+    expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
     expect(page.locator("#pp-orch-btn-load-runs")).to_be_visible(timeout=10_000)
     load = page.locator("#pp-orch-btn-load-runs")
     expect(load).to_be_enabled(timeout=15_000)

@@ -147,6 +147,13 @@ def select_run(cdp: Cdp) -> None:
         lambda: attribute(cdp, board, "aria-pressed") == "true",
         "exact board selection",
     )
+    if attribute(cdp, "#pp-btn-toggle-orchestrator", "aria-expanded") == "false":
+        click(cdp, "#pp-btn-toggle-orchestrator")
+    wait_until(
+        cdp,
+        lambda: attribute(cdp, "#pp-btn-toggle-orchestrator", "aria-expanded") == "true",
+        "expanded orchestrator header",
+    )
     if RUN_ID in text(cdp, "#pp-orch-pipeline-console"):
         assert cdp.evaluate("Boolean(window.__TAURI_INTERNALS__)") is True
         return

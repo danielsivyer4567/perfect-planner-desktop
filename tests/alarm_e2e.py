@@ -113,6 +113,10 @@ def main():
         page.route("http://127.0.0.1:5233/", lambda route: route.fulfill(body="<html></html>"))
         page.goto(APP_URL)
         page.wait_for_load_state("networkidle")
+        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
+        if orchestrator_toggle.get_attribute("aria-expanded") == "false":
+            orchestrator_toggle.evaluate("element => element.click()")
+        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
         expect(page.locator(".rail-num", has_text="PP-TEST")).to_be_visible()
         assert page.locator("#pp-list-boards .rail-item").count() == 1, (
             "duplicate servers for the same plan must collapse to one plan row"

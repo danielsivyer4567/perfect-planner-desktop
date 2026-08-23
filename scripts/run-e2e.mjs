@@ -9,6 +9,7 @@ const tests = [
   "tests/repository_rail_e2e.py",
   "tests/evidence_e2e.py",
   "tests/control_plane_e2e.py",
+  "tests/orchestration_workspace_e2e.py",
   "tests/orchestrator_pipeline_e2e.py",
 ];
 

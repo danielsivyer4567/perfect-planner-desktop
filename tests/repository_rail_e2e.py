@@ -59,6 +59,7 @@ def main():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 900})
+        page.set_default_timeout(10_000)
         probe_available = {port: True for port in BOARDS}
 
         def mock_probe(route):
@@ -101,6 +102,7 @@ def main():
 
         page.goto(APP_URL)
         page.wait_for_load_state("networkidle")
+        print("repository rail: loaded", flush=True)
 
         repositories = page.locator("[data-repository-id]")
         expect(repositories).to_have_count(2)
@@ -133,6 +135,7 @@ def main():
 
         planner_plan = page.get_by_role("button", name="PP-001 Repository B Perfect Planner main Desktop shell")
         planner_plan.evaluate("element => element.click()")
+        print("repository rail: selected planner", flush=True)
         expect(active_scope).to_contain_text("Perfect Planner")
         expect(active_scope).to_contain_text("main")
         expect(active_scope).to_contain_text("Desktop shell")
@@ -157,19 +160,45 @@ def main():
 
         page.reload()
         page.wait_for_load_state("networkidle")
+        print("repository rail: reloaded", flush=True)
         expect(page.locator('.repo-section[data-repository-name="Looplet CRM"]')).to_have_attribute(
             "data-repository-call-sign", "A"
         )
         expect(page.locator('.repo-section[data-repository-name="Perfect Planner"]')).to_have_attribute(
             "data-repository-call-sign", "B"
         )
+        repository_tabs = page.locator(".repository-scope-tabs button")
+        expect(repository_tabs).to_have_count(2)
+        expect(repository_tabs.nth(0)).to_contain_text("Looplet CRM")
+        expect(repository_tabs.nth(1)).to_contain_text("Perfect Planner")
+        expect(page.locator("#pp-status-workspace-health")).to_contain_text("run not selected")
+        expect(page.locator("#pp-status-workspace-messages")).to_contain_text("CI unknown")
 
+        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
+        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "false")
+        frame_top_before = page.locator("#pp-frame-active-board").bounding_box()["y"]
+        orchestrator_toggle.evaluate("element => element.click()")
+        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
+        print("repository rail: inspector opened", flush=True)
+        inspector = page.locator("#pp-panel-orchestrator-inspector")
+        expect(inspector).to_be_visible()
+        expect(inspector).to_contain_text("Looplet CRM")
+        print("repository rail: inspector scoped", flush=True)
+        frame_top_after = page.locator("#pp-frame-active-board").bounding_box()["y"]
+        assert frame_top_after == frame_top_before, (
+            f"fixed inspector displaced the workflow canvas: {frame_top_before} -> {frame_top_after}"
+        )
         resource_guard = page.locator("#pp-btn-resource-guard")
         expect(resource_guard).to_contain_text("RESOURCE GUARD · UNAVAILABLE")
-        resource_guard.click()
+        resource_guard.evaluate("element => element.click()")
         expect(page.locator("#pp-resource-guard")).to_contain_text(
             "Resource guard is available in the Tauri desktop app"
         )
+        print("repository rail: guard opened", flush=True)
+        page.evaluate("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))")
+        print("repository rail: inspector verified", flush=True)
+        expect(inspector).to_be_hidden()
+        expect(orchestrator_toggle).to_be_focused()
 
         target_plan = page.get_by_role(
             "button", name="PP-001 Repository B Perfect Planner main Desktop shell"
@@ -185,6 +214,7 @@ def main():
         expect(page.locator(".rail-item")).to_have_count(2)
         expect(page.locator("#pp-btn-restore-dismissed")).to_contain_text("restore 1")
         page.locator("#pp-btn-restore-dismissed").evaluate("element => element.click()")
+        print("repository rail: context actions verified", flush=True)
         expect(page.locator(".rail-item")).to_have_count(3)
 
         console_toggle = page.locator("#pp-btn-diagnostics-toggle")
@@ -195,6 +225,7 @@ def main():
         expect(page.locator("#pp-panel-diagnostics-console")).to_contain_text("NOT ATTESTED")
 
         page.screenshot(path=str(SCREENSHOT), full_page=True)
+        print("repository rail: screenshot captured", flush=True)
         browser.close()
 
     print("repository_rail_e2e: PASS")
