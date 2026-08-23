@@ -1,0 +1,2396 @@
+diff --git a/src-tauri/src/collision_assessor/analyzer.rs b/src-tauri/src/collision_assessor/analyzer.rs
+new file mode 100644
+index 0000000..d3751be
+--- /dev/null
++++ b/src-tauri/src/collision_assessor/analyzer.rs
+@@ -0,0 +1,2187 @@
++//! Pure, bounded collision analysis over a registry-validated census.
++//!
++//! This module deliberately has no filesystem, network, process, clock, or renderer authority.
++//! The only entry point accepts `RegistryRead`: an UNKNOWN registry can never be converted into a
++//! graph, while a COMPLETE document is defensively rechecked using only its frozen metadata.
++
++use super::model::{
++    ActiveClaimContract, ActiveClaimState, CanonicalClaim, CanonicalClaimKind, ClaimSnapshotStatus,
++    CollisionVerdict, ConflictDisposition,
++};
++use super::registry::{
++    planner_manifest_digest, DiscoveryCensus, RegistryDocument, RegistryRead,
++    REGISTRY_SCHEMA_VERSION,
++};
++use sha2::{Digest, Sha256};
++use std::collections::{BTreeMap, BTreeSet};
++
++const ANALYZER_SCHEMA_VERSION: u32 = 1;
++const MAX_ANALYZER_ROOTS: usize = 128;
++const MAX_ANALYZER_PLANNERS: usize = 512;
++const MAX_ANALYZER_PARTICIPANTS: usize = 65_536;
++const MAX_ANALYZER_CLAIMS: usize = 131_072;
++const MAX_DEPENDENCY_EDGES: usize = 262_144;
++const MAX_ANCESTOR_PROBES: usize = 1_048_576;
++const MAX_PAIR_PROBES: usize = 1_048_576;
++// The analyzer must finish deduplicating logical and physical-alias bases before the immutable
++// snapshot's stricter 8,192-ticket admission ceiling is applied. Keeping this bounded staging
++// ceiling avoids a false UNKNOWN while still failing closed at snapshot preparation.
++const MAX_CONFLICTS: usize = 65_536;
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
++pub(crate) enum CollisionBasis {
++    ExactFile,
++    PhysicalAlias,
++    DirectoryPrefix,
++    Resource,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub(crate) enum AnalysisUnknownReason {
++    RegistryUnknown,
++    InvalidRegistry,
++    InvalidCensus,
++    StaleCensus,
++    IncompleteCoverage,
++    InvalidManifest,
++    InvalidClaimSnapshot,
++    InvalidActiveContract,
++    MissingDisposition,
++    ContradictoryDisposition,
++    MixedDispositions,
++    LimitExceeded,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub(crate) struct CollisionConflict {
++    pub(crate) conflict_id: String,
++    pub(crate) left_participant_id: String,
++    pub(crate) right_participant_id: String,
++    pub(crate) left_claim_id: String,
++    pub(crate) right_claim_id: String,
++    pub(crate) bases: Vec<CollisionBasis>,
++    /// Exact, path-free collision identities frozen while discovery authority is live.
++    /// Each key is an opaque canonical claim/alias digest, never a foreign filesystem path.
++    pub(crate) overlaps: Vec<CollisionOverlap>,
++    /// A conflict is still a fact when its two signed rules are absent or contradictory.
++    /// Keeping the edge while withholding its disposition prevents UNKNOWN from hiding work.
++    pub(crate) disposition: Option<ConflictDisposition>,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub(crate) struct CollisionOverlap {
++    pub(crate) basis: CollisionBasis,
++    pub(crate) canonical_key: String,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub(crate) struct CollisionAnalysis {
++    pub(crate) schema_version: u32,
++    pub(crate) verdict: CollisionVerdict,
++    pub(crate) registry_generation: Option<u64>,
++    pub(crate) census_input_digest: Option<String>,
++    pub(crate) conflicts: Vec<CollisionConflict>,
++    pub(crate) unknown_reason: Option<AnalysisUnknownReason>,
++}
++
++impl CollisionAnalysis {
++    fn unknown(reason: AnalysisUnknownReason, generation: Option<u64>) -> Self {
++        Self::unknown_with_conflicts(reason, generation, None, Vec::new())
++    }
++
++    fn unknown_with_conflicts(
++        reason: AnalysisUnknownReason,
++        generation: Option<u64>,
++        census_input_digest: Option<String>,
++        conflicts: Vec<CollisionConflict>,
++    ) -> Self {
++        Self {
++            schema_version: ANALYZER_SCHEMA_VERSION,
++            verdict: CollisionVerdict::Unknown,
++            registry_generation: generation,
++            census_input_digest,
++            conflicts,
++            unknown_reason: Some(reason),
++        }
++    }
++}
++
++#[derive(Debug, Clone, Copy)]
++struct ClaimRef<'a> {
++    claim: &'a CanonicalClaim,
++}
++
++type DispositionIndex<'a> = BTreeMap<(&'a str, &'a str), ConflictDisposition>;
++
++#[derive(Debug)]
++struct PendingConflict {
++    left: usize,
++    right: usize,
++    bases: BTreeSet<CollisionBasis>,
++}
++
++#[derive(Default)]
++struct WorkBudget {
++    ancestor_probes: usize,
++    pair_probes: usize,
++}
++
++impl WorkBudget {
++    fn ancestor_probe(&mut self) -> Result<(), AnalysisUnknownReason> {
++        self.ancestor_probes = self
++            .ancestor_probes
++            .checked_add(1)
++            .ok_or(AnalysisUnknownReason::LimitExceeded)?;
++        if self.ancestor_probes > MAX_ANCESTOR_PROBES {
++            return Err(AnalysisUnknownReason::LimitExceeded);
++        }
++        Ok(())
++    }
++
++    fn pair_probe(&mut self) -> Result<(), AnalysisUnknownReason> {
++        self.pair_probes = self
++            .pair_probes
++            .checked_add(1)
++            .ok_or(AnalysisUnknownReason::LimitExceeded)?;
++        if self.pair_probes > MAX_PAIR_PROBES {
++            return Err(AnalysisUnknownReason::LimitExceeded);
++        }
++        Ok(())
++    }
++}
++
++/// Analyze only a registry result that has already crossed the native registry validation gate.
++/// This function is intentionally crate-private and performs no I/O of any kind.
++pub(crate) fn analyze_registry_read(read: &RegistryRead, now_ms: u64) -> CollisionAnalysis {
++    match read {
++        RegistryRead::Unknown(unknown) => {
++            CollisionAnalysis::unknown(AnalysisUnknownReason::RegistryUnknown, unknown.generation)
++        }
++        RegistryRead::Complete(document) => match analyze_document(document, now_ms) {
++            Ok(analysis) => analysis,
++            Err(reason) => CollisionAnalysis::unknown(reason, Some(document.generation)),
++        },
++    }
++}
++
++fn analyze_document(
++    document: &RegistryDocument,
++    now_ms: u64,
++) -> Result<CollisionAnalysis, AnalysisUnknownReason> {
++    if now_ms == 0
++        || document.schema_version != REGISTRY_SCHEMA_VERSION
++        || document.generation == 0
++        || document.updated_at_ms == 0
++        || document.updated_at_ms > now_ms
++    {
++        return Err(AnalysisUnknownReason::InvalidRegistry);
++    }
++    let census = document
++        .census
++        .as_ref()
++        .ok_or(AnalysisUnknownReason::InvalidCensus)?;
++    validate_census_coverage(document, census, now_ms)?;
++
++    let (claims, dispositions) = collect_claims(census, now_ms)?;
++    let pending = intersect_claims(&claims)?;
++    let (conflicts, authorization_failure) = authorize_conflicts(&claims, &dispositions, pending);
++    let verdict = match authorization_failure {
++        Some(reason) => {
++            return Ok(CollisionAnalysis::unknown_with_conflicts(
++                reason,
++                Some(document.generation),
++                Some(census.input_digest.clone()),
++                conflicts,
++            ))
++        }
++        None => match aggregate_verdict(&conflicts) {
++            Ok(verdict) => verdict,
++            Err(reason) => {
++                return Ok(CollisionAnalysis::unknown_with_conflicts(
++                    reason,
++                    Some(document.generation),
++                    Some(census.input_digest.clone()),
++                    conflicts,
++                ))
++            }
++        },
++    };
++
++    Ok(CollisionAnalysis {
++        schema_version: ANALYZER_SCHEMA_VERSION,
++        verdict,
++        registry_generation: Some(document.generation),
++        census_input_digest: Some(census.input_digest.clone()),
++        conflicts,
++        unknown_reason: None,
++    })
++}
++
++fn validate_census_coverage(
++    document: &RegistryDocument,
++    census: &DiscoveryCensus,
++    now_ms: u64,
++) -> Result<(), AnalysisUnknownReason> {
++    if census.registry_generation != document.generation
++        || census.captured_at_ms == 0
++        || census.captured_at_ms > now_ms
++        || census.expires_at_ms <= now_ms
++        || census.expires_at_ms <= census.captured_at_ms
++        || !is_sha256(&census.input_digest)
++    {
++        return Err(AnalysisUnknownReason::StaleCensus);
++    }
++    if document.configured_roots.is_empty()
++        || document.configured_roots.len() > MAX_ANALYZER_ROOTS
++        || document.registrations.is_empty()
++        || document.registrations.len() > MAX_ANALYZER_PLANNERS
++        || census.roots.len() != document.configured_roots.len()
++        || census.planners.len() != document.registrations.len()
++    {
++        return Err(AnalysisUnknownReason::IncompleteCoverage);
++    }
++
++    let configured_root_ids = sorted_unique(
++        document
++            .configured_roots
++            .iter()
++            .map(|root| root.root_id.as_str()),
++    )?;
++    let census_root_ids = sorted_unique(census.roots.iter().map(|root| root.root_id.as_str()))?;
++    if configured_root_ids != census_root_ids {
++        return Err(AnalysisUnknownReason::IncompleteCoverage);
++    }
++
++    let registration_ids = sorted_unique(
++        document
++            .registrations
++            .iter()
++            .map(|registration| registration.identity.planner_id.as_str()),
++    )?;
++    let planner_ids = sorted_unique(
++        census
++            .planners
++            .iter()
++            .map(|planner| planner.planner_id.as_str()),
++    )?;
++    if registration_ids != planner_ids {
++        return Err(AnalysisUnknownReason::IncompleteCoverage);
++    }
++
++    let mut rooted_planners = BTreeSet::new();
++    for root in &census.roots {
++        if !root.reachable
++            || root.failure.is_some()
++            || root.planner_ids.is_empty()
++            || root.plan_file_count as usize != root.planner_ids.len()
++            || !is_sha256(&root.inventory_digest)
++            || root.planner_ids.windows(2).any(|pair| pair[0] >= pair[1])
++        {
++            return Err(AnalysisUnknownReason::IncompleteCoverage);
++        }
++        for planner_id in &root.planner_ids {
++            if !rooted_planners.insert(planner_id.as_str()) {
++                return Err(AnalysisUnknownReason::IncompleteCoverage);
++            }
++        }
++    }
++    if rooted_planners != registration_ids {
++        return Err(AnalysisUnknownReason::IncompleteCoverage);
++    }
++
++    for planner in &census.planners {
++        let registration = document
++            .registrations
++            .iter()
++            .find(|entry| entry.identity.planner_id == planner.planner_id)
++            .ok_or(AnalysisUnknownReason::IncompleteCoverage)?;
++        if planner.repository_id != registration.identity.repository_id
++            || planner.branch != registration.identity.branch
++            || planner.plan_id != registration.identity.plan_id
++            || planner.files != registration.identity.files
++            || planner.resources != registration.identity.resources
++            || planner.nodes != registration.identity.nodes
++            || planner.lease_generation != registration.lease_generation
++            || planner.registered_at_ms != registration.registered_at_ms
++            || planner.updated_at_ms != registration.updated_at_ms
++            || planner.heartbeat_at_ms != registration.heartbeat_at_ms
++            || planner.lease_expires_at_ms != registration.lease_expires_at_ms
++            || planner.lease_expires_at_ms <= now_ms
++            || !is_sha256(&planner.repository_identity)
++            || !is_sha256(&planner.worktree_identity)
++            || !is_sha256(&planner.plan_content_digest)
++            || !is_sha256(&planner.manifest_digest)
++            || planner_manifest_digest(planner) != planner.manifest_digest
++        {
++            return Err(AnalysisUnknownReason::InvalidManifest);
++        }
++    }
++    Ok(())
++}
++
++fn sorted_unique<'a>(
++    values: impl Iterator<Item = &'a str>,
++) -> Result<BTreeSet<&'a str>, AnalysisUnknownReason> {
++    let mut output = BTreeSet::new();
++    for value in values {
++        if value.is_empty() || !output.insert(value) {
++            return Err(AnalysisUnknownReason::IncompleteCoverage);
++        }
++    }
++    Ok(output)
++}
++
++fn collect_claims<'a>(
++    census: &'a DiscoveryCensus,
++    now_ms: u64,
++) -> Result<(Vec<ClaimRef<'a>>, DispositionIndex<'a>), AnalysisUnknownReason> {
++    let mut contracts = BTreeMap::new();
++    let mut dispositions = DispositionIndex::new();
++    let mut claims = Vec::new();
++    let mut claim_ids = BTreeSet::new();
++
++    // Validation is deliberately phased. A malformed snapshot always wins over a malformed
++    // contract, independent of census order, so equivalent invalid inputs have one stable result.
++    for planner in &census.planners {
++        let snapshot = &planner.claim_snapshot;
++        if snapshot.status != ClaimSnapshotStatus::Complete
++            || snapshot.failure.is_some()
++            || snapshot.repository_identity != planner.repository_identity
++            || snapshot.source_manifest_digest != planner.plan_content_digest
++            || super::registry::validate_canonical_claim_snapshot(snapshot).is_err()
++        {
++            return Err(AnalysisUnknownReason::InvalidClaimSnapshot);
++        }
++    }
++
++    let participant_count = census.planners.iter().try_fold(0usize, |total, planner| {
++        total.checked_add(planner.claim_snapshot.contracts.len())
++    });
++    let claim_count = census.planners.iter().try_fold(0usize, |total, planner| {
++        total.checked_add(planner.claim_snapshot.claims.len())
++    });
++    if participant_count.is_none_or(|count| count > MAX_ANALYZER_PARTICIPANTS)
++        || claim_count.is_none_or(|count| count > MAX_ANALYZER_CLAIMS)
++    {
++        return Err(AnalysisUnknownReason::LimitExceeded);
++    }
++
++    for planner in &census.planners {
++        let snapshot = &planner.claim_snapshot;
++        for contract in &snapshot.contracts {
++            if contract.observed_at_ms > now_ms
++                || contract.expires_at_ms <= now_ms
++                || contract.lease_generation != planner.lease_generation
++                || contract.observed_at_ms != planner.heartbeat_at_ms
++                || contract.expires_at_ms != planner.lease_expires_at_ms
++                || contracts
++                    .insert(contract.participant_id.as_str(), contract)
++                    .is_some()
++            {
++                return Err(AnalysisUnknownReason::InvalidActiveContract);
++            }
++            for rule in &contract.disposition_rules {
++                if dispositions
++                    .insert(
++                        (contract.participant_id.as_str(), rule.claim_id.as_str()),
++                        rule.disposition,
++                    )
++                    .is_some()
++                {
++                    return Err(AnalysisUnknownReason::InvalidActiveContract);
++                }
++            }
++        }
++    }
++
++    for planner in &census.planners {
++        for claim in &planner.claim_snapshot.claims {
++            let contract = contracts
++                .get(claim.participant_id.as_str())
++                .copied()
++                .ok_or(AnalysisUnknownReason::InvalidActiveContract)?;
++            if matches!(
++                contract.state,
++                ActiveClaimState::Completed | ActiveClaimState::Released
++            ) || !claim_ids.insert(claim.claim_id.as_str())
++            {
++                return Err(AnalysisUnknownReason::InvalidActiveContract);
++            }
++            claims.push(ClaimRef { claim });
++        }
++    }
++
++    let owned_claims = claims
++        .iter()
++        .map(|item| {
++            (
++                item.claim.participant_id.as_str(),
++                item.claim.claim_id.as_str(),
++            )
++        })
++        .collect::<BTreeSet<_>>();
++    if dispositions.keys().any(|key| !owned_claims.contains(key)) {
++        return Err(AnalysisUnknownReason::InvalidActiveContract);
++    }
++
++    let participant_ids = contracts.keys().copied().collect::<BTreeSet<_>>();
++    for contract in contracts.values() {
++        if contract.dependencies.iter().any(|dependency| {
++            !participant_ids.contains(dependency.as_str()) || dependency == &contract.participant_id
++        }) {
++            return Err(AnalysisUnknownReason::InvalidActiveContract);
++        }
++    }
++    if dependency_graph_has_cycle(&contracts, MAX_DEPENDENCY_EDGES)? {
++        return Err(AnalysisUnknownReason::InvalidActiveContract);
++    }
++    Ok((claims, dispositions))
++}
++
++fn dependency_graph_has_cycle(
++    contracts: &BTreeMap<&str, &ActiveClaimContract>,
++    edge_limit: usize,
++) -> Result<bool, AnalysisUnknownReason> {
++    let mut indegree = contracts
++        .keys()
++        .map(|participant| (*participant, 0usize))
++        .collect::<BTreeMap<_, _>>();
++    let mut dependents = BTreeMap::<&str, Vec<&str>>::new();
++    let mut edge_count = 0usize;
++
++    for (participant, contract) in contracts {
++        if contract
++            .dependencies
++            .windows(2)
++            .any(|pair| pair[0] >= pair[1])
++        {
++            return Err(AnalysisUnknownReason::InvalidActiveContract);
++        }
++        for dependency in &contract.dependencies {
++            edge_count = edge_count
++                .checked_add(1)
++                .ok_or(AnalysisUnknownReason::LimitExceeded)?;
++            if edge_count > edge_limit {
++                return Err(AnalysisUnknownReason::LimitExceeded);
++            }
++            let Some(value) = indegree.get_mut(participant) else {
++                return Err(AnalysisUnknownReason::InvalidActiveContract);
++            };
++            *value = value
++                .checked_add(1)
++                .ok_or(AnalysisUnknownReason::LimitExceeded)?;
++            dependents
++                .entry(dependency.as_str())
++                .or_default()
++                .push(*participant);
++        }
++    }
++
++    let mut ready = indegree
++        .iter()
++        .filter_map(|(participant, count)| (*count == 0).then_some(*participant))
++        .collect::<BTreeSet<_>>();
++    let mut visited = 0usize;
++    while let Some(participant) = ready.pop_first() {
++        visited += 1;
++        if let Some(children) = dependents.get(participant) {
++            for child in children {
++                let Some(count) = indegree.get_mut(child) else {
++                    return Err(AnalysisUnknownReason::InvalidActiveContract);
++                };
++                *count = count
++                    .checked_sub(1)
++                    .ok_or(AnalysisUnknownReason::InvalidActiveContract)?;
++                if *count == 0 {
++                    ready.insert(child);
++                }
++            }
++        }
++    }
++    Ok(visited != contracts.len())
++}
++
++fn intersect_claims(
++    claims: &[ClaimRef<'_>],
++) -> Result<BTreeMap<(String, String), PendingConflict>, AnalysisUnknownReason> {
++    let mut logical = BTreeMap::<&str, Vec<usize>>::new();
++    let mut aliases = BTreeMap::<&str, Vec<usize>>::new();
++    let mut resources = BTreeMap::<&str, Vec<usize>>::new();
++    let mut budget = WorkBudget::default();
++
++    for (index, item) in claims.iter().enumerate() {
++        match item.claim.kind {
++            CanonicalClaimKind::ExactFile => {
++                logical
++                    .entry(item.claim.canonical_key.as_str())
++                    .or_default()
++                    .push(index);
++                if let Some(alias) = item.claim.physical_alias_key.as_deref() {
++                    aliases.entry(alias).or_default().push(index);
++                }
++            }
++            CanonicalClaimKind::DirectoryTree => {
++                logical
++                    .entry(item.claim.canonical_key.as_str())
++                    .or_default()
++                    .push(index);
++            }
++            CanonicalClaimKind::Resource => {
++                resources
++                    .entry(item.claim.canonical_key.as_str())
++                    .or_default()
++                    .push(index);
++            }
++        }
++    }
++
++    let mut conflicts = BTreeMap::new();
++    for bucket in logical.values() {
++        add_bucket_pairs(
++            claims,
++            bucket,
++            |left, right| {
++                if left.kind == CanonicalClaimKind::ExactFile
++                    && right.kind == CanonicalClaimKind::ExactFile
++                {
++                    CollisionBasis::ExactFile
++                } else {
++                    CollisionBasis::DirectoryPrefix
++                }
++            },
++            &mut budget,
++            &mut conflicts,
++        )?;
++    }
++    for bucket in aliases.values() {
++        add_bucket_pairs(
++            claims,
++            bucket,
++            |_, _| CollisionBasis::PhysicalAlias,
++            &mut budget,
++            &mut conflicts,
++        )?;
++    }
++    for bucket in resources.values() {
++        add_bucket_pairs(
++            claims,
++            bucket,
++            |_, _| CollisionBasis::Resource,
++            &mut budget,
++            &mut conflicts,
++        )?;
++    }
++    for (child_index, child) in claims.iter().enumerate() {
++        if child.claim.kind == CanonicalClaimKind::Resource {
++            continue;
++        }
++        for ancestor in &child.claim.ancestor_keys {
++            budget.ancestor_probe()?;
++            // Any declared path kind at a parent key conflicts with a descendant path. An
++            // ExactFile parent is impossible as a real directory, but it can arise for missing
++            // planned paths; treating it as free would let two workers race on the type itself.
++            if let Some(owners) = logical.get(ancestor.as_str()) {
++                for owner_index in owners {
++                    add_pair(
++                        claims,
++                        *owner_index,
++                        child_index,
++                        CollisionBasis::DirectoryPrefix,
++                        &mut budget,
++                        &mut conflicts,
++                    )?;
++                }
++            }
++        }
++    }
++    Ok(conflicts)
++}
++
++fn add_bucket_pairs(
++    claims: &[ClaimRef<'_>],
++    bucket: &[usize],
++    basis: impl Fn(&CanonicalClaim, &CanonicalClaim) -> CollisionBasis,
++    budget: &mut WorkBudget,
++    conflicts: &mut BTreeMap<(String, String), PendingConflict>,
++) -> Result<(), AnalysisUnknownReason> {
++    let pair_count = bucket
++        .len()
++        .checked_mul(bucket.len().saturating_sub(1))
++        .and_then(|value| value.checked_div(2))
++        .ok_or(AnalysisUnknownReason::LimitExceeded)?;
++    if budget
++        .pair_probes
++        .checked_add(pair_count)
++        .is_none_or(|total| total > MAX_PAIR_PROBES)
++    {
++        return Err(AnalysisUnknownReason::LimitExceeded);
++    }
++    for (offset, left) in bucket.iter().enumerate() {
++        for right in &bucket[offset + 1..] {
++            add_pair(
++                claims,
++                *left,
++                *right,
++                basis(claims[*left].claim, claims[*right].claim),
++                budget,
++                conflicts,
++            )?;
++        }
++    }
++    Ok(())
++}
++
++fn add_pair(
++    claims: &[ClaimRef<'_>],
++    left: usize,
++    right: usize,
++    basis: CollisionBasis,
++    budget: &mut WorkBudget,
++    conflicts: &mut BTreeMap<(String, String), PendingConflict>,
++) -> Result<(), AnalysisUnknownReason> {
++    budget.pair_probe()?;
++    if left == right || claims[left].claim.participant_id == claims[right].claim.participant_id {
++        return Ok(());
++    }
++    let (left, right) = if claims[left].claim.claim_id <= claims[right].claim.claim_id {
++        (left, right)
++    } else {
++        (right, left)
++    };
++    let key = (
++        claims[left].claim.claim_id.clone(),
++        claims[right].claim.claim_id.clone(),
++    );
++    conflicts
++        .entry(key)
++        .and_modify(|conflict| {
++            conflict.bases.insert(basis);
++        })
++        .or_insert_with(|| PendingConflict {
++            left,
++            right,
++            bases: BTreeSet::from([basis]),
++        });
++    if conflicts.len() > MAX_CONFLICTS {
++        return Err(AnalysisUnknownReason::LimitExceeded);
++    }
++    Ok(())
++}
++
++fn authorize_conflicts(
++    claims: &[ClaimRef<'_>],
++    dispositions: &DispositionIndex<'_>,
++    pending: BTreeMap<(String, String), PendingConflict>,
++) -> (Vec<CollisionConflict>, Option<AnalysisUnknownReason>) {
++    let mut output = Vec::with_capacity(pending.len());
++    let mut failure = None;
++    for pending in pending.into_values() {
++        let left = claims[pending.left];
++        let right = claims[pending.right];
++        let left_disposition = disposition_for(dispositions, left);
++        let right_disposition = disposition_for(dispositions, right);
++        let disposition = match (left_disposition, right_disposition) {
++            (Ok(left), Ok(right)) if left == right => Some(left),
++            (Ok(_), Ok(_)) => {
++                failure.get_or_insert(AnalysisUnknownReason::ContradictoryDisposition);
++                None
++            }
++            (Err(reason), _) | (_, Err(reason)) => {
++                failure.get_or_insert(reason);
++                None
++            }
++        };
++        let bases = pending.bases.into_iter().collect::<Vec<_>>();
++        let overlaps = bases
++            .iter()
++            .copied()
++            .map(|basis| CollisionOverlap {
++                basis,
++                canonical_key: collision_overlap_key(left.claim, right.claim, basis),
++            })
++            .collect();
++        output.push(CollisionConflict {
++            conflict_id: conflict_id(left.claim, right.claim, &bases),
++            left_participant_id: left.claim.participant_id.clone(),
++            right_participant_id: right.claim.participant_id.clone(),
++            left_claim_id: left.claim.claim_id.clone(),
++            right_claim_id: right.claim.claim_id.clone(),
++            bases,
++            overlaps,
++            disposition,
++        });
++    }
++    output.sort_by(|left, right| left.conflict_id.cmp(&right.conflict_id));
++    (output, failure)
++}
++
++fn collision_overlap_key(
++    left: &CanonicalClaim,
++    right: &CanonicalClaim,
++    basis: CollisionBasis,
++) -> String {
++    match basis {
++        CollisionBasis::ExactFile | CollisionBasis::Resource => {
++            debug_assert_eq!(left.canonical_key, right.canonical_key);
++            left.canonical_key.clone()
++        }
++        CollisionBasis::PhysicalAlias => {
++            let left_alias = left.physical_alias_key.as_deref();
++            let right_alias = right.physical_alias_key.as_deref();
++            debug_assert_eq!(left_alias, right_alias);
++            left_alias.unwrap_or_default().to_string()
++        }
++        CollisionBasis::DirectoryPrefix => {
++            if left.canonical_key == right.canonical_key {
++                left.canonical_key.clone()
++            } else if right.ancestor_keys.contains(&left.canonical_key) {
++                left.canonical_key.clone()
++            } else if left.ancestor_keys.contains(&right.canonical_key) {
++                right.canonical_key.clone()
++            } else {
++                let shared = left
++                    .ancestor_keys
++                    .iter()
++                    .find(|key| right.ancestor_keys.binary_search(key).is_ok());
++                debug_assert!(shared.is_some());
++                shared.cloned().unwrap_or_default()
++            }
++        }
++    }
++}
++
++fn disposition_for(
++    dispositions: &DispositionIndex<'_>,
++    claim: ClaimRef<'_>,
++) -> Result<ConflictDisposition, AnalysisUnknownReason> {
++    dispositions
++        .get(&(
++            claim.claim.participant_id.as_str(),
++            claim.claim.claim_id.as_str(),
++        ))
++        .copied()
++        .ok_or(AnalysisUnknownReason::MissingDisposition)
++}
++
++fn aggregate_verdict(
++    conflicts: &[CollisionConflict],
++) -> Result<CollisionVerdict, AnalysisUnknownReason> {
++    let Some(first) = conflicts.first() else {
++        return Ok(CollisionVerdict::Clear);
++    };
++    let first = first
++        .disposition
++        .ok_or(AnalysisUnknownReason::MissingDisposition)?;
++    if conflicts
++        .iter()
++        .any(|conflict| conflict.disposition != Some(first))
++    {
++        return Err(AnalysisUnknownReason::MixedDispositions);
++    }
++    Ok(match first {
++        ConflictDisposition::Wait => CollisionVerdict::Wait,
++        ConflictDisposition::Replan => CollisionVerdict::Replan,
++        ConflictDisposition::UserDecision => CollisionVerdict::UserDecision,
++    })
++}
++
++fn conflict_id(left: &CanonicalClaim, right: &CanonicalClaim, bases: &[CollisionBasis]) -> String {
++    let (left, right) = if left.claim_id <= right.claim_id {
++        (left, right)
++    } else {
++        (right, left)
++    };
++    let mut encoder = DigestEncoder::new(b"perfect-planner:collision-conflict-id:v1");
++    encoder.text(&left.participant_id);
++    encoder.text(&right.participant_id);
++    encoder.text(&left.claim_id);
++    encoder.text(&right.claim_id);
++    encoder.u64(bases.len() as u64);
++    for basis in bases {
++        encoder.text(match basis {
++            CollisionBasis::ExactFile => "EXACT_FILE",
++            CollisionBasis::PhysicalAlias => "PHYSICAL_ALIAS",
++            CollisionBasis::DirectoryPrefix => "DIRECTORY_PREFIX",
++            CollisionBasis::Resource => "RESOURCE",
++        });
++    }
++    encoder.hex()
++}
++
++fn is_sha256(value: &str) -> bool {
++    value.len() == 64
++        && value
++            .bytes()
++            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
++}
++
++struct DigestEncoder(Sha256);
++
++impl DigestEncoder {
++    fn new(domain: &[u8]) -> Self {
++        let mut encoder = Self(Sha256::new());
++        encoder.bytes(domain);
++        encoder
++    }
++
++    fn u64(&mut self, value: u64) {
++        self.0.update(value.to_le_bytes());
++    }
++
++    fn bytes(&mut self, value: &[u8]) {
++        self.u64(value.len() as u64);
++        self.0.update(value);
++    }
++
++    fn text(&mut self, value: &str) {
++        self.bytes(value.as_bytes());
++    }
++
++    fn hex(self) -> String {
++        const HEX: &[u8; 16] = b"0123456789abcdef";
++        let mut output = String::with_capacity(64);
++        for byte in self.0.finalize() {
++            output.push(HEX[(byte >> 4) as usize] as char);
++            output.push(HEX[(byte & 0x0f) as usize] as char);
++        }
++        output
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::collision_assessor::model::{
++        CanonicalClaimSnapshot, ClaimDispositionRule, ClaimSnapshotFailure,
++    };
++    use crate::collision_assessor::registry::{
++        ConfiguredDiscoveryRoot, DiscoveryFailureCode, DiscoveryRootCensus, PlannerCensusMetadata,
++        PlannerRegistration, PlannerRegistrationSeed, RegistryIssue, UnknownRegistry,
++    };
++
++    const NOW_MS: u64 = 2_000;
++    const OBSERVED_MS: u64 = 1_000;
++    const EXPIRES_MS: u64 = 5_000;
++
++    #[derive(Clone)]
++    struct ClaimSpec {
++        kind: CanonicalClaimKind,
++        key: String,
++        ancestors: Vec<String>,
++        alias: Option<String>,
++        disposition: ConflictDisposition,
++    }
++
++    fn opaque(label: &str) -> String {
++        let mut encoder = DigestEncoder::new(b"perfect-planner:analyzer-test:v1");
++        encoder.text(label);
++        encoder.hex()
++    }
++
++    fn test_claim_id(claim: &CanonicalClaim) -> String {
++        let mut encoder = DigestEncoder::new(b"perfect-planner:canonical-claim-id:v1");
++        encoder.text(&claim.participant_id);
++        encoder.text(match claim.kind {
++            CanonicalClaimKind::ExactFile => "EXACT_FILE",
++            CanonicalClaimKind::DirectoryTree => "DIRECTORY_TREE",
++            CanonicalClaimKind::Resource => "RESOURCE",
++        });
++        encoder.text(&claim.canonical_key);
++        encoder.text(claim.physical_alias_key.as_deref().unwrap_or(""));
++        encoder.hex()
++    }
++
++    fn snapshot_digest(snapshot: &CanonicalClaimSnapshot) -> String {
++        let mut encoder = DigestEncoder::new(b"perfect-planner:canonical-claim-snapshot:v1");
++        encoder.u64(snapshot.schema_version as u64);
++        encoder.text(match snapshot.status {
++            ClaimSnapshotStatus::Complete => "COMPLETE",
++            ClaimSnapshotStatus::Unknown => "UNKNOWN",
++        });
++        encoder.text(match snapshot.failure {
++            None => "",
++            Some(ClaimSnapshotFailure::MissingGitAuthority) => "MISSING_GIT_AUTHORITY",
++            Some(ClaimSnapshotFailure::InvalidGitAuthority) => "INVALID_GIT_AUTHORITY",
++            Some(ClaimSnapshotFailure::UnsupportedGlob) => "UNSUPPORTED_GLOB",
++            Some(ClaimSnapshotFailure::InvalidClaim) => "INVALID_CLAIM",
++            Some(ClaimSnapshotFailure::MissingActiveContract) => "MISSING_ACTIVE_CONTRACT",
++            Some(ClaimSnapshotFailure::InvalidActiveContract) => "INVALID_ACTIVE_CONTRACT",
++            Some(ClaimSnapshotFailure::IdentityChanged) => "IDENTITY_CHANGED",
++        });
++        encoder.text(&snapshot.repository_identity);
++        encoder.text(&snapshot.source_manifest_digest);
++        encoder.u64(snapshot.claims.len() as u64);
++        for claim in &snapshot.claims {
++            encoder.text(&claim.claim_id);
++            encoder.text(&claim.participant_id);
++            encoder.text(match claim.kind {
++                CanonicalClaimKind::ExactFile => "EXACT_FILE",
++                CanonicalClaimKind::DirectoryTree => "DIRECTORY_TREE",
++                CanonicalClaimKind::Resource => "RESOURCE",
++            });
++            encoder.text(&claim.canonical_key);
++            encoder.u64(claim.ancestor_keys.len() as u64);
++            for ancestor in &claim.ancestor_keys {
++                encoder.text(ancestor);
++            }
++            encoder.text(claim.physical_alias_key.as_deref().unwrap_or(""));
++        }
++        encoder.u64(snapshot.contracts.len() as u64);
++        for contract in &snapshot.contracts {
++            encoder.text(&contract.participant_id);
++            encoder.text(&contract.run_identity);
++            encoder.text(&contract.worker_identity);
++            encoder.u64(contract.fence);
++            encoder.u64(contract.lease_generation);
++            encoder.text(match contract.state {
++                ActiveClaimState::Planned => "PLANNED",
++                ActiveClaimState::Claimed => "CLAIMED",
++                ActiveClaimState::Running => "RUNNING",
++                ActiveClaimState::Waiting => "WAITING",
++                ActiveClaimState::Completed => "COMPLETED",
++                ActiveClaimState::Released => "RELEASED",
++            });
++            encoder.u64(contract.dependencies.len() as u64);
++            for dependency in &contract.dependencies {
++                encoder.text(dependency);
++            }
++            encoder.text(&contract.assumption_digest);
++            encoder.text(&contract.policy_digest);
++            encoder.text(&contract.active_state_digest);
++            encoder.u64(contract.disposition_rules.len() as u64);
++            for rule in &contract.disposition_rules {
++                encoder.text(&rule.claim_id);
++                encoder.text(match rule.disposition {
++                    ConflictDisposition::Wait => "WAIT",
++                    ConflictDisposition::Replan => "REPLAN",
++                    ConflictDisposition::UserDecision => "USER_DECISION",
++                });
++            }
++            encoder.u64(contract.observed_at_ms);
++            encoder.u64(contract.expires_at_ms);
++        }
++        encoder.hex()
++    }
++
++    fn planner(name: &str, specs: Vec<ClaimSpec>) -> PlannerCensusMetadata {
++        let participant_id = opaque(&format!("participant:{name}"));
++        let plan_content_digest = opaque(&format!("plan:{name}"));
++        let mut claims_and_dispositions = specs
++            .into_iter()
++            .map(|spec| {
++                let mut claim = CanonicalClaim {
++                    claim_id: String::new(),
++                    participant_id: participant_id.clone(),
++                    kind: spec.kind,
++                    canonical_key: spec.key,
++                    ancestor_keys: spec.ancestors,
++                    physical_alias_key: spec.alias,
++                };
++                claim.ancestor_keys.sort();
++                claim.ancestor_keys.dedup();
++                claim.claim_id = test_claim_id(&claim);
++                (claim, spec.disposition)
++            })
++            .collect::<Vec<_>>();
++        claims_and_dispositions.sort_by(|left, right| left.0.cmp(&right.0));
++        let claims = claims_and_dispositions
++            .iter()
++            .map(|(claim, _)| claim.clone())
++            .collect::<Vec<_>>();
++        let mut disposition_rules = claims_and_dispositions
++            .iter()
++            .map(|(claim, disposition)| ClaimDispositionRule {
++                claim_id: claim.claim_id.clone(),
++                disposition: *disposition,
++            })
++            .collect::<Vec<_>>();
++        disposition_rules.sort();
++        let contract = ActiveClaimContract {
++            participant_id,
++            run_identity: opaque(&format!("run:{name}")),
++            worker_identity: opaque(&format!("worker:{name}")),
++            fence: 1,
++            lease_generation: 1,
++            state: ActiveClaimState::Planned,
++            dependencies: Vec::new(),
++            assumption_digest: opaque(&format!("assumption:{name}")),
++            policy_digest: opaque(&format!("policy:{name}")),
++            active_state_digest: opaque(&format!("state:{name}")),
++            disposition_rules,
++            observed_at_ms: OBSERVED_MS,
++            expires_at_ms: EXPIRES_MS,
++        };
++        let mut snapshot = CanonicalClaimSnapshot {
++            schema_version: 1,
++            status: ClaimSnapshotStatus::Complete,
++            failure: None,
++            repository_identity: opaque("repository:shared"),
++            source_manifest_digest: plan_content_digest.clone(),
++            claims,
++            contracts: vec![contract],
++            digest: String::new(),
++        };
++        snapshot.digest = snapshot_digest(&snapshot);
++        let mut metadata = PlannerCensusMetadata {
++            planner_id: name.to_string(),
++            repository_id: "display-only-repository".into(),
++            repository_identity: snapshot.repository_identity.clone(),
++            worktree_identity: opaque(&format!("worktree:{name}")),
++            branch: format!("feature/{name}"),
++            plan_id: format!("PP-{name}"),
++            plan_content_digest,
++            manifest_digest: String::new(),
++            claim_snapshot: snapshot,
++            files: Vec::new(),
++            resources: Vec::new(),
++            nodes: Vec::new(),
++            lease_generation: 1,
++            registered_at_ms: 500,
++            updated_at_ms: OBSERVED_MS,
++            heartbeat_at_ms: OBSERVED_MS,
++            lease_expires_at_ms: EXPIRES_MS,
++        };
++        metadata.manifest_digest = planner_manifest_digest(&metadata);
++        metadata
++    }
++
++    fn registration(planner: &PlannerCensusMetadata) -> PlannerRegistration {
++        PlannerRegistration {
++            identity: PlannerRegistrationSeed {
++                planner_id: planner.planner_id.clone(),
++                repository_id: planner.repository_id.clone(),
++                repository_root: format!("C:/fixture/{}/repository", planner.planner_id),
++                worktree_root: format!("C:/fixture/{}/worktree", planner.planner_id),
++                branch: planner.branch.clone(),
++                plan_id: planner.plan_id.clone(),
++                plan_path: format!("C:/fixture/{}/plan.json", planner.planner_id),
++                files: planner.files.clone(),
++                resources: planner.resources.clone(),
++                nodes: planner.nodes.clone(),
++            },
++            lease_generation: planner.lease_generation,
++            registered_at_ms: planner.registered_at_ms,
++            updated_at_ms: planner.updated_at_ms,
++            heartbeat_at_ms: planner.heartbeat_at_ms,
++            lease_expires_at_ms: planner.lease_expires_at_ms,
++        }
++    }
++
++    fn complete_read(mut planners: Vec<PlannerCensusMetadata>) -> RegistryRead {
++        planners.sort_by(|left, right| left.planner_id.cmp(&right.planner_id));
++        let registrations = planners.iter().map(registration).collect::<Vec<_>>();
++        let planner_ids = planners
++            .iter()
++            .map(|planner| planner.planner_id.clone())
++            .collect::<Vec<_>>();
++        RegistryRead::complete_for_test(RegistryDocument {
++            schema_version: REGISTRY_SCHEMA_VERSION,
++            generation: 7,
++            updated_at_ms: 1_500,
++            authority_issuer_epoch: 1,
++            authority_verifying_key: opaque("issuer-key"),
++            authority_key_fingerprint: opaque("issuer-fingerprint"),
++            configured_roots: vec![ConfiguredDiscoveryRoot {
++                root_id: "root-a".into(),
++                canonical_path: "C:/fixture/root-a".into(),
++            }],
++            registrations,
++            claim_authorities: Vec::new(),
++            authority_set_receipt: None,
++            census: Some(DiscoveryCensus {
++                registry_generation: 7,
++                input_digest: opaque("census-input"),
++                captured_at_ms: 1_500,
++                expires_at_ms: 4_000,
++                roots: vec![DiscoveryRootCensus {
++                    root_id: "root-a".into(),
++                    reachable: true,
++                    planner_ids,
++                    plan_file_count: planners.len() as u32,
++                    inventory_digest: opaque("inventory"),
++                    failure: None,
++                }],
++                planners,
++            }),
++        })
++    }
++
++    fn spec(
++        kind: CanonicalClaimKind,
++        key: &str,
++        ancestors: &[String],
++        alias: Option<&str>,
++        disposition: ConflictDisposition,
++    ) -> ClaimSpec {
++        ClaimSpec {
++            kind,
++            key: opaque(key),
++            ancestors: ancestors.to_vec(),
++            alias: alias.map(opaque),
++            disposition,
++        }
++    }
++
++    #[test]
++    fn complete_current_coverage_is_required_before_clear() {
++        let read = complete_read(vec![
++            planner(
++                "a",
++                vec![spec(
++                    CanonicalClaimKind::Resource,
++                    "resource:a",
++                    &[],
++                    None,
++                    ConflictDisposition::Wait,
++                )],
++            ),
++            planner(
++                "b",
++                vec![spec(
++                    CanonicalClaimKind::Resource,
++                    "resource:b",
++                    &[],
++                    None,
++                    ConflictDisposition::Wait,
++                )],
++            ),
++        ]);
++        assert_eq!(
++            analyze_registry_read(&read, NOW_MS).verdict,
++            CollisionVerdict::Clear
++        );
++
++        let unknown = RegistryRead::Unknown(UnknownRegistry {
++            generation: Some(7),
++            registration_count: 2,
++            issues: vec![RegistryIssue::MissingCensus],
++        });
++        assert_eq!(
++            analyze_registry_read(&unknown, NOW_MS).unknown_reason,
++            Some(AnalysisUnknownReason::RegistryUnknown)
++        );
++
++        let mut missing_root = read.clone();
++        let RegistryRead::Complete(document) = &mut missing_root else {
++            unreachable!()
++        };
++        document.census.as_mut().unwrap().roots.clear();
++        assert_eq!(
++            analyze_registry_read(&missing_root, NOW_MS).unknown_reason,
++            Some(AnalysisUnknownReason::IncompleteCoverage)
++        );
++
++        let mut stale = read.clone();
++        let RegistryRead::Complete(document) = &mut stale else {
++            unreachable!()
++        };
++        document.census.as_mut().unwrap().expires_at_ms = NOW_MS;
++        assert_eq!(
++            analyze_registry_read(&stale, NOW_MS).unknown_reason,
++            Some(AnalysisUnknownReason::StaleCensus)
++        );
++
++        let mut failed_root = read;
++        let RegistryRead::Complete(document) = &mut failed_root else {
++            unreachable!()
++        };
++        let root = &mut document.census.as_mut().unwrap().roots[0];
++        root.reachable = false;
++        root.failure = Some(DiscoveryFailureCode::AccessDenied);
++        assert_eq!(
++            analyze_registry_read(&failed_root, NOW_MS).verdict,
++            CollisionVerdict::Unknown
++        );
++
++        let mut unsupported_snapshot = complete_read(vec![planner(
++            "glob",
++            vec![spec(
++                CanonicalClaimKind::ExactFile,
++                "glob-placeholder",
++                &[],
++                None,
++                ConflictDisposition::Wait,
++            )],
++        )]);
++        let RegistryRead::Complete(document) = &mut unsupported_snapshot else {
++            unreachable!()
++        };
++        let unsupported_planner = &mut document.census.as_mut().unwrap().planners[0];
++        unsupported_planner.claim_snapshot.status = ClaimSnapshotStatus::Unknown;
++        unsupported_planner.claim_snapshot.failure = Some(ClaimSnapshotFailure::UnsupportedGlob);
++        unsupported_planner
++            .claim_snapshot
++            .repository_identity
++            .clear();
++        unsupported_planner.claim_snapshot.claims.clear();
++        unsupported_planner.claim_snapshot.contracts.clear();
++        unsupported_planner.claim_snapshot.digest =
++            snapshot_digest(&unsupported_planner.claim_snapshot);
++        unsupported_planner.manifest_digest = planner_manifest_digest(unsupported_planner);
++        let result = analyze_registry_read(&unsupported_snapshot, NOW_MS);
++        assert_eq!(result.verdict, CollisionVerdict::Unknown);
++        assert_eq!(
++            result.unknown_reason,
++            Some(AnalysisUnknownReason::InvalidClaimSnapshot)
++        );
++
++        let mut cross_repository_splice = complete_read(vec![planner(
++            "splice",
++            vec![spec(
++                CanonicalClaimKind::Resource,
++                "resource:splice",
++                &[],
++                None,
++                ConflictDisposition::Wait,
++            )],
++        )]);
++        let RegistryRead::Complete(document) = &mut cross_repository_splice else {
++            unreachable!()
++        };
++        let spliced_planner = &mut document.census.as_mut().unwrap().planners[0];
++        spliced_planner.claim_snapshot.repository_identity = opaque("repository:attacker-splice");
++        spliced_planner.claim_snapshot.digest = snapshot_digest(&spliced_planner.claim_snapshot);
++        spliced_planner.manifest_digest = planner_manifest_digest(spliced_planner);
++        assert_eq!(
++            analyze_registry_read(&cross_repository_splice, NOW_MS).unknown_reason,
++            Some(AnalysisUnknownReason::InvalidClaimSnapshot)
++        );
++    }
++
++    #[test]
++    fn duplicate_participant_claim_and_contract_inputs_are_unknown() {
++        let baseline = complete_read(vec![
++            planner(
++                "a",
++                vec![spec(
++                    CanonicalClaimKind::Resource,
++                    "resource:a",
++                    &[],
++                    None,
++                    ConflictDisposition::Wait,
++                )],
++            ),
++            planner(
++                "b",
++                vec![spec(
++                    CanonicalClaimKind::Resource,
++                    "resource:b",
++                    &[],
++                    None,
++                    ConflictDisposition::Wait,
++                )],
++            ),
++        ]);
++
++        let mut duplicate_participant = baseline.clone();
++        let RegistryRead::Complete(document) = &mut duplicate_participant else {
++            unreachable!()
++        };
++        let planners = &mut document.census.as_mut().unwrap().planners;
++        let duplicate_id = planners[0].claim_snapshot.contracts[0]
++            .participant_id
++            .clone();
++        let second = &mut planners[1];
++        second.claim_snapshot.contracts[0].participant_id = duplicate_id.clone();
++        for claim in &mut second.claim_snapshot.claims {
++            claim.participant_id = duplicate_id.clone();
++            claim.claim_id = test_claim_id(claim);
++        }
++        second.claim_snapshot.claims.sort();
++        second.claim_snapshot.contracts[0].disposition_rules = second
++            .claim_snapshot
++            .claims
++            .iter()
++            .map(|claim| ClaimDispositionRule {
++                claim_id: claim.claim_id.clone(),
++                disposition: ConflictDisposition::Wait,
++            })
++            .collect();
++        second.claim_snapshot.contracts[0].disposition_rules.sort();
++        planners[1].claim_snapshot.digest = snapshot_digest(&planners[1].claim_snapshot);
++        planners[1].manifest_digest = planner_manifest_digest(&planners[1]);
++        assert!(planners.iter().all(|planner| {
++            crate::collision_assessor::registry::validate_canonical_claim_snapshot(
++                &planner.claim_snapshot,
++            )
++            .is_ok()
++        }));
++        assert_eq!(
++            analyze_registry_read(&duplicate_participant, NOW_MS).unknown_reason,
++            Some(AnalysisUnknownReason::InvalidActiveContract)
++        );
++
++        let mut duplicate_claim = baseline.clone();
++        let RegistryRead::Complete(document) = &mut duplicate_claim else {
++            unreachable!()
++        };
++        let planners = &mut document.census.as_mut().unwrap().planners;
++        planners[1].claim_snapshot.claims[0].claim_id =
++            planners[0].claim_snapshot.claims[0].claim_id.clone();
++        planners[1].claim_snapshot.digest = snapshot_digest(&planners[1].claim_snapshot);
++        planners[1].manifest_digest = planner_manifest_digest(&planners[1]);
++        assert_eq!(
++            analyze_registry_read(&duplicate_claim, NOW_MS).verdict,
++            CollisionVerdict::Unknown
++        );
++
++        let mut duplicate_contract = baseline;
++        let RegistryRead::Complete(document) = &mut duplicate_contract else {
++            unreachable!()
++        };
++        let planner = &mut document.census.as_mut().unwrap().planners[0];
++        planner
++            .claim_snapshot
++            .contracts
++            .push(planner.claim_snapshot.contracts[0].clone());
++        planner.claim_snapshot.digest = snapshot_digest(&planner.claim_snapshot);
++        planner.manifest_digest = planner_manifest_digest(planner);
++        assert_eq!(
++            analyze_registry_read(&duplicate_contract, NOW_MS).verdict,
++            CollisionVerdict::Unknown
++        );
++    }
++
++    #[test]
++    fn every_path_alias_directory_and_resource_intersection_is_deduplicated() {
++        let exact_parent = opaque("exact-parent");
++        let directory_parent = opaque("directory-parent");
++        let exact_directory_parent = opaque("exact-directory-parent");
++        let nested_directory_parent = opaque("nested-directory-parent");
++        let shared_alias = "shared-physical-alias";
++        let alias_only = "alias-only";
++        let read = complete_read(vec![
++            planner(
++                "a",
++                vec![
++                    spec(
++                        CanonicalClaimKind::ExactFile,
++                        "shared-file",
++                        &[],
++                        Some(shared_alias),
++                        ConflictDisposition::Wait,
++                    ),
++                    ClaimSpec {
++                        kind: CanonicalClaimKind::ExactFile,
++                        key: exact_parent.clone(),
++                        ancestors: Vec::new(),
++                        alias: None,
++                        disposition: ConflictDisposition::Wait,
++                    },
++                    ClaimSpec {
++                        kind: CanonicalClaimKind::DirectoryTree,
++                        key: directory_parent.clone(),
++                        ancestors: Vec::new(),
++                        alias: None,
++                        disposition: ConflictDisposition::Wait,
++                    },
++                    spec(
++                        CanonicalClaimKind::Resource,
++                        "resource:shared",
++                        &[],
++                        None,
++                        ConflictDisposition::Wait,
++                    ),
++                    spec(
++                        CanonicalClaimKind::ExactFile,
++                        "self-only",
++                        &[],
++                        None,
++                        ConflictDisposition::Wait,
++                    ),
++                    spec(
++                        CanonicalClaimKind::DirectoryTree,
++                        "self-only",
++                        &[],
++                        None,
++                        ConflictDisposition::Wait,
++                    ),
++                    spec(
++                        CanonicalClaimKind::ExactFile,
++                        "exact-directory-same-key",
++                        &[],
++                        None,
++                        ConflictDisposition::Wait,
++                    ),
++                    ClaimSpec {
++                        kind: CanonicalClaimKind::ExactFile,
++                        key: exact_directory_parent.clone(),
++                        ancestors: Vec::new(),
++                        alias: None,
++                        disposition: ConflictDisposition::Wait,
++                    },
++                    ClaimSpec {
++                        kind: CanonicalClaimKind::DirectoryTree,
++                        key: nested_directory_parent.clone(),
++                        ancestors: Vec::new(),
++                        alias: None,
++                        disposition: ConflictDisposition::Wait,
++                    },
++                    spec(
++                        CanonicalClaimKind::ExactFile,
++                        "alias-only-left",
++                        &[],
++                        Some(alias_only),
++                        ConflictDisposition::Wait,
++                    ),
++                ],
++            ),
++            planner(
++                "b",
++                vec![
++                    spec(
++                        CanonicalClaimKind::ExactFile,
++                        "shared-file",
++                        &[],
++                        Some(shared_alias),
++                        ConflictDisposition::Wait,
++                    ),
++                    spec(
++                        CanonicalClaimKind::ExactFile,
++                        "exact-child",
++                        &[exact_parent],
++                        None,
++                        ConflictDisposition::Wait,
++                    ),
++                    spec(
++                        CanonicalClaimKind::ExactFile,
++                        "directory-child",
++                        &[directory_parent],
++                        None,
++                        ConflictDisposition::Wait,
++                    ),
++                    spec(
++                        CanonicalClaimKind::Resource,
++                        "resource:shared",
++                        &[],
++                        None,
++                        ConflictDisposition::Wait,
++                    ),
++                    spec(
++                        CanonicalClaimKind::DirectoryTree,
++                        "exact-directory-same-key",
++                        &[],
++                        None,
++                        ConflictDisposition::Wait,
++                    ),
++                    spec(
++                        CanonicalClaimKind::DirectoryTree,
++                        "exact-directory-child",
++                        &[exact_directory_parent],
++                        None,
++                        ConflictDisposition::Wait,
++                    ),
++                    spec(
++                        CanonicalClaimKind::DirectoryTree,
++                        "nested-directory-child",
++                        &[nested_directory_parent],
++                        None,
++                        ConflictDisposition::Wait,
++                    ),
++                    spec(
++                        CanonicalClaimKind::ExactFile,
++                        "alias-only-right",
++                        &[],
++                        Some(alias_only),
++                        ConflictDisposition::Wait,
++                    ),
++                ],
++            ),
++        ]);
++        let analysis = analyze_registry_read(&read, NOW_MS);
++        assert_eq!(analysis.verdict, CollisionVerdict::Wait);
++        assert_eq!(analysis.conflicts.len(), 8);
++        assert!(analysis.conflicts.iter().any(|conflict| {
++            conflict.bases == vec![CollisionBasis::ExactFile, CollisionBasis::PhysicalAlias]
++        }));
++        assert_eq!(
++            analysis
++                .conflicts
++                .iter()
++                .filter(|conflict| conflict.bases == vec![CollisionBasis::DirectoryPrefix])
++                .count(),
++            5
++        );
++        assert!(analysis
++            .conflicts
++            .iter()
++            .any(|conflict| conflict.bases == vec![CollisionBasis::Resource]));
++        assert!(analysis
++            .conflicts
++            .iter()
++            .any(|conflict| conflict.bases == vec![CollisionBasis::PhysicalAlias]));
++        for conflict in &analysis.conflicts {
++            assert_eq!(conflict.overlaps.len(), conflict.bases.len());
++            assert!(conflict
++                .overlaps
++                .iter()
++                .zip(&conflict.bases)
++                .all(
++                    |(overlap, basis)| overlap.basis == *basis && is_sha256(&overlap.canonical_key)
++                ));
++        }
++        let encoded = format!("{:?}", analysis.conflicts);
++        assert!(!encoded.contains("resource:shared"));
++        assert!(!encoded.contains("alias-only"));
++    }
++
++    #[test]
++    fn contradictory_and_mixed_policy_never_hide_the_known_graph() {
++        let contradictory = complete_read(vec![
++            planner(
++                "a",
++                vec![spec(
++                    CanonicalClaimKind::Resource,
++                    "resource:one",
++                    &[],
++                    None,
++                    ConflictDisposition::Wait,
++                )],
++            ),
++            planner(
++                "b",
++                vec![spec(
++                    CanonicalClaimKind::Resource,
++                    "resource:one",
++                    &[],
++                    None,
++                    ConflictDisposition::Replan,
++                )],
++            ),
++        ]);
++        let analysis = analyze_registry_read(&contradictory, NOW_MS);
++        assert_eq!(analysis.verdict, CollisionVerdict::Unknown);
++        assert_eq!(
++            analysis.unknown_reason,
++            Some(AnalysisUnknownReason::ContradictoryDisposition)
++        );
++        assert_eq!(analysis.conflicts.len(), 1);
++        assert_eq!(analysis.conflicts[0].disposition, None);
++
++        let mixed = complete_read(vec![
++            planner(
++                "a",
++                vec![
++                    spec(
++                        CanonicalClaimKind::Resource,
++                        "resource:one",
++                        &[],
++                        None,
++                        ConflictDisposition::Wait,
++                    ),
++                    spec(
++                        CanonicalClaimKind::Resource,
++                        "resource:two",
++                        &[],
++                        None,
++                        ConflictDisposition::Replan,
++                    ),
++                ],
++            ),
++            planner(
++                "b",
++                vec![
++                    spec(
++                        CanonicalClaimKind::Resource,
++                        "resource:one",
++                        &[],
++                        None,
++                        ConflictDisposition::Wait,
++                    ),
++                    spec(
++                        CanonicalClaimKind::Resource,
++                        "resource:two",
++                        &[],
++                        None,
++                        ConflictDisposition::Replan,
++                    ),
++                ],
++            ),
++        ]);
++        let analysis = analyze_registry_read(&mixed, NOW_MS);
++        assert_eq!(analysis.verdict, CollisionVerdict::Unknown);
++        assert_eq!(
++            analysis.unknown_reason,
++            Some(AnalysisUnknownReason::MixedDispositions)
++        );
++        assert_eq!(analysis.conflicts.len(), 2);
++        assert!(analysis
++            .conflicts
++            .iter()
++            .all(|conflict| conflict.disposition.is_some()));
++    }
++
++    #[test]
++    fn every_three_planner_and_root_permutation_has_identical_ids_graph_and_verdict() {
++        let mut original = complete_read(vec![
++            planner(
++                "a",
++                vec![spec(
++                    CanonicalClaimKind::Resource,
++                    "resource:shared",
++                    &[],
++                    None,
++                    ConflictDisposition::UserDecision,
++                )],
++            ),
++            planner(
++                "b",
++                vec![spec(
++                    CanonicalClaimKind::Resource,
++                    "resource:shared",
++                    &[],
++                    None,
++                    ConflictDisposition::UserDecision,
++                )],
++            ),
++            planner(
++                "c",
++                vec![spec(
++                    CanonicalClaimKind::Resource,
++                    "resource:shared",
++                    &[],
++                    None,
++                    ConflictDisposition::UserDecision,
++                )],
++            ),
++        ]);
++        let RegistryRead::Complete(document) = &mut original else {
++            unreachable!()
++        };
++        document.configured_roots = (0..3)
++            .map(|index| ConfiguredDiscoveryRoot {
++                root_id: format!("root-{index}"),
++                canonical_path: format!("C:/fixture/root-{index}"),
++            })
++            .collect();
++        let census = document.census.as_mut().unwrap();
++        census.roots = census
++            .planners
++            .iter()
++            .enumerate()
++            .map(|(index, planner)| DiscoveryRootCensus {
++                root_id: format!("root-{index}"),
++                reachable: true,
++                planner_ids: vec![planner.planner_id.clone()],
++                plan_file_count: 1,
++                inventory_digest: opaque(&format!("inventory:{index}")),
++                failure: None,
++            })
++            .collect();
++        let expected = analyze_registry_read(&original, NOW_MS);
++        assert_eq!(expected.verdict, CollisionVerdict::UserDecision);
++        assert_eq!(expected.conflicts.len(), 3);
++        assert!(expected.conflicts.iter().all(|conflict| {
++            conflict.conflict_id.len() == 64
++                && is_sha256(&conflict.conflict_id)
++                && conflict.conflict_id != conflict.left_claim_id
++                && conflict.conflict_id != conflict.right_claim_id
++        }));
++
++        for permutation in [
++            [0, 1, 2],
++            [0, 2, 1],
++            [1, 0, 2],
++            [1, 2, 0],
++            [2, 0, 1],
++            [2, 1, 0],
++        ] {
++            let mut permuted = original.clone();
++            let RegistryRead::Complete(document) = &mut permuted else {
++                unreachable!()
++            };
++            let registrations = document.registrations.clone();
++            let roots = document.configured_roots.clone();
++            let (planners, census_roots) = {
++                let census = document.census.as_ref().unwrap();
++                (census.planners.clone(), census.roots.clone())
++            };
++            document.registrations = permutation
++                .iter()
++                .map(|index| registrations[*index].clone())
++                .collect();
++            document.configured_roots = permutation
++                .iter()
++                .map(|index| roots[*index].clone())
++                .collect();
++            let census = document.census.as_mut().unwrap();
++            census.planners = permutation
++                .iter()
++                .map(|index| planners[*index].clone())
++                .collect();
++            census.roots = permutation
++                .iter()
++                .map(|index| census_roots[*index].clone())
++                .collect();
++            assert_eq!(analyze_registry_read(&permuted, NOW_MS), expected);
++        }
++    }
++
++    fn direct_claims(
++        count: usize,
++        kind: CanonicalClaimKind,
++        same_key: bool,
++        same_alias: bool,
++    ) -> (Vec<CanonicalClaim>, Vec<ActiveClaimContract>) {
++        let mut claims = Vec::with_capacity(count);
++        let mut contracts = Vec::with_capacity(count);
++        for index in 0..count {
++            let participant_id = opaque(&format!("direct-participant:{index}"));
++            let key_label = if same_key {
++                "direct-shared-key".to_string()
++            } else {
++                format!("direct-key:{index}")
++            };
++            let mut claim = CanonicalClaim {
++                claim_id: String::new(),
++                participant_id: participant_id.clone(),
++                kind,
++                canonical_key: opaque(&key_label),
++                ancestor_keys: Vec::new(),
++                physical_alias_key: if same_alias {
++                    Some(opaque("direct-shared-alias"))
++                } else {
++                    None
++                },
++            };
++            claim.claim_id = test_claim_id(&claim);
++            contracts.push(ActiveClaimContract {
++                participant_id,
++                run_identity: opaque(&format!("direct-run:{index}")),
++                worker_identity: opaque(&format!("direct-worker:{index}")),
++                fence: 1,
++                lease_generation: 1,
++                state: ActiveClaimState::Planned,
++                dependencies: Vec::new(),
++                assumption_digest: opaque(&format!("direct-assumption:{index}")),
++                policy_digest: opaque(&format!("direct-policy:{index}")),
++                active_state_digest: opaque(&format!("direct-state:{index}")),
++                disposition_rules: vec![ClaimDispositionRule {
++                    claim_id: claim.claim_id.clone(),
++                    disposition: ConflictDisposition::Wait,
++                }],
++                observed_at_ms: OBSERVED_MS,
++                expires_at_ms: EXPIRES_MS,
++            });
++            claims.push(claim);
++        }
++        (claims, contracts)
++    }
++
++    #[test]
++    fn duplicate_logical_and_alias_bases_do_not_false_overflow() {
++        let (claims, _contracts) = direct_claims(257, CanonicalClaimKind::ExactFile, true, true);
++        let refs = claims
++            .iter()
++            .map(|claim| ClaimRef { claim })
++            .collect::<Vec<_>>();
++        let graph = intersect_claims(&refs).unwrap();
++        assert_eq!(graph.len(), 32_896);
++        assert!(graph.values().all(|conflict| {
++            conflict.bases
++                == BTreeSet::from([CollisionBasis::ExactFile, CollisionBasis::PhysicalAlias])
++        }));
++    }
++
++    fn graph_contract(
++        participant_id: String,
++        mut dependencies: Vec<String>,
++    ) -> ActiveClaimContract {
++        dependencies.sort();
++        ActiveClaimContract {
++            run_identity: opaque(&format!("graph-run:{participant_id}")),
++            worker_identity: opaque(&format!("graph-worker:{participant_id}")),
++            participant_id,
++            fence: 1,
++            lease_generation: 1,
++            state: ActiveClaimState::Planned,
++            dependencies,
++            assumption_digest: opaque("graph-assumption"),
++            policy_digest: opaque("graph-policy"),
++            active_state_digest: opaque("graph-state"),
++            disposition_rules: Vec::new(),
++            observed_at_ms: OBSERVED_MS,
++            expires_at_ms: EXPIRES_MS,
++        }
++    }
++
++    fn graph_index(contracts: &[ActiveClaimContract]) -> BTreeMap<&str, &ActiveClaimContract> {
++        contracts
++            .iter()
++            .map(|contract| (contract.participant_id.as_str(), contract))
++            .collect()
++    }
++
++    #[test]
++    fn dependency_graph_is_linear_bounded_and_cycle_exact() {
++        let chain_ids = (0..10_000)
++            .map(|index| format!("{index:064x}"))
++            .collect::<Vec<_>>();
++        let chain = chain_ids
++            .iter()
++            .enumerate()
++            .map(|(index, participant)| {
++                graph_contract(
++                    participant.clone(),
++                    (index > 0)
++                        .then(|| chain_ids[index - 1].clone())
++                        .into_iter()
++                        .collect(),
++                )
++            })
++            .collect::<Vec<_>>();
++        assert!(!dependency_graph_has_cycle(&graph_index(&chain), MAX_DEPENDENCY_EDGES).unwrap());
++
++        let root = "f".repeat(64);
++        let wide = std::iter::once(graph_contract(root.clone(), Vec::new()))
++            .chain(
++                (0..4_096).map(|index| graph_contract(format!("{index:064x}"), vec![root.clone()])),
++            )
++            .collect::<Vec<_>>();
++        let wide_index = graph_index(&wide);
++        assert!(!dependency_graph_has_cycle(&wide_index, MAX_DEPENDENCY_EDGES).unwrap());
++        assert_eq!(
++            dependency_graph_has_cycle(&wide_index, 4_095).unwrap_err(),
++            AnalysisUnknownReason::LimitExceeded
++        );
++
++        let cycle_ids = ["a".repeat(64), "b".repeat(64), "c".repeat(64)];
++        let cycle = vec![
++            graph_contract(cycle_ids[0].clone(), vec![cycle_ids[2].clone()]),
++            graph_contract(cycle_ids[1].clone(), vec![cycle_ids[0].clone()]),
++            graph_contract(cycle_ids[2].clone(), vec![cycle_ids[1].clone()]),
++        ];
++        assert!(dependency_graph_has_cycle(&graph_index(&cycle), MAX_DEPENDENCY_EDGES).unwrap());
++    }
++
++    #[test]
++    fn sixty_five_thousand_policy_lookups_use_the_prebuilt_index() {
++        const RULES: usize = 65_000;
++        let participant = "e".repeat(64);
++        let claims = (0..RULES)
++            .map(|index| CanonicalClaim {
++                claim_id: format!("{index:064x}"),
++                participant_id: participant.clone(),
++                kind: CanonicalClaimKind::Resource,
++                canonical_key: format!("{:064x}", index + RULES),
++                ancestor_keys: Vec::new(),
++                physical_alias_key: None,
++            })
++            .collect::<Vec<_>>();
++        let refs = claims
++            .iter()
++            .map(|claim| ClaimRef { claim })
++            .collect::<Vec<_>>();
++        let dispositions = refs
++            .iter()
++            .map(|item| {
++                (
++                    (
++                        item.claim.participant_id.as_str(),
++                        item.claim.claim_id.as_str(),
++                    ),
++                    ConflictDisposition::Wait,
++                )
++            })
++            .collect::<DispositionIndex<'_>>();
++        assert_eq!(dispositions.len(), RULES);
++        assert!(refs.iter().all(|item| {
++            disposition_for(&dispositions, *item) == Ok(ConflictDisposition::Wait)
++        }));
++    }
++
++    #[test]
++    fn mixed_invalid_planner_reason_is_permutation_independent() {
++        let mut read = complete_read(vec![
++            planner(
++                "snapshot-invalid",
++                vec![spec(
++                    CanonicalClaimKind::Resource,
++                    "snapshot-invalid-resource",
++                    &[],
++                    None,
++                    ConflictDisposition::Wait,
++                )],
++            ),
++            planner(
++                "contract-invalid",
++                vec![spec(
++                    CanonicalClaimKind::Resource,
++                    "contract-invalid-resource",
++                    &[],
++                    None,
++                    ConflictDisposition::Wait,
++                )],
++            ),
++        ]);
++        let RegistryRead::Complete(document) = &mut read else {
++            unreachable!()
++        };
++        let census = document.census.as_mut().unwrap();
++        let snapshot_invalid = census
++            .planners
++            .iter_mut()
++            .find(|planner| planner.planner_id == "snapshot-invalid")
++            .unwrap();
++        snapshot_invalid.claim_snapshot.status = ClaimSnapshotStatus::Unknown;
++        snapshot_invalid.claim_snapshot.failure = Some(ClaimSnapshotFailure::InvalidClaim);
++        snapshot_invalid.claim_snapshot.repository_identity.clear();
++        snapshot_invalid.claim_snapshot.claims.clear();
++        snapshot_invalid.claim_snapshot.contracts.clear();
++        snapshot_invalid.claim_snapshot.digest = snapshot_digest(&snapshot_invalid.claim_snapshot);
++        snapshot_invalid.manifest_digest = planner_manifest_digest(snapshot_invalid);
++
++        let contract_invalid = census
++            .planners
++            .iter_mut()
++            .find(|planner| planner.planner_id == "contract-invalid")
++            .unwrap();
++        contract_invalid.claim_snapshot.contracts[0].expires_at_ms = NOW_MS;
++        contract_invalid.claim_snapshot.digest = snapshot_digest(&contract_invalid.claim_snapshot);
++        contract_invalid.manifest_digest = planner_manifest_digest(contract_invalid);
++
++        let expected = analyze_registry_read(&read, NOW_MS);
++        assert_eq!(
++            expected.unknown_reason,
++            Some(AnalysisUnknownReason::InvalidClaimSnapshot)
++        );
++        let mut reversed = read.clone();
++        let RegistryRead::Complete(document) = &mut reversed else {
++            unreachable!()
++        };
++        document.census.as_mut().unwrap().planners.reverse();
++        assert_eq!(analyze_registry_read(&reversed, NOW_MS), expected);
++    }
++
++    #[test]
++    fn sealed_analyzer_entry_handles_a_ten_thousand_participant_chain() {
++        let mut metadata = planner(
++            "end-to-end-chain",
++            vec![spec(
++                CanonicalClaimKind::Resource,
++                "chain-seed",
++                &[],
++                None,
++                ConflictDisposition::Wait,
++            )],
++        );
++        let (mut claims, mut contracts) =
++            direct_claims(10_000, CanonicalClaimKind::Resource, false, false);
++        let participant_order = contracts
++            .iter()
++            .map(|contract| contract.participant_id.clone())
++            .collect::<Vec<_>>();
++        for (index, contract) in contracts.iter_mut().enumerate() {
++            contract.lease_generation = metadata.lease_generation;
++            if index > 0 {
++                contract.dependencies = vec![participant_order[index - 1].clone()];
++            }
++        }
++        claims.sort();
++        contracts.sort();
++        metadata.claim_snapshot.claims = claims;
++        metadata.claim_snapshot.contracts = contracts;
++        metadata.claim_snapshot.digest = snapshot_digest(&metadata.claim_snapshot);
++        metadata.manifest_digest = planner_manifest_digest(&metadata);
++
++        let result = analyze_registry_read(&complete_read(vec![metadata]), NOW_MS);
++        assert_eq!(result.verdict, CollisionVerdict::Clear);
++        assert!(result.conflicts.is_empty());
++        assert_eq!(result.unknown_reason, None);
++    }
++
++    #[test]
++    fn hot_key_fanout_fails_unknown_instead_of_quadratic_or_truncated_output() {
++        let (claims, _contracts) = direct_claims(400, CanonicalClaimKind::Resource, true, false);
++        let refs = claims
++            .iter()
++            .map(|claim| ClaimRef { claim })
++            .collect::<Vec<_>>();
++        assert_eq!(
++            intersect_claims(&refs).unwrap_err(),
++            AnalysisUnknownReason::LimitExceeded
++        );
++    }
++
++    #[test]
++    fn conflict_ids_are_domain_separated_basis_bound_and_order_independent() {
++        let (claims, _) = direct_claims(2, CanonicalClaimKind::ExactFile, true, true);
++        let exact = conflict_id(&claims[0], &claims[1], &[CollisionBasis::ExactFile]);
++        let reversed = conflict_id(&claims[1], &claims[0], &[CollisionBasis::ExactFile]);
++        let alias = conflict_id(&claims[0], &claims[1], &[CollisionBasis::PhysicalAlias]);
++        let combined = conflict_id(
++            &claims[0],
++            &claims[1],
++            &[CollisionBasis::ExactFile, CollisionBasis::PhysicalAlias],
++        );
++        assert_eq!(exact, reversed);
++        assert_ne!(exact, alias);
++        assert_ne!(exact, combined);
++        assert_ne!(alias, combined);
++        assert!(is_sha256(&exact));
++        assert_ne!(exact, claims[0].claim_id);
++        assert_ne!(exact, claims[1].claim_id);
++    }
++
++    #[test]
++    fn one_hundred_mixed_participants_use_indexes_and_false_prefixes_do_not_collide() {
++        let (mut claims, _contracts) =
++            direct_claims(100, CanonicalClaimKind::ExactFile, false, false);
++        for (group_index, group) in claims.chunks_mut(4).enumerate() {
++            let parent = opaque(&format!("mixed-parent:{group_index}"));
++            group[0].kind = CanonicalClaimKind::DirectoryTree;
++            group[0].canonical_key = parent.clone();
++            group[0].physical_alias_key = None;
++            group[1].kind = CanonicalClaimKind::ExactFile;
++            group[1].canonical_key = opaque(&format!("mixed-child:{group_index}"));
++            group[1].ancestor_keys = vec![parent];
++            group[1].physical_alias_key = None;
++            if group_index % 2 == 0 {
++                let resource = opaque(&format!("mixed-resource:{group_index}"));
++                group[2].kind = CanonicalClaimKind::Resource;
++                group[3].kind = CanonicalClaimKind::Resource;
++                group[2].canonical_key = resource.clone();
++                group[3].canonical_key = resource;
++                group[2].physical_alias_key = None;
++                group[3].physical_alias_key = None;
++            } else {
++                let alias = opaque(&format!("mixed-alias:{group_index}"));
++                group[2].kind = CanonicalClaimKind::ExactFile;
++                group[3].kind = CanonicalClaimKind::ExactFile;
++                group[2].canonical_key = opaque(&format!("mixed-left:{group_index}"));
++                group[3].canonical_key = opaque(&format!("mixed-right:{group_index}"));
++                group[2].physical_alias_key = Some(alias.clone());
++                group[3].physical_alias_key = Some(alias);
++            }
++            for claim in group {
++                claim.claim_id = test_claim_id(claim);
++            }
++        }
++        let refs = claims
++            .iter()
++            .map(|claim| ClaimRef { claim })
++            .collect::<Vec<_>>();
++        let mixed = intersect_claims(&refs).unwrap();
++        assert_eq!(mixed.len(), 50);
++        assert_eq!(
++            mixed
++                .values()
++                .filter(|conflict| conflict.bases.contains(&CollisionBasis::DirectoryPrefix))
++                .count(),
++            25
++        );
++        assert_eq!(
++            mixed
++                .values()
++                .filter(|conflict| conflict.bases.contains(&CollisionBasis::Resource))
++                .count(),
++            13
++        );
++        assert_eq!(
++            mixed
++                .values()
++                .filter(|conflict| conflict.bases.contains(&CollisionBasis::PhysicalAlias))
++                .count(),
++            12
++        );
++
++        let (mut path_claims, _path_contracts) =
++            direct_claims(2, CanonicalClaimKind::ExactFile, false, false);
++        path_claims[0].canonical_key = opaque("path:foo");
++        path_claims[0].claim_id = test_claim_id(&path_claims[0]);
++        path_claims[1].canonical_key = opaque("path:foobar");
++        path_claims[1].claim_id = test_claim_id(&path_claims[1]);
++        let refs = path_claims
++            .iter()
++            .map(|claim| ClaimRef { claim })
++            .collect::<Vec<_>>();
++        assert!(intersect_claims(&refs).unwrap().is_empty());
++
++        let shared_opaque_key = opaque("cross-namespace-same-key");
++        path_claims[0].kind = CanonicalClaimKind::ExactFile;
++        path_claims[0].canonical_key = shared_opaque_key.clone();
++        path_claims[0].claim_id = test_claim_id(&path_claims[0]);
++        path_claims[1].kind = CanonicalClaimKind::Resource;
++        path_claims[1].canonical_key = shared_opaque_key;
++        path_claims[1].physical_alias_key = None;
++        path_claims[1].claim_id = test_claim_id(&path_claims[1]);
++        let refs = path_claims
++            .iter()
++            .map(|claim| ClaimRef { claim })
++            .collect::<Vec<_>>();
++        assert!(intersect_claims(&refs).unwrap().is_empty());
++    }
++
++    #[test]
++    fn analyzer_module_has_no_io_authority_in_its_production_surface() {
++        let production = include_str!("analyzer.rs")
++            .split("#[cfg(test)]")
++            .next()
++            .unwrap();
++        for forbidden in [
++            "std::fs",
++            "std::io",
++            "std::path",
++            "std::process",
++            "std::net",
++            "std::time",
++            "std::env",
++            "std::thread",
++            "SystemTime",
++            "Instant",
++            "tauri::command",
++            "repository_root",
++            "worktree_root",
++        ] {
++            assert!(
++                !production.contains(forbidden),
++                "forbidden authority: {forbidden}"
++            );
++        }
++    }
++
++    #[test]
++    fn complete_registry_analysis_input_is_sealed_in_production() {
++        let registry_source = include_str!("registry.rs");
++        assert!(
++            registry_source.contains("pub(crate) struct CompleteRegistryRead(RegistryDocument);")
++        );
++        assert!(registry_source.contains("Complete(CompleteRegistryRead)"));
++        assert!(registry_source.contains("fn complete(document: RegistryDocument) -> Self"));
++        assert!(registry_source.contains("#[cfg(test)]\nimpl std::ops::DerefMut"));
++
++        let analyzer_production = include_str!("analyzer.rs")
++            .split("#[cfg(test)]")
++            .next()
++            .unwrap();
++        assert!(!analyzer_production.contains("RegistryRead::complete_for_test"));
++        assert!(!analyzer_production.contains("RegistryRead::Complete(RegistryDocument"));
++    }
++
++    #[test]
++    fn terminal_tombstones_never_own_a_claim() {
++        let mut read = complete_read(vec![planner(
++            "a",
++            vec![spec(
++                CanonicalClaimKind::Resource,
++                "resource:a",
++                &[],
++                None,
++                ConflictDisposition::Wait,
++            )],
++        )]);
++        let RegistryRead::Complete(document) = &mut read else {
++            unreachable!()
++        };
++        let snapshot = &mut document.census.as_mut().unwrap().planners[0].claim_snapshot;
++        snapshot.contracts[0].state = ActiveClaimState::Completed;
++        snapshot.contracts[0].disposition_rules.clear();
++        snapshot.digest = snapshot_digest(snapshot);
++        let planner = &mut document.census.as_mut().unwrap().planners[0];
++        planner.manifest_digest = planner_manifest_digest(planner);
++        assert_eq!(
++            analyze_registry_read(&read, NOW_MS).verdict,
++            CollisionVerdict::Unknown
++        );
++    }
++}
+diff --git a/src-tauri/src/collision_assessor/api.rs b/src-tauri/src/collision_assessor/api.rs
+index 40e3d36..e5a095b 100644
+--- a/src-tauri/src/collision_assessor/api.rs
++++ b/src-tauri/src/collision_assessor/api.rs
+@@ -662,7 +662,7 @@ mod tests {
+         let RegistryRead::Complete(document) = fixture.registry.inspect(2_100) else {
+             panic!("recorded census must inspect complete")
+         };
+-        let census = document.census.unwrap();
++        let census = document.census.as_ref().unwrap();
+         assert_ne!(census.input_digest, "0".repeat(64));
+         assert_eq!(census.input_digest.len(), 64);
+ 
+diff --git a/src-tauri/src/collision_assessor/mod.rs b/src-tauri/src/collision_assessor/mod.rs
+index 82fbe85..ac54eb4 100644
+--- a/src-tauri/src/collision_assessor/mod.rs
++++ b/src-tauri/src/collision_assessor/mod.rs
+@@ -1,7 +1,13 @@
++pub(crate) mod analyzer;
+ pub mod api;
++pub(crate) mod authority;
+ pub mod capability;
++pub(crate) mod clearance;
+ pub mod collector_process;
+ pub mod discovery;
+ pub mod identity;
++pub(crate) mod journal;
+ pub mod model;
+ pub mod registry;
++pub(crate) mod snapshot;
++pub(crate) mod tickets;
+diff --git a/src-tauri/src/collision_assessor/registry.rs b/src-tauri/src/collision_assessor/registry.rs
+index 101382a..4385bf7 100644
+--- a/src-tauri/src/collision_assessor/registry.rs
++++ b/src-tauri/src/collision_assessor/registry.rs
+@@ -49,6 +49,7 @@ const MAX_RESOURCES_PER_MANIFEST: usize = 2_048;
+ const MAX_CENSUS_PLANNERS_PER_ROOT: usize = MAX_REGISTRATIONS;
+ pub(crate) const MAX_PLAN_DIRECTORY_ENTRIES: usize = 4_096;
+ const MAX_TOTAL_MANIFEST_ENTRIES: usize = 65_536;
++const MAX_REGISTRY_DEPENDENCY_EDGES: usize = 262_144;
+ static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+ 
+ #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+@@ -405,13 +406,45 @@ pub struct UnknownRegistry {
+     pub issues: Vec<RegistryIssue>,
+ }
+ 
++/// Sealed proof that a registry document crossed the native completeness validator.
++///
++/// Production callers can inspect but cannot construct or mutate this value. That prevents a
++/// crate-internal caller from wrapping recomputed, unsigned metadata in `RegistryRead::Complete`
++/// and bypassing the authority-set, identity, freshness, or census-input checks.
+ #[derive(Debug, Clone, PartialEq, Eq)]
+-pub enum RegistryRead {
+-    Complete(RegistryDocument),
++pub(crate) struct CompleteRegistryRead(RegistryDocument);
++
++impl std::ops::Deref for CompleteRegistryRead {
++    type Target = RegistryDocument;
++
++    fn deref(&self) -> &Self::Target {
++        &self.0
++    }
++}
++
++#[cfg(test)]
++impl std::ops::DerefMut for CompleteRegistryRead {
++    fn deref_mut(&mut self) -> &mut Self::Target {
++        &mut self.0
++    }
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub(crate) enum RegistryRead {
++    Complete(CompleteRegistryRead),
+     Unknown(UnknownRegistry),
+ }
+ 
+ impl RegistryRead {
++    fn complete(document: RegistryDocument) -> Self {
++        Self::Complete(CompleteRegistryRead(document))
++    }
++
++    #[cfg(test)]
++    pub(crate) fn complete_for_test(document: RegistryDocument) -> Self {
++        Self::complete(document)
++    }
++
+     pub fn is_complete(&self) -> bool {
+         matches!(self, Self::Complete(_))
+     }
+@@ -572,7 +605,7 @@ impl PlannerRegistryStore {
+         Ok(document)
+     }
+ 
+-    pub fn inspect(&self, now_ms: u64) -> RegistryRead {
++    pub(crate) fn inspect(&self, now_ms: u64) -> RegistryRead {
+         inspect_registry_file(self.path.as_path(), now_ms, self.trusted_issuer.as_deref())
+     }
+ 
+@@ -1626,7 +1659,7 @@ fn inspect_registry_file(
+     issues.extend(validate_authority_time(&document, now_ms));
+     issues.extend(validate_completeness(&document, now_ms, trusted_issuer));
+     if issues.is_empty() {
+-        RegistryRead::Complete(document)
++        RegistryRead::complete(document)
+     } else {
+         RegistryRead::Unknown(UnknownRegistry {
+             generation: Some(document.generation),
+@@ -3513,37 +3546,67 @@ fn claim_id(
+ }
+ 
+ fn has_dependency_cycle(contracts: &[ActiveClaimContract]) -> bool {
+-    let mut remaining = contracts
++    let mut indegree = contracts
+         .iter()
+-        .map(|contract| {
+-            (
+-                contract.participant_id.clone(),
+-                contract
+-                    .dependencies
+-                    .iter()
+-                    .cloned()
+-                    .collect::<BTreeSet<_>>(),
+-            )
+-        })
++        .map(|contract| (contract.participant_id.as_str(), 0usize))
+         .collect::<BTreeMap<_, _>>();
+-    while !remaining.is_empty() {
+-        let ready = remaining
+-            .iter()
+-            .filter(|(_, dependencies)| {
+-                dependencies
+-                    .iter()
+-                    .all(|dependency| !remaining.contains_key(dependency))
+-            })
+-            .map(|(participant, _)| participant.clone())
+-            .collect::<Vec<_>>();
+-        if ready.is_empty() {
+-            return true;
++    if indegree.len() != contracts.len() {
++        return true;
++    }
++
++    let mut dependents = BTreeMap::<&str, Vec<&str>>::new();
++    let mut edge_count = 0usize;
++    for contract in contracts {
++        for dependency in &contract.dependencies {
++            edge_count = match edge_count.checked_add(1) {
++                Some(count) if count <= MAX_REGISTRY_DEPENDENCY_EDGES => count,
++                _ => return true,
++            };
++            // An individual Planner snapshot may depend on a participant in another Planner.
++            // External dependencies are resolved by the global pass; only local edges affect the
++            // per-snapshot cycle calculation.
++            if indegree.contains_key(dependency.as_str()) {
++                let Some(count) = indegree.get_mut(contract.participant_id.as_str()) else {
++                    return true;
++                };
++                *count = match count.checked_add(1) {
++                    Some(count) => count,
++                    None => return true,
++                };
++                dependents
++                    .entry(dependency.as_str())
++                    .or_default()
++                    .push(contract.participant_id.as_str());
++            }
+         }
+-        for participant in ready {
+-            remaining.remove(&participant);
++    }
++
++    let mut ready = indegree
++        .iter()
++        .filter_map(|(participant, count)| (*count == 0).then_some(*participant))
++        .collect::<BTreeSet<_>>();
++    let mut visited = 0usize;
++    while let Some(participant) = ready.pop_first() {
++        visited += 1;
++        if let Some(children) = dependents.get(participant) {
++            for child in children {
++                let Some(count) = indegree.get_mut(child) else {
++                    return true;
++                };
++                *count = match count.checked_sub(1) {
++                    Some(count) => count,
++                    None => return true,
++                };
++                if *count == 0 {
++                    ready.insert(child);
++                }
++            }
++        }
++        if visited > contracts.len() {
++            return true;
+         }
+     }
+-    false
++    visited != contracts.len()
+ }
+ 
+ fn canonical_claim_snapshot_digest(snapshot: &CanonicalClaimSnapshot) -> String {

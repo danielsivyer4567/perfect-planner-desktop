@@ -1,0 +1,523 @@
+diff --git a/docs/collision-assessor-guarantee.md b/docs/collision-assessor-guarantee.md
+new file mode 100644
+index 0000000..353a326
+--- /dev/null
++++ b/docs/collision-assessor-guarantee.md
+@@ -0,0 +1,199 @@
++# Collision Assessor guarantee and trust boundary
++
++Status: normative design contract for PP-002. The implementation and release tests must fail
++closed when they cannot prove this contract.
++
++## The guarantee
++
++Perfect Planner guarantees that no **managed worker** receives or renews an edit claim unless
++all of the following facts are true at the same instant:
++
++1. An independent collision assessor has completed the configured machine-wide Planner census.
++2. Every registered Planner, configured discovery root, plan manifest, active lease and declared
++   resource is accounted for and fresh.
++3. The assessor verdict is `CLEAR`; `WAIT`, `REPLAN`, `USER_DECISION` and `UNKNOWN` never grant a
++   claim.
++4. A live clearance is bound to the exact run, node, logical repository, branch, normalized file
++   manifest, resource manifest, registry generation, worker fence and immutable snapshot hash.
++5. The single-use discovery capability has been consumed and revoked.
++6. The user approval is bound to exactly one registered originating chat, and a durable delivery
++receipt proves that the approval notification reached that chat.
++7. The scheduler atomically consumes the clearance before returning the worker lease.
++
++The originating-chat delivery receipt is therefore a mandatory admission input, not an
++informational notification.
++
++The enforcement point is worker admission. A UI label, a JSON value saying `approved`, a chat
++message, a model statement, or an assessor process merely being present is never sufficient.
++
++## Census authority and first-census bootstrap
++
++The machine-wide registry and the plan files named by its live registrations are the census
++authority. Board HTTP is an untrusted display transport: `/whoami`, `/plan` or any other loopback
++response may help render status, but it cannot add a Planner, replace a plan manifest or satisfy
++an absent registry fact.
++
++The first census does not require a previous census. Under the cross-process registry lock, the
++native assessor loads the registry once, validates its schema and strict structural bounds,
++rejects stale or future-dated registrations, and binds every configured root, repository root,
++worktree root and plan file to the operating system's volume and file identity. Only then does it
++issue a private first-census snapshot. Missing, malformed, oversized, aliased or unresolvable
++authority yields `UNKNOWN`; it never yields an empty snapshot.
++
++Configured-root coverage is exact, not recursive and not advisory. Each configured discovery
++root must have the same stable physical identity as one registered worktree root. A worktree may
++contain multiple live Planner registrations, but every one must name a distinct plan JSON directly
++inside that worktree's fixed `.claude/scratch/perfect-plan` directory. Every JSON in that directory
++must be represented by exactly one live registration. A broad container such as `C:\repos`, a
++nested or sibling worktree, a missing or duplicate registration, an unregistered plan JSON, or a
++root matching zero or multiple physical worktrees forces `UNKNOWN`.
++
++Operators migrating from broad search roots must register each physical worktree separately before
++enabling managed-worker admission. The assessor deliberately refuses an unbounded recursive crawl:
++bounded exact roots make census completeness both deterministic and independently testable.
++
++The snapshot carries a domain-separated SHA-256 digest over the registry schema and generation,
++sorted configured-root identities, sorted registration authority, lease generations, canonical
++node/file/resource manifests, and physical root/plan identities. Registry update timestamps and
++prior census output are deliberately excluded, so merely recording a census cannot invalidate
++its own authority input. Freshness is validated separately both when the snapshot is issued and
++when its result is consumed.
++
++### Canonical claim and disposition authority
++
++File equality is derived from the real Git worktree administration chain and the operating
++system's physical identities. The caller-supplied repository label and repository-root text are
++display fields, never collision equality authority. A linked worktree is accepted only when its
++`.git` file, administrative directory, `commondir`, and `gitdir` backlink form one physically
++consistent chain. Existing files become opaque `ExactFile` claims, existing directories become
++opaque `DirectoryTree` claims, and resources become grammar-validated opaque `Resource` claims.
++Stable hardlinks share physical-alias evidence. Globs, ambiguous missing-path kinds, reparse
++components, or any identity that cannot be retained and revalidated yield `UNKNOWN`.
++
++A model-writable plan cannot authorize its own worker, fence, dependency or disposition. Those
++facts require a machine-issued claim authority bound to the exact registry generation, issuer
++epoch, planner, plan content, native repository identity, lease generation and complete sorted
++node set. Every non-terminal claim has exactly one signed, claim-scoped disposition rule. Policy,
++assumption, dependency, run, worker and fence changes are rejected during ordinary lifecycle
++transitions. `COMPLETED` and `RELEASED` retain a signed, path-free participant tombstone so
++dependencies remain resolvable, but atomically clear every ownership claim and disposition rule.
++
++Machine authorities are published as one atomic complete set, never one planner at a time. An
++Ed25519 aggregate receipt binds the exact sorted configured roots, registrations, physical
++identities, plan digests and individual authority digests. The parent pins both the registry
++generation and an always-on canonical registry-input digest, including generations with no live
++receipt; the helper receives only the verification key in its nonce-bound private request and
++independently recomputes the aggregate scope. Dropped roots or planners, cross-set splicing,
++same-generation disk edits, receipt replay, key substitution and partial publication therefore
++yield `UNKNOWN` and cannot be laundered by a later heartbeat.
++
++The schema-v1 startup migration is bounded, locked and one-way. It preserves structurally valid
++roots and registrations, including expired leases, advances the generation, and clears prior
++census and claim authority. Malformed legacy bytes are left untouched, and a current schema-v2
++registry is validated without rewrite. A restarted process never trusts a public key merely
++because it was stored beside the signed records: without the live native issuer owner it may
++inspect only as `UNKNOWN` and cannot mutate signed state. B19 deliberately exposes no production
++issuer API; until the trusted scheduler/reservation integration is delivered, machine authority
++publication remains unavailable and admission stays `UNKNOWN`.
++
++Census output is persisted through one conditional operation. It reacquires the registry lock,
++rebuilds the current authority snapshot, compares both generation and digest, revalidates every
++physical identity and writes only if the input is unchanged. A concurrent heartbeat, manifest
++mutation, root change, delete/recreate, mapping change or stale duplicate result is rejected.
++
++On Windows, stable local volume/file IDs are equality authority; path spelling is not. Two stable
++hardlinks therefore identify the same object and must collide. A second directory entry for the
++same registered plan object does not invent an extra plan, but two live registrations claiming
++that one plan identity are duplicate participants and force `UNKNOWN`. Junctions, symbolic links, reparse
++points, SUBST drives, mapped/remote drives, unsupported or zero file IDs, and identities that
++change during validation force `UNKNOWN` instead of falling back to lower-cased path text.
++
++Plan bytes and fixed-directory inventory bytes are read only from the same share-restricted
++Windows handle whose volume/file identity was compared with the registry authority before the
++first byte. That handle denies write/delete sharing and is revalidated after the bounded read;
++root and fixed-plan-directory handles remain held while inventory is enumerated. A swap,
++swap-and-restore or reparse substitution therefore fails before substituted bytes can become
++census input.
++
++The census helper runs inside a one-process Windows Job with kill-on-close. Completion is accepted
++only after the exact child is confirmed exited by a bounded process-handle wait, the Job reports
++zero active processes, and the Job handle closes successfully. Termination, wait, accounting or
++handle-close failure is not returned to the renderer as an ordinary recoverable result: the
++desktop process fails closed so operating-system handle teardown removes any residual reader.
++
++## Three separate authorities
++
++The system deliberately separates authority:
++
++- The **collision assessor observes**. It can read bounded Planner registration and manifest
++  metadata during its one-use discovery window. It reports facts and signs a verdict. It cannot
++  edit a plan, schedule a worker, make a product decision or run arbitrary commands.
++- The **head orchestrator decides**. It owns scheduling, `WAIT` dependencies, replanning and user
++  decision requests. It cannot invent a `CLEAR` verdict, expand a clearance manifest or bypass
++  approval delivery.
++- The **worker executes**. It receives one fenced assignment and may write only its exact allowed
++  files and resources. It cannot enumerate other plans, change its own manifest, mint a
++  clearance or directly contact an unrelated chat.
++
++No component inherits another component's authority. Compromise or failure of one boundary must
++not silently grant the other two.
++
++## Fail-closed outcomes
++
++`CLEAR`
++: The census is complete and fresh, the normalized manifests do not conflict, and every input
++  required to mint a clearance is present. This is the only claim-capable verdict.
++
++`WAIT`
++: The proposed work conflicts with an active owner but can safely proceed after a named lease or
++  node completion. No worker claim is granted while waiting.
++
++`REPLAN`
++: A conflicting change invalidates an assumption, interface, schema, resource contract or file
++  allocation. The orchestrator must produce a revised plan, obtain a fresh assessment and obtain
++  user approval again when the change is material.
++
++`USER_DECISION`
++: More than one safe disposition exists, or the system cannot infer the user's intended scope.
++  No automated choice or worker claim is permitted.
++
++`UNKNOWN`
++: Any required fact is absent, stale, malformed, unreachable, ambiguous, unsupported or outside
++  the configured census. `UNKNOWN` is the default outcome; absence is never interpreted as
++  freedom to proceed.
++
++## Approval is a delivery transaction
++
++Board approval alone never unlocks work. Each managed board is explicitly registered to one
++originating chat before approval. The approval transition and its notification outbox record are
++one idempotent transaction. Worker admission remains blocked while that notification is
++`UNROUTED`, `QUEUED`, `CLAIMED`, retrying or `DEAD_LETTER`. Only a matching durable delivery
++receipt for the registered route satisfies the approval input.
++
++Repeated clicks, watcher restarts and connector retries may create multiple delivery attempts,
++but they must resolve to one logical approval and one correlation identity. A route is never
++guessed from a window title, process list, recently active chat or model-generated text.
++
++## What the guarantee does not cover
++
++The guarantee covers only Perfect Planner-managed workers because their claim path is mediated.
++It cannot prevent arbitrary external editors, terminals, IDE extensions, legacy agents, users or
++malware from modifying files outside that path. Those actors are detected through dirty-state,
++Git reconciliation and release gates; they are not falsely described as prevented.
++
++An unregistered legacy Planner, an offline repository, an unreachable board, an unsupported
++registry version or an incomplete configured-root census forces `UNKNOWN` and zero managed worker
++claims. The operator must register, recover or explicitly remove the unsupported participant
++before a fresh assessment can return `CLEAR`.
++
++The journal is tamper-evident rather than tamper-proof. Local CI mirrors hosted CI but cannot
++guarantee identical external infrastructure. Visual evidence still requires human judgment.
++
++## Required recovery behavior
++
++- A crash before atomic clearance consumption leaves no worker claim.
++- A crash after consumption recovers the exact fenced lease or expires it; it never remints from
++  stale state.
++- Registry-generation, manifest, branch, snapshot or fence drift revokes the clearance.
++- Lost chat delivery retries from the durable outbox and keeps admission blocked.
++- Ambiguous recovery becomes `UNKNOWN` and requires a new census.
+diff --git a/src-tauri/src/collision_assessor/model.rs b/src-tauri/src/collision_assessor/model.rs
+new file mode 100644
+index 0000000..d092648
+--- /dev/null
++++ b/src-tauri/src/collision_assessor/model.rs
+@@ -0,0 +1,312 @@
++//! Fail-closed trust-boundary types for the cross-repository collision assessor.
++//!
++//! This module intentionally has no I/O or scheduler authority. Later components may serialize
++//! these values, but the admission predicate remains a pure function that defaults to denial.
++
++use serde::{Deserialize, Serialize};
++
++/// Native, metadata-only claim inventory frozen by the read-only census. None of these DTOs
++/// contain a filesystem path, branch, resource spelling, worker token, or other caller authority.
++/// Equality is expressed only through domain-separated opaque SHA-256 keys.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
++#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
++pub enum CanonicalClaimKind {
++    ExactFile,
++    DirectoryTree,
++    Resource,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
++#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
++pub enum ClaimSnapshotStatus {
++    Complete,
++    Unknown,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
++#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
++pub enum ClaimSnapshotFailure {
++    MissingGitAuthority,
++    InvalidGitAuthority,
++    UnsupportedGlob,
++    InvalidClaim,
++    MissingActiveContract,
++    InvalidActiveContract,
++    IdentityChanged,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
++#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
++pub enum ActiveClaimState {
++    Planned,
++    Claimed,
++    Running,
++    Waiting,
++    Completed,
++    Released,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
++#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
++pub enum ConflictDisposition {
++    Wait,
++    Replan,
++    UserDecision,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase", deny_unknown_fields)]
++pub struct CanonicalClaim {
++    pub claim_id: String,
++    pub participant_id: String,
++    pub kind: CanonicalClaimKind,
++    pub canonical_key: String,
++    #[serde(default)]
++    pub ancestor_keys: Vec<String>,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub physical_alias_key: Option<String>,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase", deny_unknown_fields)]
++pub struct ClaimDispositionRule {
++    pub claim_id: String,
++    pub disposition: ConflictDisposition,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase", deny_unknown_fields)]
++pub struct ActiveClaimContract {
++    pub participant_id: String,
++    pub run_identity: String,
++    pub worker_identity: String,
++    pub fence: u64,
++    pub lease_generation: u64,
++    pub state: ActiveClaimState,
++    #[serde(default)]
++    pub dependencies: Vec<String>,
++    pub assumption_digest: String,
++    pub policy_digest: String,
++    pub active_state_digest: String,
++    #[serde(default)]
++    pub disposition_rules: Vec<ClaimDispositionRule>,
++    pub observed_at_ms: u64,
++    pub expires_at_ms: u64,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase", deny_unknown_fields)]
++pub struct CanonicalClaimSnapshot {
++    pub schema_version: u32,
++    pub status: ClaimSnapshotStatus,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub failure: Option<ClaimSnapshotFailure>,
++    pub repository_identity: String,
++    pub source_manifest_digest: String,
++    #[serde(default)]
++    pub claims: Vec<CanonicalClaim>,
++    #[serde(default)]
++    pub contracts: Vec<ActiveClaimContract>,
++    pub digest: String,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum CollisionVerdict {
++    Clear,
++    Wait,
++    Replan,
++    UserDecision,
++    Unknown,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum Authority {
++    CollisionAssessor,
++    HeadOrchestrator,
++    Worker,
++}
++
++impl Authority {
++    pub const fn responsibility(self) -> &'static str {
++        match self {
++            Self::CollisionAssessor => "observes",
++            Self::HeadOrchestrator => "decides",
++            Self::Worker => "executes",
++        }
++    }
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ClaimAdmissionInput<'a> {
++    pub verdict: CollisionVerdict,
++    pub run_id: &'a str,
++    pub node_id: &'a str,
++    pub repository_id: &'a str,
++    pub branch: &'a str,
++    pub file_manifest_hash: &'a str,
++    pub resource_manifest_hash: &'a str,
++    pub snapshot_hash: &'a str,
++    pub registry_generation: u64,
++    pub worker_fence: u64,
++    pub clearance_expires_at_ms: u64,
++    pub now_ms: u64,
++    pub discovery_revoked: bool,
++    pub originating_chat_route: &'a str,
++    pub approval_delivery_receipt: &'a str,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum AdmissionDenial {
++    NonClearVerdict(CollisionVerdict),
++    MissingBinding(&'static str),
++    MissingRegistryGeneration,
++    MissingWorkerFence,
++    ExpiredClearance,
++    DiscoveryStillOpen,
++    ApprovalNotDelivered,
++}
++
++pub fn validate_claim_admission(input: &ClaimAdmissionInput<'_>) -> Result<(), AdmissionDenial> {
++    if input.verdict != CollisionVerdict::Clear {
++        return Err(AdmissionDenial::NonClearVerdict(input.verdict));
++    }
++
++    for (name, value) in [
++        ("run_id", input.run_id),
++        ("node_id", input.node_id),
++        ("repository_id", input.repository_id),
++        ("branch", input.branch),
++        ("file_manifest_hash", input.file_manifest_hash),
++        ("resource_manifest_hash", input.resource_manifest_hash),
++        ("snapshot_hash", input.snapshot_hash),
++    ] {
++        if value.trim().is_empty() {
++            return Err(AdmissionDenial::MissingBinding(name));
++        }
++    }
++
++    if input.registry_generation == 0 {
++        return Err(AdmissionDenial::MissingRegistryGeneration);
++    }
++    if input.worker_fence == 0 {
++        return Err(AdmissionDenial::MissingWorkerFence);
++    }
++    if input.clearance_expires_at_ms <= input.now_ms {
++        return Err(AdmissionDenial::ExpiredClearance);
++    }
++    if !input.discovery_revoked {
++        return Err(AdmissionDenial::DiscoveryStillOpen);
++    }
++    if input.originating_chat_route.trim().is_empty()
++        || input.approval_delivery_receipt.trim().is_empty()
++    {
++        return Err(AdmissionDenial::ApprovalNotDelivered);
++    }
++
++    Ok(())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn clear_input() -> ClaimAdmissionInput<'static> {
++        ClaimAdmissionInput {
++            verdict: CollisionVerdict::Clear,
++            run_id: "run-01",
++            node_id: "B01",
++            repository_id: "repo-01",
++            branch: "feature/collision-assessor",
++            file_manifest_hash: "files-sha256",
++            resource_manifest_hash: "resources-sha256",
++            snapshot_hash: "snapshot-sha256",
++            registry_generation: 7,
++            worker_fence: 3,
++            clearance_expires_at_ms: 2_000,
++            now_ms: 1_000,
++            discovery_revoked: true,
++            originating_chat_route: "codex-exec:repo-01:task-01",
++            approval_delivery_receipt: "receipt-01",
++        }
++    }
++
++    #[test]
++    fn authorities_have_one_non_overlapping_responsibility() {
++        assert_eq!(Authority::CollisionAssessor.responsibility(), "observes");
++        assert_eq!(Authority::HeadOrchestrator.responsibility(), "decides");
++        assert_eq!(Authority::Worker.responsibility(), "executes");
++    }
++
++    #[test]
++    fn only_clear_can_admit_a_claim() {
++        for verdict in [
++            CollisionVerdict::Wait,
++            CollisionVerdict::Replan,
++            CollisionVerdict::UserDecision,
++            CollisionVerdict::Unknown,
++        ] {
++            let mut input = clear_input();
++            input.verdict = verdict;
++            assert_eq!(
++                validate_claim_admission(&input),
++                Err(AdmissionDenial::NonClearVerdict(verdict))
++            );
++        }
++        assert_eq!(validate_claim_admission(&clear_input()), Ok(()));
++    }
++
++    #[test]
++    fn every_exact_identity_and_manifest_binding_is_required() {
++        let setters: [fn(&mut ClaimAdmissionInput<'static>); 7] = [
++            |input| input.run_id = "",
++            |input| input.node_id = "",
++            |input| input.repository_id = "",
++            |input| input.branch = "",
++            |input| input.file_manifest_hash = "",
++            |input| input.resource_manifest_hash = "",
++            |input| input.snapshot_hash = "",
++        ];
++        for remove_binding in setters {
++            let mut input = clear_input();
++            remove_binding(&mut input);
++            assert!(matches!(
++                validate_claim_admission(&input),
++                Err(AdmissionDenial::MissingBinding(_))
++            ));
++        }
++    }
++
++    #[test]
++    fn stale_or_unrevoked_clearance_is_denied() {
++        let mut expired = clear_input();
++        expired.now_ms = expired.clearance_expires_at_ms;
++        assert_eq!(
++            validate_claim_admission(&expired),
++            Err(AdmissionDenial::ExpiredClearance)
++        );
++
++        let mut discovery_open = clear_input();
++        discovery_open.discovery_revoked = false;
++        assert_eq!(
++            validate_claim_admission(&discovery_open),
++            Err(AdmissionDenial::DiscoveryStillOpen)
++        );
++    }
++
++    #[test]
++    fn board_approval_without_chat_delivery_is_denied() {
++        let mut no_route = clear_input();
++        no_route.originating_chat_route = "";
++        assert_eq!(
++            validate_claim_admission(&no_route),
++            Err(AdmissionDenial::ApprovalNotDelivered)
++        );
++
++        let mut no_receipt = clear_input();
++        no_receipt.approval_delivery_receipt = "";
++        assert_eq!(
++            validate_claim_admission(&no_receipt),
++            Err(AdmissionDenial::ApprovalNotDelivered)
++        );
++    }
++}

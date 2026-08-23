@@ -2,10 +2,13 @@ node_modules/
 dist/
 artifacts/
 graphify-out/
+__pycache__/
+*.py[cod]
 src-tauri/target/
 src-tauri/gen/
 .claude/scratch/perfect-plan/runs/
 .claude/scratch/perfect-plan/evidence/B*-before.png
+.claude/scratch/orchestrator/
 *.log
 .DS_Store
 Thumbs.db

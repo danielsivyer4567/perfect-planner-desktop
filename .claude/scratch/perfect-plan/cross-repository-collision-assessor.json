@@ -79,7 +79,7 @@
         {
           "text": "Specify the invariant: no managed worker claim exists without a fresh assessor clearance bound to the exact run, node, repository, branch, files and resources",
           "built": true,
-          "tested": true,
+          "tested": false,
           "verify": "rustc --edition 2021 --test src-tauri/src/collision_assessor/model.rs -o \"%TEMP%\\pp-b01-proof.exe\" && \"%TEMP%\\pp-b01-proof.exe\" --nocapture",
           "builtBy": {
             "model": "gpt-5",
@@ -120,19 +120,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:41:04.068Z",
-            "model": "gpt-5",
+            "at": "2026-08-22T16:07:21.462Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-a1b7589d",
-            "note": "ran `rustc --edition 2021 --test src-tauri/src/collision_assessor/model.rs -o \"%TEMP%\\pp-b01-proof.exe\" && \"%TEMP%\\pp-b01-proof.exe\" --nocapture` → exit 0 in 689ms",
-            "log": "PP-002-B01-0-1787330462497.log",
-            "sha256": "ed128721751e0ff65ca29771cf981e2d4a0695dbbe05cb703cf341e4f27a6850",
-            "exit": 0,
-            "durationMs": 689,
+            "session": "s-049651b9",
+            "note": "reverify of: Specify the invariant: no managed worker claim exists without a fresh assessor clearance bound to the exact run, node, repository, branch, files and resources",
+            "log": "PP-002-B01-0-1787414840140.log",
+            "sha256": "8aede69ecc5f063598587614d306ba7cc909ab182680d76bc8e216254b395988",
+            "exit": 1,
+            "durationMs": 551,
             "git": {
-              "sha": "55789137cff542734c899115bdc03550a442091e",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "rustc --edition 2021 --test src-tauri/src/collision_assessor/model.rs -o \"%TEMP%\\pp-b01-proof.exe\" && \"%TEMP%\\pp-b01-proof.exe\" --nocapture",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -146,8 +146,8 @@
               },
               "osRelease": "10.0.26200"
             },
-            "diff": "PP-002-B01-0-1787330462497.diff",
-            "diffSha256": "85a89f132c755e9046d76aff8abc38555830399de06ae6d294c2984c25c68df7",
+            "diff": "PP-002-B01-0-1787414840140.diff",
+            "diffSha256": "f9ba0057c46e11d84e049ff35cde2ddaf5bba8b8e40a3499b96c902a3ebe9a0d",
             "diffBaseline": "c007ad05ceff9b4eb3560a84c2c91bdc3acd2414",
             "diffFiles": [
               "docs/collision-assessor-guarantee.md",
@@ -200,19 +200,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:41:06.499Z",
-            "model": "gpt-5",
+            "at": "2026-08-22T16:07:23.524Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-a1b7589d",
-            "note": "ran `node -e \"const fs=require('fs');const s=fs.readFileSync('docs/collision-assessor-guarantee.md','utf8');if(!s.includes('assessor')||!s.includes('orchestrator')||!s.includes('worker'))process.exit(1)\"` → exit 0 in 202ms",
-            "log": "PP-002-B01-1-1787330465333.log",
-            "sha256": "6935d51ac0243c0c1c4c658228b58ab0f4a2e0b4535dd99f069deae7821e1702",
+            "session": "s-049651b9",
+            "note": "reverify of: Define the three separate authorities: assessor observes, head orchestrator decides, worker executes",
+            "log": "PP-002-B01-1-1787414842627.log",
+            "sha256": "6a991fa3b5f974f2e24f54b9e619d669daeecf47eff5ec41f6d27fbdfe471291",
             "exit": 0,
-            "durationMs": 202,
+            "durationMs": 239,
             "git": {
-              "sha": "55789137cff542734c899115bdc03550a442091e",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "node -e \"const fs=require('fs');const s=fs.readFileSync('docs/collision-assessor-guarantee.md','utf8');if(!s.includes('assessor')||!s.includes('orchestrator')||!s.includes('worker'))process.exit(1)\"",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -226,8 +226,8 @@
               },
               "osRelease": "10.0.26200"
             },
-            "diff": "PP-002-B01-1-1787330465333.diff",
-            "diffSha256": "85a89f132c755e9046d76aff8abc38555830399de06ae6d294c2984c25c68df7",
+            "diff": "PP-002-B01-1-1787414842627.diff",
+            "diffSha256": "f9ba0057c46e11d84e049ff35cde2ddaf5bba8b8e40a3499b96c902a3ebe9a0d",
             "diffBaseline": "c007ad05ceff9b4eb3560a84c2c91bdc3acd2414",
             "diffFiles": [
               "docs/collision-assessor-guarantee.md",
@@ -280,19 +280,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:41:11.828Z",
-            "model": "gpt-5",
+            "at": "2026-08-22T16:07:45.835Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-a1b7589d",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 2963ms",
-            "log": "PP-002-B01-2-1787330467910.log",
-            "sha256": "43ccf0fb87969c4ac65177d96bfa3891c988b897eeb84e9a2e76ed4c77eb6400",
+            "session": "s-049651b9",
+            "note": "reverify of: Document fail-closed outcomes CLEAR, WAIT, REPLAN, USER_DECISION and UNKNOWN with no permissive default",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
-            "durationMs": 2963,
+            "durationMs": 20582,
             "git": {
-              "sha": "55789137cff542734c899115bdc03550a442091e",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -306,8 +306,8 @@
               },
               "osRelease": "10.0.26200"
             },
-            "diff": "PP-002-B01-2-1787330467910.diff",
-            "diffSha256": "85a89f132c755e9046d76aff8abc38555830399de06ae6d294c2984c25c68df7",
+            "diff": "PP-002-B01-2-1787414844358.diff",
+            "diffSha256": "f9ba0057c46e11d84e049ff35cde2ddaf5bba8b8e40a3499b96c902a3ebe9a0d",
             "diffBaseline": "c007ad05ceff9b4eb3560a84c2c91bdc3acd2414",
             "diffFiles": [
               "docs/collision-assessor-guarantee.md",
@@ -360,19 +360,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:41:40.294Z",
-            "model": "gpt-5",
+            "at": "2026-08-22T16:07:47.438Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-a1b7589d",
-            "note": "ran `node -e \"const fs=require('fs');const s=fs.readFileSync('docs/collision-assessor-guarantee.md','utf8').toLowerCase();for(const x of ['managed workers','cannot prevent','unregistered legacy planner','offline repository','unknown'])if(!s.includes(x))process.exit(1)\"` → exit 0 in 167ms",
-            "log": "PP-002-B01-3-1787330499306.log",
-            "sha256": "661263e9ea289ec8b620b13597dca68eaf46a5060af1f8b74381970b8bc77c42",
+            "session": "s-049651b9",
+            "note": "reverify of: Document the honest boundary for unmanaged tools, legacy Planners, offline repositories and incomplete configured-root coverage",
+            "log": "PP-002-B01-3-1787414866369.log",
+            "sha256": "690276e1464742fae2a44b217d74e7b041f50be9fa1de1d25afb1344ad491ca8",
             "exit": 0,
-            "durationMs": 167,
+            "durationMs": 239,
             "git": {
-              "sha": "55789137cff542734c899115bdc03550a442091e",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "node -e \"const fs=require('fs');const s=fs.readFileSync('docs/collision-assessor-guarantee.md','utf8').toLowerCase();for(const x of ['managed workers','cannot prevent','unregistered legacy planner','offline repository','unknown'])if(!s.includes(x))process.exit(1)\"",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -386,8 +386,8 @@
               },
               "osRelease": "10.0.26200"
             },
-            "diff": "PP-002-B01-3-1787330499306.diff",
-            "diffSha256": "85a89f132c755e9046d76aff8abc38555830399de06ae6d294c2984c25c68df7",
+            "diff": "PP-002-B01-3-1787414866369.diff",
+            "diffSha256": "f9ba0057c46e11d84e049ff35cde2ddaf5bba8b8e40a3499b96c902a3ebe9a0d",
             "diffBaseline": "c007ad05ceff9b4eb3560a84c2c91bdc3acd2414",
             "diffFiles": [
               "docs/collision-assessor-guarantee.md",
@@ -440,19 +440,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:41:14.425Z",
-            "model": "gpt-5",
+            "at": "2026-08-22T16:07:49.273Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-a1b7589d",
-            "note": "ran `node -e \"const fs=require('fs');const s=fs.readFileSync('docs/collision-assessor-guarantee.md','utf8').toLowerCase();if(!s.includes('approval')||!s.includes('delivery receipt')||!s.includes('originating chat'))process.exit(1)\"` → exit 0 in 328ms",
-            "log": "PP-002-B01-4-1787330473551.log",
-            "sha256": "91ce464e8b7cf34ea1d03f483763cccda711295db04d2ab834fe87c8c69f5f20",
+            "session": "s-049651b9",
+            "note": "reverify of: Specify that board approval alone never unlocks work: a registered originating-chat route and durable delivery receipt are mandatory claim inputs",
+            "log": "PP-002-B01-4-1787414867999.log",
+            "sha256": "98629e0622866ac2e83cfe3e475a2a9ade4c91fe5c4ada5ba99537de9b404de4",
             "exit": 0,
-            "durationMs": 328,
+            "durationMs": 367,
             "git": {
-              "sha": "55789137cff542734c899115bdc03550a442091e",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "node -e \"const fs=require('fs');const s=fs.readFileSync('docs/collision-assessor-guarantee.md','utf8').toLowerCase();if(!s.includes('approval')||!s.includes('delivery receipt')||!s.includes('originating chat'))process.exit(1)\"",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -466,8 +466,8 @@
               },
               "osRelease": "10.0.26200"
             },
-            "diff": "PP-002-B01-4-1787330473551.diff",
-            "diffSha256": "85a89f132c755e9046d76aff8abc38555830399de06ae6d294c2984c25c68df7",
+            "diff": "PP-002-B01-4-1787414867999.diff",
+            "diffSha256": "f9ba0057c46e11d84e049ff35cde2ddaf5bba8b8e40a3499b96c902a3ebe9a0d",
             "diffBaseline": "c007ad05ceff9b4eb3560a84c2c91bdc3acd2414",
             "diffFiles": [
               "docs/collision-assessor-guarantee.md",
@@ -570,19 +570,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:51:32.914Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-22T16:08:09.666Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-44a5bd49",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml --quiet` → exit 0 in 8138ms",
-            "log": "PP-002-B02-0-1787331083551.log",
-            "sha256": "dab271f807805bb9acde5356ef66df745087698872f85f889db6e3720918f69c",
+            "session": "s-049651b9",
+            "note": "reverify of: Persist versioned Planner registrations containing repository, worktree, branch, plan, node, files, resources, lease generation and heartbeat",
+            "log": "PP-002-B02-0-1787414870208.log",
+            "sha256": "afadc4920c1a48a6688172e23658547424821ad5844f79a443904b3c019630ac",
             "exit": 0,
-            "durationMs": 8138,
+            "durationMs": 18556,
             "git": {
-              "sha": "0fa988027108fdcf205c70340ddf3955b2d5e8e8",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml --quiet",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -596,6 +596,13 @@
               },
               "osRelease": "10.0.26200"
             },
+            "diff": "PP-002-B02-0-1787414870208.diff",
+            "diffSha256": "1b12c29698dfb25e4dfd343efa085de6645352d6b3baa5c77af2c0e10866ca71",
+            "diffBaseline": "0fa988027108fdcf205c70340ddf3955b2d5e8e8",
+            "diffFiles": [
+              "src-tauri/src/collision_assessor/model.rs",
+              "src-tauri/src/collision_assessor/registry.rs"
+            ],
             "tokensEst": 10000,
             "loc": {
               "baseline": "0fa988027108fdcf205c70340ddf3955b2d5e8e8",
@@ -658,19 +665,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:51:43.419Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-22T16:08:10.475Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-44a5bd49",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml --quiet` → exit 0 in 3148ms",
-            "log": "PP-002-B02-1-1787331099720.log",
-            "sha256": "6af37af0ac04962a414931b98bd772a7b754e2e84a9699128a21314bca00d59c",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml --quiet` proven at B02:0",
+            "log": "PP-002-B02-0-1787414870208.log",
+            "sha256": "afadc4920c1a48a6688172e23658547424821ad5844f79a443904b3c019630ac",
             "exit": 0,
             "durationMs": 3148,
             "git": {
-              "sha": "0fa988027108fdcf205c70340ddf3955b2d5e8e8",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml --quiet",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -702,7 +709,8 @@
               "fileCount": 1,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B02:0"
           }
         },
         {
@@ -746,19 +754,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:51:53.442Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-22T16:08:10.485Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-44a5bd49",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml --quiet` → exit 0 in 3463ms",
-            "log": "PP-002-B02-2-1787331109045.log",
-            "sha256": "955ab88c96f28ab7f56c4cda953f24d27406f91bee3e004b08eb3e8fe40aba48",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml --quiet` proven at B02:0",
+            "log": "PP-002-B02-0-1787414870208.log",
+            "sha256": "afadc4920c1a48a6688172e23658547424821ad5844f79a443904b3c019630ac",
             "exit": 0,
             "durationMs": 3463,
             "git": {
-              "sha": "0fa988027108fdcf205c70340ddf3955b2d5e8e8",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml --quiet",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -790,7 +798,8 @@
               "fileCount": 1,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B02:0"
           }
         },
         {
@@ -834,19 +843,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:52:02.808Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-22T16:08:10.497Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-44a5bd49",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml --quiet` → exit 0 in 3305ms",
-            "log": "PP-002-B02-3-1787331118955.log",
-            "sha256": "a0e0a394f6cdfea47c47e80c9d43de31073e24bf4d3212620881ea7ced2247c6",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml --quiet` proven at B02:0",
+            "log": "PP-002-B02-0-1787414870208.log",
+            "sha256": "afadc4920c1a48a6688172e23658547424821ad5844f79a443904b3c019630ac",
             "exit": 0,
             "durationMs": 3305,
             "git": {
-              "sha": "0fa988027108fdcf205c70340ddf3955b2d5e8e8",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml --quiet",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -878,7 +887,8 @@
               "fileCount": 1,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B02:0"
           }
         }
       ],
@@ -1016,19 +1026,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:48:41.304Z",
-            "model": "gpt-5",
+            "at": "2026-08-22T16:08:10.508Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-801bfd07",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 3141ms",
-            "log": "PP-002-B03-0-1787330917446.log",
-            "sha256": "19835ab90be7f7611a7749ba1cf38ab19784217c98801a3a059e39a2f96f04f2",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 3141,
             "git": {
-              "sha": "0fa988027108fdcf205c70340ddf3955b2d5e8e8",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -1113,7 +1123,8 @@
               "fileCount": 9,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -1202,19 +1213,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:48:48.167Z",
-            "model": "gpt-5",
+            "at": "2026-08-22T16:08:10.521Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-801bfd07",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 2884ms",
-            "log": "PP-002-B03-1-1787330924446.log",
-            "sha256": "a0c62c6b5a725ac2cf7f6c86e4e0f970228ee30d25c985cfc276ba65270ad4e6",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 2884,
             "git": {
-              "sha": "0fa988027108fdcf205c70340ddf3955b2d5e8e8",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -1299,7 +1310,8 @@
               "fileCount": 9,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -1388,19 +1400,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:48:53.87Z",
-            "model": "gpt-5",
+            "at": "2026-08-22T16:08:10.533Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-801bfd07",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 2851ms",
-            "log": "PP-002-B03-2-1787330930432.log",
-            "sha256": "8d888ebfa7e63d633de09609ba076c5487ad94d1f1428e2b6058663182ea75f2",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 2851,
             "git": {
-              "sha": "0fa988027108fdcf205c70340ddf3955b2d5e8e8",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -1485,7 +1497,8 @@
               "fileCount": 9,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -1574,19 +1587,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:48:59.724Z",
-            "model": "gpt-5",
+            "at": "2026-08-22T16:08:10.544Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-801bfd07",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 2909ms",
-            "log": "PP-002-B03-3-1787330936101.log",
-            "sha256": "019e67862816132f8ac21c744f33a3db112e0a1e6ea3c7825b615539b631eb03",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 2909,
             "git": {
-              "sha": "0fa988027108fdcf205c70340ddf3955b2d5e8e8",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -1671,7 +1684,8 @@
               "fileCount": 9,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         }
       ],
@@ -1820,19 +1834,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T18:26:27.366Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-22T16:08:10.555Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-816bfb35",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 4541ms",
-            "log": "PP-002-B04-0-1787336782038.log",
-            "sha256": "b93e8f5947e732af229c8414d3e4beec857e77e2b91f0a5867ac1d44b2a97104",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 4541,
             "git": {
-              "sha": "9b76abcf883a12ad1088f6a10512148ab36a9aca",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -1929,7 +1943,8 @@
               "fileCount": 11,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -2025,19 +2040,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T18:26:32.869Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-22T16:08:10.568Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-816bfb35",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 3380ms",
-            "log": "PP-002-B04-1-1787336788852.log",
-            "sha256": "6ae7af15f524bb3c389c53fbb8fe2e4f9afd0a91fb819b0bfafb42d8c965127a",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 3380,
             "git": {
-              "sha": "9b76abcf883a12ad1088f6a10512148ab36a9aca",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -2134,7 +2149,8 @@
               "fileCount": 11,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -2230,19 +2246,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T18:26:38.067Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-22T16:08:10.579Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-816bfb35",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 3259ms",
-            "log": "PP-002-B04-2-1787336794138.log",
-            "sha256": "db927086d38f3bb75da2ee348b3d5ede3dc6565eab7a3ce3c276c62159ebb07f",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 3259,
             "git": {
-              "sha": "9b76abcf883a12ad1088f6a10512148ab36a9aca",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -2339,7 +2355,8 @@
               "fileCount": 11,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -2435,19 +2452,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T18:26:43.408Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-22T16:08:10.589Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-816bfb35",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 3295ms",
-            "log": "PP-002-B04-3-1787336799402.log",
-            "sha256": "45ff86e5d915dfac0b715efab4b62ef47889e61955100349cad5dfe1961859c5",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 3295,
             "git": {
-              "sha": "9b76abcf883a12ad1088f6a10512148ab36a9aca",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -2544,7 +2561,8 @@
               "fileCount": 11,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         }
       ],
@@ -2591,7 +2609,7 @@
         {
           "text": "Normalize Windows case, separators, dot segments, UNC paths, symlinks and junctions without permitting path escape",
           "built": true,
-          "tested": true,
+          "tested": false,
           "verify": "rustc --edition 2021 -D warnings --test src-tauri/src/collision_assessor/identity.rs -o \"%TEMP%\\pp-b05-identity-proof.exe\" && \"%TEMP%\\pp-b05-identity-proof.exe\" --nocapture",
           "builtBy": {
             "model": "gpt-5",
@@ -2629,19 +2647,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:48:20.998Z",
-            "model": "gpt-5",
+            "at": "2026-08-22T16:08:11.648Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-c3f3d305",
-            "note": "ran `rustc --edition 2021 -D warnings --test src-tauri/src/collision_assessor/identity.rs -o \"%TEMP%\\pp-b05-identity-proof.exe\" && \"%TEMP%\\pp-b05-identity-proof.exe\" --nocapture` → exit 0 in 1570ms",
-            "log": "PP-002-B05-0-1787330898735.log",
-            "sha256": "056d9a00630d955cfc31815580c759f2416d3554ef389ae0ad0312bc5c7a8b49",
-            "exit": 0,
-            "durationMs": 1570,
+            "session": "s-049651b9",
+            "note": "reverify of: Normalize Windows case, separators, dot segments, UNC paths, symlinks and junctions without permitting path escape",
+            "log": "PP-002-B05-0-1787414890597.log",
+            "sha256": "726ab2f70be0e236382fe90e2af3d965e28ef5da8cc6be839f1a1fd497ebf909",
+            "exit": 1,
+            "durationMs": 479,
             "git": {
-              "sha": "0fa988027108fdcf205c70340ddf3955b2d5e8e8",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "rustc --edition 2021 -D warnings --test src-tauri/src/collision_assessor/identity.rs -o \"%TEMP%\\pp-b05-identity-proof.exe\" && \"%TEMP%\\pp-b05-identity-proof.exe\" --nocapture",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -2655,6 +2673,12 @@
               },
               "osRelease": "10.0.26200"
             },
+            "diff": "PP-002-B05-0-1787414890597.diff",
+            "diffSha256": "b0adce7e975187b35f106013ea1fba6886daf303ab472650add0f2bab6b4c6d5",
+            "diffBaseline": "0fa988027108fdcf205c70340ddf3955b2d5e8e8",
+            "diffFiles": [
+              "src-tauri/src/collision_assessor/identity.rs"
+            ],
             "tokensEst": 2000,
             "loc": {
               "baseline": "0fa988027108fdcf205c70340ddf3955b2d5e8e8",
@@ -2679,7 +2703,7 @@
         {
           "text": "Derive a stable logical repository identity and repo-relative file key shared by all worktrees of that repository",
           "built": true,
-          "tested": true,
+          "tested": false,
           "verify": "rustc --edition 2021 -D warnings --test src-tauri/src/collision_assessor/identity.rs -o \"%TEMP%\\pp-b05-identity-proof.exe\" && \"%TEMP%\\pp-b05-identity-proof.exe\" --nocapture",
           "builtBy": {
             "model": "gpt-5",
@@ -2717,19 +2741,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:48:30.843Z",
-            "model": "gpt-5",
+            "at": "2026-08-22T16:08:12.478Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-c3f3d305",
-            "note": "ran `rustc --edition 2021 -D warnings --test src-tauri/src/collision_assessor/identity.rs -o \"%TEMP%\\pp-b05-identity-proof.exe\" && \"%TEMP%\\pp-b05-identity-proof.exe\" --nocapture` → exit 0 in 1749ms",
-            "log": "PP-002-B05-1-1787330908194.log",
-            "sha256": "1ce1ffb6e29fa4c66c27fb7bc6802a975907557a709ac2bd0ac5cbf35ddb3444",
+            "note": "reverified via the shared run of `rustc --edition 2021 -D warnings --test src-tauri/src/collision_assessor/identity.rs -o \"%TEMP%\\pp-b05-identity-proof.exe\" && \"%TEMP%\\pp-b05-identity-proof.exe\" --nocapture` proven at B05:0",
+            "log": "PP-002-B05-0-1787414890597.log",
+            "sha256": "726ab2f70be0e236382fe90e2af3d965e28ef5da8cc6be839f1a1fd497ebf909",
             "exit": 0,
             "durationMs": 1749,
             "git": {
-              "sha": "0fa988027108fdcf205c70340ddf3955b2d5e8e8",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "rustc --edition 2021 -D warnings --test src-tauri/src/collision_assessor/identity.rs -o \"%TEMP%\\pp-b05-identity-proof.exe\" && \"%TEMP%\\pp-b05-identity-proof.exe\" --nocapture",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -2761,13 +2785,14 @@
               "fileCount": 1,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B05:0"
           }
         },
         {
           "text": "Normalize resource keys for databases, schemas, APIs, ports, services, remotes and deployment targets",
           "built": true,
-          "tested": true,
+          "tested": false,
           "verify": "rustc --edition 2021 -D warnings --test src-tauri/src/collision_assessor/identity.rs -o \"%TEMP%\\pp-b05-identity-proof.exe\" && \"%TEMP%\\pp-b05-identity-proof.exe\" --nocapture",
           "builtBy": {
             "model": "gpt-5",
@@ -2805,19 +2830,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:48:36.112Z",
-            "model": "gpt-5",
+            "at": "2026-08-22T16:08:12.491Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-c3f3d305",
-            "note": "ran `rustc --edition 2021 -D warnings --test src-tauri/src/collision_assessor/identity.rs -o \"%TEMP%\\pp-b05-identity-proof.exe\" && \"%TEMP%\\pp-b05-identity-proof.exe\" --nocapture` → exit 0 in 1608ms",
-            "log": "PP-002-B05-2-1787330913577.log",
-            "sha256": "145ef062e4a6a92e32eaab750139dec505b9a31208c787f3a98dac7028f30fb3",
+            "note": "reverified via the shared run of `rustc --edition 2021 -D warnings --test src-tauri/src/collision_assessor/identity.rs -o \"%TEMP%\\pp-b05-identity-proof.exe\" && \"%TEMP%\\pp-b05-identity-proof.exe\" --nocapture` proven at B05:0",
+            "log": "PP-002-B05-0-1787414890597.log",
+            "sha256": "726ab2f70be0e236382fe90e2af3d965e28ef5da8cc6be839f1a1fd497ebf909",
             "exit": 0,
             "durationMs": 1608,
             "git": {
-              "sha": "0fa988027108fdcf205c70340ddf3955b2d5e8e8",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "rustc --edition 2021 -D warnings --test src-tauri/src/collision_assessor/identity.rs -o \"%TEMP%\\pp-b05-identity-proof.exe\" && \"%TEMP%\\pp-b05-identity-proof.exe\" --nocapture",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -2849,13 +2874,14 @@
               "fileCount": 1,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B05:0"
           }
         },
         {
           "text": "Fail closed on ambiguous globs, unresolved links, missing Git identity and resource keys without an accepted namespace",
           "built": true,
-          "tested": true,
+          "tested": false,
           "verify": "rustc --edition 2021 -D warnings --test src-tauri/src/collision_assessor/identity.rs -o \"%TEMP%\\pp-b05-identity-proof.exe\" && \"%TEMP%\\pp-b05-identity-proof.exe\" --nocapture",
           "builtBy": {
             "model": "gpt-5",
@@ -2893,19 +2919,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T16:48:41.001Z",
-            "model": "gpt-5",
+            "at": "2026-08-22T16:08:12.502Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-c3f3d305",
-            "note": "ran `rustc --edition 2021 -D warnings --test src-tauri/src/collision_assessor/identity.rs -o \"%TEMP%\\pp-b05-identity-proof.exe\" && \"%TEMP%\\pp-b05-identity-proof.exe\" --nocapture` → exit 0 in 1588ms",
-            "log": "PP-002-B05-3-1787330918711.log",
-            "sha256": "acd4d57bf9455ee9bacda9e6163cfc200ed739cefc251f9bac3581bf628e5beb",
+            "note": "reverified via the shared run of `rustc --edition 2021 -D warnings --test src-tauri/src/collision_assessor/identity.rs -o \"%TEMP%\\pp-b05-identity-proof.exe\" && \"%TEMP%\\pp-b05-identity-proof.exe\" --nocapture` proven at B05:0",
+            "log": "PP-002-B05-0-1787414890597.log",
+            "sha256": "726ab2f70be0e236382fe90e2af3d965e28ef5da8cc6be839f1a1fd497ebf909",
             "exit": 0,
             "durationMs": 1588,
             "git": {
-              "sha": "0fa988027108fdcf205c70340ddf3955b2d5e8e8",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "rustc --edition 2021 -D warnings --test src-tauri/src/collision_assessor/identity.rs -o \"%TEMP%\\pp-b05-identity-proof.exe\" && \"%TEMP%\\pp-b05-identity-proof.exe\" --nocapture",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -2937,7 +2963,8 @@
               "fileCount": 1,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B05:0"
           }
         }
       ],
@@ -3035,19 +3062,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T20:11:36.368Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:32.517Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-a1b7589d",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` → exit 0 in 4055ms",
-            "log": "PP-002-B06-0-1787343091279.log",
-            "sha256": "24dbd945387fdaddf81bfba49ac8e91bf709ebcfafc2f27b9d043611767010be",
+            "session": "s-049651b9",
+            "note": "reverify of: Intersect canonical exact-file keys, directory-tree segment prefixes and declared resource keys across every plan and active lease; reject every glob claim as UNKNOWN",
+            "log": "PP-002-B06-0-1787414892511.log",
+            "sha256": "91aaf614874b88527ae50e3773817f0a6e1c26c07ec015b476b95846b34dc053",
             "exit": 0,
-            "durationMs": 4055,
+            "durationMs": 19269,
             "git": {
-              "sha": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -3061,8 +3088,8 @@
               },
               "osRelease": "10.0.26200"
             },
-            "diff": "PP-002-B06-0-1787343091279.diff",
-            "diffSha256": "8eeb9804fc76fff3df997bec052df858225c87c3d796e24ee3c061682088bc99",
+            "diff": "PP-002-B06-0-1787414892511.diff",
+            "diffSha256": "d2ffe40fcfbb6ea9877b5419b8d4332b57a1664c27b9750bce5c432944820e45",
             "diffBaseline": "12ec1feb28d8710ceeb72f1f8a52f5f14b8713d2",
             "diffFiles": [
               "src-tauri/src/collision_assessor/analyzer.rs",
@@ -3114,19 +3141,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T20:11:42.751Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:33.524Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` → exit 0 in 4030ms",
-            "log": "PP-002-B06-1-1787343097781.log",
-            "sha256": "faee84d230114ac7d45a0b4e6c314e3902ff321830bf2b94b7d843b4a98ecc7b",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` proven at B06:0",
+            "log": "PP-002-B06-0-1787414892511.log",
+            "sha256": "91aaf614874b88527ae50e3773817f0a6e1c26c07ec015b476b95846b34dc053",
             "exit": 0,
             "durationMs": 4030,
             "git": {
-              "sha": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -3160,7 +3187,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B06:0"
           }
         },
         {
@@ -3193,19 +3221,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T20:11:49.234Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:33.536Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` → exit 0 in 4395ms",
-            "log": "PP-002-B06-2-1787343104237.log",
-            "sha256": "dc24f4e90b56e06853e1e85b1335f3785888b412e7b953b1d79019a0f2446386",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` proven at B06:0",
+            "log": "PP-002-B06-0-1787414892511.log",
+            "sha256": "91aaf614874b88527ae50e3773817f0a6e1c26c07ec015b476b95846b34dc053",
             "exit": 0,
             "durationMs": 4395,
             "git": {
-              "sha": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -3239,7 +3267,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B06:0"
           }
         },
         {
@@ -3272,19 +3301,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T20:11:55.027Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:33.548Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` → exit 0 in 4054ms",
-            "log": "PP-002-B06-3-1787343110551.log",
-            "sha256": "a035ef259e305a50d346a98cde592e82032b0066082c0638fc53ed636757916c",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` proven at B06:0",
+            "log": "PP-002-B06-0-1787414892511.log",
+            "sha256": "91aaf614874b88527ae50e3773817f0a6e1c26c07ec015b476b95846b34dc053",
             "exit": 0,
             "durationMs": 4054,
             "git": {
-              "sha": "75070797e4b23aee3c6b9d479271e158ec5c33d9",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -3318,7 +3347,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B06:0"
           }
         }
       ],
@@ -3424,19 +3454,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T21:08:48.274Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:33.561Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 5970ms",
-            "log": "PP-002-B07-0-1787346521618.log",
-            "sha256": "69159fdb10bad157e53f472be0851e1585d84a29a9f3ab9c41f3f361c9e40090",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 5970,
             "git": {
-              "sha": "3f8dceece5890c6df46332b63187023cb144d885",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -3470,7 +3500,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -3508,19 +3539,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T21:08:54.629Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:33.574Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 4419ms",
-            "log": "PP-002-B07-1-1787346529664.log",
-            "sha256": "65ce06f06ec85d9d1e01ff7e701aa328ed402b223762bfe2c3515beac6aceac4",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 4419,
             "git": {
-              "sha": "3f8dceece5890c6df46332b63187023cb144d885",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -3554,7 +3585,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -3592,19 +3624,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T21:09:01.35Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:33.585Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 4413ms",
-            "log": "PP-002-B07-2-1787346536200.log",
-            "sha256": "12a1a6d5a3e470433d9ccff7adc6d218a65884319a39ca3740f520b76c4b18d3",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 4413,
             "git": {
-              "sha": "3f8dceece5890c6df46332b63187023cb144d885",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -3638,7 +3670,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -3676,19 +3709,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T21:09:08Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:33.598Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 4400ms",
-            "log": "PP-002-B07-3-1787346542941.log",
-            "sha256": "956128c21a83a1172fa00dc05295f9946d0b09f567e226e6806218cd23f6fe55",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 4400,
             "git": {
-              "sha": "3f8dceece5890c6df46332b63187023cb144d885",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -3722,7 +3755,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         }
       ],
@@ -3824,19 +3858,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T02:59:19.805Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:33.610Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 16095ms",
-            "log": "PP-002-B08-0-1787367542686.log",
-            "sha256": "0270e6c4636debe8249cc89b948633cd85f8f2bc77a1684ffd46d76f44c4810e",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 16095,
             "git": {
-              "sha": "2492cf09797e8073b2fbb307bba64dc5154afbc0",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -3870,7 +3904,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -3903,19 +3938,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T02:59:37.01Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:33.623Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 14143ms",
-            "log": "PP-002-B08-1-1787367562322.log",
-            "sha256": "048c765ff4ac84a958c127fff5121f04fac93825a530fd28f1851674570bcee1",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 14143,
             "git": {
-              "sha": "2492cf09797e8073b2fbb307bba64dc5154afbc0",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -3949,7 +3984,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -3982,19 +4018,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T02:59:54.716Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:33.637Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 14672ms",
-            "log": "PP-002-B08-2-1787367579235.log",
-            "sha256": "2aedbbefda073e2915fc2e682aaf2324bf71017438f80dfacd8fb1239b10683e",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 14672,
             "git": {
-              "sha": "2492cf09797e8073b2fbb307bba64dc5154afbc0",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -4028,7 +4064,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -4061,19 +4098,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T03:00:11.852Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:33.651Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 14204ms",
-            "log": "PP-002-B08-3-1787367596711.log",
-            "sha256": "ef6fe25f985d27e023690c0a611711427e61879f5e8757cd554ab894f856d236",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 14204,
             "git": {
-              "sha": "2492cf09797e8073b2fbb307bba64dc5154afbc0",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -4107,7 +4144,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -4140,19 +4178,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T03:00:28.288Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:33.669Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 13792ms",
-            "log": "PP-002-B08-4-1787367613818.log",
-            "sha256": "53552f108bc839d68ad15bb88e6164b841c65f5eb2f9527b8ecea729205aed67",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 13792,
             "git": {
-              "sha": "2492cf09797e8073b2fbb307bba64dc5154afbc0",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -4186,7 +4224,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         }
       ],
@@ -4437,19 +4476,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T05:17:01.792Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:36.078Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-51a1b2e0",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::exact_board_process_and_task_route_are_bound_once` → exit 0 in 2297ms",
-            "log": "PP-002-B15-0-1787375818759.log",
-            "sha256": "b7065aa31485f079a914409ca5d48df04a1c5d1a9290f6065b5133a544195169",
+            "session": "s-049651b9",
+            "note": "reverify of: Bind each managed board instance to exactly one explicit originating-chat registration using plan path, plan ID, board process identity and a launch nonce without storing arbitrary prompt text",
+            "log": "PP-002-B15-0-1787414913778.log",
+            "sha256": "98fde274950d719561bf66b2e1e42a4385c60bf91aa7b073855809cc84ecdf37",
             "exit": 0,
-            "durationMs": 2297,
+            "durationMs": 1611,
             "git": {
-              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::exact_board_process_and_task_route_are_bound_once",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -4506,8 +4545,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-002-B15-0-1787375818759.diff",
-            "diffSha256": "3d0bba882fb07c18f314015f5e2c4d4afbfa148f155ced45c620c5130eda7190",
+            "diff": "PP-002-B15-0-1787414913778.diff",
+            "diffSha256": "517323ac8c257fa5a8c2301cefe09fb0a2ffa945d5859db89b69ccbec7570a15",
             "diffBaseline": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
             "diffFiles": [
               "package.json",
@@ -4577,19 +4616,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T05:17:18.550Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:38.733Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-51a1b2e0",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::approval_and_outbox_survive_restart_without_duplicate_message` → exit 0 in 1082ms",
-            "log": "PP-002-B15-1-1787375837064.log",
-            "sha256": "b7a7adbd307cb23bf9f706629f77b9fa0be71dbf4b7eebb418540ce84fd6416e",
+            "session": "s-049651b9",
+            "note": "reverify of: Route every approval entry point through one approval service that atomically records the approval transition and a durable chat-notification outbox record",
+            "log": "PP-002-B15-1-1787414916766.log",
+            "sha256": "d787c7c9413d027cf53081dedcbad75ec57b1cb1290aa2a0f9f5c1c4676b2b75",
             "exit": 0,
-            "durationMs": 1082,
+            "durationMs": 1225,
             "git": {
-              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::approval_and_outbox_survive_restart_without_duplicate_message",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -4646,8 +4685,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-002-B15-1-1787375837064.diff",
-            "diffSha256": "3d0bba882fb07c18f314015f5e2c4d4afbfa148f155ced45c620c5130eda7190",
+            "diff": "PP-002-B15-1-1787414916766.diff",
+            "diffSha256": "517323ac8c257fa5a8c2301cefe09fb0a2ffa945d5859db89b69ccbec7570a15",
             "diffBaseline": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
             "diffFiles": [
               "package.json",
@@ -4717,19 +4756,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T05:17:21.816Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:41.788Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-51a1b2e0",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::admission_waits_for_matching_delivery_receipt` → exit 0 in 777ms",
-            "log": "PP-002-B15-2-1787375840269.log",
-            "sha256": "f9f5fbc82d53ae4339499ca532aac0bb0fc4b3334ba1ac294bfb4b629fa241b8",
+            "session": "s-049651b9",
+            "note": "reverify of: Keep worker admission blocked while approval notification is UNROUTED, QUEUED, CLAIMED, retrying or DEAD LETTER and release it only after a matching delivery receipt",
+            "log": "PP-002-B15-2-1787414919812.log",
+            "sha256": "ba1e547d4a6f429bb61ba0e191aca3eb6ba578c2a27efa3e9d9aadab2c28ceaa",
             "exit": 0,
-            "durationMs": 777,
+            "durationMs": 1108,
             "git": {
-              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::admission_waits_for_matching_delivery_receipt",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -4786,8 +4825,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-002-B15-2-1787375840269.diff",
-            "diffSha256": "3d0bba882fb07c18f314015f5e2c4d4afbfa148f155ced45c620c5130eda7190",
+            "diff": "PP-002-B15-2-1787414919812.diff",
+            "diffSha256": "517323ac8c257fa5a8c2301cefe09fb0a2ffa945d5859db89b69ccbec7570a15",
             "diffBaseline": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
             "diffFiles": [
               "package.json",
@@ -4857,19 +4896,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T05:17:24.768Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:42.680Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-51a1b2e0",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::approval_and_outbox_survive_restart_without_duplicate_message` → exit 0 in 854ms",
-            "log": "PP-002-B15-3-1787375843198.log",
-            "sha256": "1864f14a60a192d07edd6f6db795808ec2042668315d3e7bb590dd54318a10a8",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::approval_and_outbox_survive_restart_without_duplicate_message` proven at B15:1",
+            "log": "PP-002-B15-1-1787414916766.log",
+            "sha256": "d787c7c9413d027cf53081dedcbad75ec57b1cb1290aa2a0f9f5c1c4676b2b75",
             "exit": 0,
             "durationMs": 854,
             "git": {
-              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::approval_and_outbox_survive_restart_without_duplicate_message",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -4958,7 +4997,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B15:1"
           }
         },
         {
@@ -4997,19 +5037,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T05:17:27.869Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:44.784Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-51a1b2e0",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::fixed_template_never_contains_untrusted_plan_or_approval_text` → exit 0 in 1067ms",
-            "log": "PP-002-B15-4-1787375846316.log",
-            "sha256": "ec9988bdfa7b62c3e6f9ae2858e4cca56ab292431f805359c0120bfb4d6baa30",
+            "session": "s-049651b9",
+            "note": "reverify of: Use a fixed allowlisted approval notification template so plan text, worker notes and repository content cannot become executable chat instructions",
+            "log": "PP-002-B15-4-1787414922692.log",
+            "sha256": "8fe2ecc0cf106ed3927f2a9f532011de2e12dec7051e358a94f18cd9f1a434d8",
             "exit": 0,
-            "durationMs": 1067,
+            "durationMs": 1452,
             "git": {
-              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::fixed_template_never_contains_untrusted_plan_or_approval_text",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -5066,8 +5106,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-002-B15-4-1787375846316.diff",
-            "diffSha256": "3d0bba882fb07c18f314015f5e2c4d4afbfa148f155ced45c620c5130eda7190",
+            "diff": "PP-002-B15-4-1787414922692.diff",
+            "diffSha256": "517323ac8c257fa5a8c2301cefe09fb0a2ffa945d5859db89b69ccbec7570a15",
             "diffBaseline": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
             "diffFiles": [
               "package.json",
@@ -5104,7 +5144,7 @@
         {
           "text": "Prove an APPROVE click reaches the exact registered Codex task, records a delivery receipt and wakes no other task; prove an unregistered route stays visibly blocked",
           "built": true,
-          "tested": true,
+          "tested": false,
           "verify": "python tests/approval_chat_bridge_e2e.py",
           "ui": true,
           "builtBy": {
@@ -5138,19 +5178,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T05:17:44.245Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:51.702Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-51a1b2e0",
-            "note": "ran `python tests/approval_chat_bridge_e2e.py` → exit 0 in 3666ms",
-            "log": "PP-002-B15-5-1787375860154.log",
-            "sha256": "f6fb98aa80510e73f74b0f5dcb9a836938fff268466159162f9a97f99589ca4b",
-            "exit": 0,
-            "durationMs": 3666,
+            "session": "s-049651b9",
+            "note": "reverify of: Prove an APPROVE click reaches the exact registered Codex task, records a delivery receipt and wakes no other task; prove an unregistered route stays visibly blocked",
+            "log": "PP-002-B15-5-1787414925903.log",
+            "sha256": "351b1cd0fd162371e13beb12da6d81ac2827c0e6345c9e41b0bd690a7acbb206",
+            "exit": 1,
+            "durationMs": 4697,
             "git": {
-              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "python tests/approval_chat_bridge_e2e.py",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -5207,32 +5247,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "screenshotOcr": {
-              "status": "clear",
-              "role": "derived-warning-only",
-              "rawScreenshotAuthoritative": true,
-              "engine": "tesseract.js",
-              "engineVersion": "5.1.1",
-              "language": "eng",
-              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
-              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
-              "oem": 1,
-              "runtime": "one-shot-subprocess",
-              "resident": false,
-              "network": "disabled-local-model-only",
-              "shot": "PP-002-B15-5-1787375860154.png",
-              "textArtifact": "PP-002-B15-5-1787375860154.ocr.txt",
-              "textSha256": "a5c8dbb82836016e3e89d72156c9c69ae5c4518fe7cb182b77438d6379ed2eb0",
-              "confidence": 80,
-              "durationMs": 2377,
-              "rssStartBytes": 65904640,
-              "rssEndBytes": 94748672,
-              "workerTerminated": true,
-              "expectedText": [],
-              "alarms": []
-            },
-            "diff": "PP-002-B15-5-1787375860154.diff",
-            "diffSha256": "3d0bba882fb07c18f314015f5e2c4d4afbfa148f155ced45c620c5130eda7190",
+            "diff": "PP-002-B15-5-1787414925903.diff",
+            "diffSha256": "517323ac8c257fa5a8c2301cefe09fb0a2ffa945d5859db89b69ccbec7570a15",
             "diffBaseline": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
             "diffFiles": [
               "package.json",
@@ -5271,6 +5287,30 @@
               "samples": 42848
             },
             "shotNote": "Viewed at 4320x2700: the orchestrator feed contains the crisp blue LOOPLET LIVE Braille status mark; PP-201 shows CHAT DELIVERED for the exact task while PP-202 remains CHAT UNREGISTERED; no console or page errors were recorded.",
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B15-5-1787375860154.png",
+              "textArtifact": "PP-002-B15-5-1787375860154.ocr.txt",
+              "textSha256": "a5c8dbb82836016e3e89d72156c9c69ae5c4518fe7cb182b77438d6379ed2eb0",
+              "confidence": 80,
+              "durationMs": 2377,
+              "rssStartBytes": 65904640,
+              "rssEndBytes": 94748672,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
             "tokensEst": 2500,
             "loc": {
               "baseline": "55fa18f71b00c61e888da5dd598faced1a76504e",
@@ -5321,19 +5361,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T05:18:31.557Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:54.632Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-51a1b2e0",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml control_plane_api::tests::` → exit 0 in 842ms",
-            "log": "PP-002-B15-6-1787375910025.log",
-            "sha256": "41a2aeb99a2e9313bac19b75711255d6350fa4e07283c464edeb077cfb9b01e6",
+            "session": "s-049651b9",
+            "note": "reverify of: Remove or gate generic main-window control-plane authority before ticket activation; every effective renderer call must be sealed to the exact registered task and route rather than caller-supplied scope",
+            "log": "PP-002-B15-6-1787414932435.log",
+            "sha256": "f042b0a19b1cb20ee5e4275d0e3388be1f1a5630aa69f162a4b1b2fb511fd95b",
             "exit": 0,
-            "durationMs": 842,
+            "durationMs": 1367,
             "git": {
-              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml control_plane_api::tests::",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -5390,8 +5430,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-002-B15-6-1787375910025.diff",
-            "diffSha256": "3d0bba882fb07c18f314015f5e2c4d4afbfa148f155ced45c620c5130eda7190",
+            "diff": "PP-002-B15-6-1787414932435.diff",
+            "diffSha256": "517323ac8c257fa5a8c2301cefe09fb0a2ffa945d5859db89b69ccbec7570a15",
             "diffBaseline": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
             "diffFiles": [
               "package.json",
@@ -5461,19 +5501,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T05:18:36.131Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:08:56.948Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-51a1b2e0",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::stale_revoked_restarted_and_cross_task_routes_cannot_remint_authority` → exit 0 in 874ms",
-            "log": "PP-002-B15-7-1787375914754.log",
-            "sha256": "f4bb0820722918dd6960ca1acceac23a4793897c84479604ad0172001e70c574",
+            "session": "s-049651b9",
+            "note": "reverify of: Require a fresh revocable native route for live and audit-resume mailboxes, and prove stale, dead, reassigned, restarted and cross-task routes cannot remint authority",
+            "log": "PP-002-B15-7-1787414935361.log",
+            "sha256": "11a7bda1275f031500f1785f28338cf7eb1268c9051b9dfebca95e291a75cfaf",
             "exit": 0,
-            "durationMs": 874,
+            "durationMs": 1030,
             "git": {
-              "sha": "55fa18f71b00c61e888da5dd598faced1a76504e",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::stale_revoked_restarted_and_cross_task_routes_cannot_remint_authority",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -5530,8 +5570,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-002-B15-7-1787375914754.diff",
-            "diffSha256": "3d0bba882fb07c18f314015f5e2c4d4afbfa148f155ced45c620c5130eda7190",
+            "diff": "PP-002-B15-7-1787414935361.diff",
+            "diffSha256": "517323ac8c257fa5a8c2301cefe09fb0a2ffa945d5859db89b69ccbec7570a15",
             "diffBaseline": "e0f82c869e5eb62f11f8bb6797bcd297616ad4f0",
             "diffFiles": [
               "package.json",
@@ -5862,7 +5902,7 @@
         {
           "text": "Place one unmistakable physical head-orchestrator character above the clockwise worker route, separate from the Looplet feed-status spinner and carrying its own stable entity identity",
           "built": true,
-          "tested": true,
+          "tested": false,
           "verify": "python tests/head_orchestrator_character_e2e.py",
           "ui": true,
           "builtBy": {
@@ -5911,19 +5951,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T05:52:33.742Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:09:02.466Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-c09b7ce7",
-            "note": "ran `python tests/head_orchestrator_character_e2e.py` → exit 0 in 2306ms",
-            "log": "PP-002-B22-0-1787377950539.log",
-            "sha256": "7891aedbd82e2986c23c3f9562ae66595e069dbab1580b0a5593dd94a49fc1f3",
-            "exit": 0,
-            "durationMs": 2306,
+            "session": "s-049651b9",
+            "note": "reverify of: Place one unmistakable physical head-orchestrator character above the clockwise worker route, separate from the Looplet feed-status spinner and carrying its own stable entity identity",
+            "log": "PP-002-B22-0-1787414937887.log",
+            "sha256": "a006d93ed888c2e58270e2d63f4941db56264ca43e9a930726f0cc013cc8bf23",
+            "exit": 1,
+            "durationMs": 3911,
             "git": {
-              "sha": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "python tests/head_orchestrator_character_e2e.py",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -5980,32 +6020,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "screenshotOcr": {
-              "status": "clear",
-              "role": "derived-warning-only",
-              "rawScreenshotAuthoritative": true,
-              "engine": "tesseract.js",
-              "engineVersion": "5.1.1",
-              "language": "eng",
-              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
-              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
-              "oem": 1,
-              "runtime": "one-shot-subprocess",
-              "resident": false,
-              "network": "disabled-local-model-only",
-              "shot": "PP-002-B22-0-1787377950539.png",
-              "textArtifact": "PP-002-B22-0-1787377950539.ocr.txt",
-              "textSha256": "d2280d97b5558c9b13b6a2e200cfcc15518160fa0c24d967eaf1b7dcfe31cf18",
-              "confidence": 71,
-              "durationMs": 2724,
-              "rssStartBytes": 65875968,
-              "rssEndBytes": 149176320,
-              "workerTerminated": true,
-              "expectedText": [],
-              "alarms": []
-            },
-            "diff": "PP-002-B22-0-1787377950539.diff",
-            "diffSha256": "c2fe4e935efa4e65f8b792c58c973954f4b990d28605abe8f9f3eb97ba01e9e3",
+            "diff": "PP-002-B22-0-1787414937887.diff",
+            "diffSha256": "10a0e9af58cd3ad870c0664adb64750df168f04ccffa3114f9a90fee49e95ff0",
             "diffBaseline": "72da40811263969cce1ecd230d36e81c454eaeb6",
             "diffFiles": [
               "src/App.tsx",
@@ -6031,6 +6047,30 @@
               "samples": 42848
             },
             "shotNote": "Viewed at 3x: a separate standing ORCH robot with radio is physically above the worker route, while the blue Looplet spinner remains visibly separate in the feed below.",
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B22-0-1787377950539.png",
+              "textArtifact": "PP-002-B22-0-1787377950539.ocr.txt",
+              "textSha256": "d2280d97b5558c9b13b6a2e200cfcc15518160fa0c24d967eaf1b7dcfe31cf18",
+              "confidence": 71,
+              "durationMs": 2724,
+              "rssStartBytes": 65875968,
+              "rssEndBytes": 149176320,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
             "tokensEst": 2500,
             "loc": {
               "baseline": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
@@ -6048,7 +6088,7 @@
         {
           "text": "Show a live speech cloud beside the character that truthfully addresses workers for active, grace, decision, stopped and standby states while the worker report lane remains visibly below",
           "built": true,
-          "tested": true,
+          "tested": false,
           "verify": "python tests/head_orchestrator_character_e2e.py",
           "ui": true,
           "builtBy": {
@@ -6081,19 +6121,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T05:52:41.038Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:09:07.935Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-c09b7ce7",
-            "note": "ran `python tests/head_orchestrator_character_e2e.py` → exit 0 in 2301ms",
-            "log": "PP-002-B22-1-1787377958081.log",
-            "sha256": "21a462cdc7dd5b20264683bc58215be4e2be10d2fec617e88120430a79f469ca",
-            "exit": 0,
-            "durationMs": 2301,
+            "session": "s-049651b9",
+            "note": "reverify of: Show a live speech cloud beside the character that truthfully addresses workers for active, grace, decision, stopped and standby states while the worker report lane remains visibly below",
+            "log": "PP-002-B22-1-1787414943516.log",
+            "sha256": "894801a07c73ea732aec855a4d4b663c152d5d613129dd9b902dce89026cd453",
+            "exit": 1,
+            "durationMs": 3820,
             "git": {
-              "sha": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "python tests/head_orchestrator_character_e2e.py",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -6150,32 +6190,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "screenshotOcr": {
-              "status": "clear",
-              "role": "derived-warning-only",
-              "rawScreenshotAuthoritative": true,
-              "engine": "tesseract.js",
-              "engineVersion": "5.1.1",
-              "language": "eng",
-              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
-              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
-              "oem": 1,
-              "runtime": "one-shot-subprocess",
-              "resident": false,
-              "network": "disabled-local-model-only",
-              "shot": "PP-002-B22-1-1787377958081.png",
-              "textArtifact": "PP-002-B22-1-1787377958081.ocr.txt",
-              "textSha256": "dc78f2d6c3461ed1a95bb9699564358e277cd5b51b5e7c446aefdadd96a4e9e5",
-              "confidence": 71,
-              "durationMs": 2699,
-              "rssStartBytes": 65855488,
-              "rssEndBytes": 95158272,
-              "workerTerminated": true,
-              "expectedText": [],
-              "alarms": []
-            },
-            "diff": "PP-002-B22-1-1787377958081.diff",
-            "diffSha256": "c2fe4e935efa4e65f8b792c58c973954f4b990d28605abe8f9f3eb97ba01e9e3",
+            "diff": "PP-002-B22-1-1787414943516.diff",
+            "diffSha256": "10a0e9af58cd3ad870c0664adb64750df168f04ccffa3114f9a90fee49e95ff0",
             "diffBaseline": "72da40811263969cce1ecd230d36e81c454eaeb6",
             "diffFiles": [
               "src/App.tsx",
@@ -6201,6 +6217,30 @@
               "samples": 42848
             },
             "shotNote": "Viewed at 3x: the speech cloud beside ORCH says Keep moving clockwise and the two active worker report cards sit directly underneath with an upward ORCH label.",
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B22-1-1787377958081.png",
+              "textArtifact": "PP-002-B22-1-1787377958081.ocr.txt",
+              "textSha256": "dc78f2d6c3461ed1a95bb9699564358e277cd5b51b5e7c446aefdadd96a4e9e5",
+              "confidence": 71,
+              "durationMs": 2699,
+              "rssStartBytes": 65855488,
+              "rssEndBytes": 95158272,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
             "tokensEst": 2500,
             "loc": {
               "baseline": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
@@ -6251,19 +6291,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T05:52:48.971Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:09:14.463Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-c09b7ce7",
-            "note": "ran `npm run build` → exit 0 in 2911ms",
-            "log": "PP-002-B22-2-1787377965520.log",
-            "sha256": "9bf819137b189b1ed1cf7582764e936ae3906e51cf0791c6f9073e4c8efa3bf3",
+            "session": "s-049651b9",
+            "note": "reverify of: Keep the actor lightweight, keyboard and screen-reader legible, responsive and motion-reduced, then capture and inspect a high-resolution top-down proof",
+            "log": "PP-002-B22-2-1787414948939.log",
+            "sha256": "f305bd6c3950b692dd587cad46ebb889539f549f2f3d17bf6e3b0c62693c1989",
             "exit": 0,
-            "durationMs": 2911,
+            "durationMs": 4623,
             "git": {
-              "sha": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "npm run build",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -6320,32 +6360,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "screenshotOcr": {
-              "status": "clear",
-              "role": "derived-warning-only",
-              "rawScreenshotAuthoritative": true,
-              "engine": "tesseract.js",
-              "engineVersion": "5.1.1",
-              "language": "eng",
-              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
-              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
-              "oem": 1,
-              "runtime": "one-shot-subprocess",
-              "resident": false,
-              "network": "disabled-local-model-only",
-              "shot": "PP-002-B22-2-1787377965520.png",
-              "textArtifact": "PP-002-B22-2-1787377965520.ocr.txt",
-              "textSha256": "dc78f2d6c3461ed1a95bb9699564358e277cd5b51b5e7c446aefdadd96a4e9e5",
-              "confidence": 71,
-              "durationMs": 2699,
-              "rssStartBytes": 65794048,
-              "rssEndBytes": 95170560,
-              "workerTerminated": true,
-              "expectedText": [],
-              "alarms": []
-            },
-            "diff": "PP-002-B22-2-1787377965520.diff",
-            "diffSha256": "c2fe4e935efa4e65f8b792c58c973954f4b990d28605abe8f9f3eb97ba01e9e3",
+            "diff": "PP-002-B22-2-1787414948939.diff",
+            "diffSha256": "10a0e9af58cd3ad870c0664adb64750df168f04ccffa3114f9a90fee49e95ff0",
             "diffBaseline": "72da40811263969cce1ecd230d36e81c454eaeb6",
             "diffFiles": [
               "src/App.tsx",
@@ -6371,6 +6387,30 @@
               "samples": 42848
             },
             "shotNote": "Viewed at 3x under reduced-motion: character edges, radio, speech pointer, worker relationship and top-strip spacing are crisp and readable without animation.",
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B22-2-1787377965520.png",
+              "textArtifact": "PP-002-B22-2-1787377965520.ocr.txt",
+              "textSha256": "dc78f2d6c3461ed1a95bb9699564358e277cd5b51b5e7c446aefdadd96a4e9e5",
+              "confidence": 71,
+              "durationMs": 2699,
+              "rssStartBytes": 65794048,
+              "rssEndBytes": 95170560,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
             "tokensEst": 2500,
             "loc": {
               "baseline": "17c4fd87989a7a71fc1ddf1af20053272dd014bb",
@@ -6487,7 +6527,7 @@
         {
           "text": "Replace vague ORCH warnings with a visible Problem, Where and Remedy structure for decision, stale-worker, identity, supervision and lifecycle-boundary failures",
           "built": true,
-          "tested": true,
+          "tested": false,
           "verify": "python tests/head_orchestrator_character_e2e.py",
           "ui": true,
           "builtBy": {
@@ -6540,19 +6580,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T06:05:36.493Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:09:19.725Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-77024479",
-            "note": "ran `python tests/head_orchestrator_character_e2e.py` → exit 0 in 2628ms",
-            "log": "PP-002-B23-0-1787378733344.log",
-            "sha256": "2c8c6058fd3d754e2dfb81b72ca2ed6228a8d7c8b95f7316adc733511a884131",
-            "exit": 0,
-            "durationMs": 2628,
+            "session": "s-049651b9",
+            "note": "reverify of: Replace vague ORCH warnings with a visible Problem, Where and Remedy structure for decision, stale-worker, identity, supervision and lifecycle-boundary failures",
+            "log": "PP-002-B23-0-1787414955148.log",
+            "sha256": "01a23c4ca30abe47070ef451fdc2be1149d86ea55e9f2ad42030a3f9d2da7fb2",
+            "exit": 1,
+            "durationMs": 3829,
             "git": {
-              "sha": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "python tests/head_orchestrator_character_e2e.py",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -6609,32 +6649,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "screenshotOcr": {
-              "status": "clear",
-              "role": "derived-warning-only",
-              "rawScreenshotAuthoritative": true,
-              "engine": "tesseract.js",
-              "engineVersion": "5.1.1",
-              "language": "eng",
-              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
-              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
-              "oem": 1,
-              "runtime": "one-shot-subprocess",
-              "resident": false,
-              "network": "disabled-local-model-only",
-              "shot": "PP-002-B23-0-1787378733344.png",
-              "textArtifact": "PP-002-B23-0-1787378733344.ocr.txt",
-              "textSha256": "175f3ae8a17c61c9a99da95d14e2c7e5fefc3e273b1db61465da377fe89d766e",
-              "confidence": 84,
-              "durationMs": 2569,
-              "rssStartBytes": 65802240,
-              "rssEndBytes": 102621184,
-              "workerTerminated": true,
-              "expectedText": [],
-              "alarms": []
-            },
-            "diff": "PP-002-B23-0-1787378733344.diff",
-            "diffSha256": "4693211b7ebd0dcc34acf4c4f080f45f5dc5b0375b6fd1e0bc461b2033e3838f",
+            "diff": "PP-002-B23-0-1787414955148.diff",
+            "diffSha256": "ea48c2462b22246949193c4d857627ef5a47ffa1cf3ad4240f4c9112506a7d84",
             "diffBaseline": "eb2fb2817d88d207dd5f97cbf7c7cca6f194e677",
             "diffFiles": [
               "src/App.tsx",
@@ -6661,6 +6677,30 @@
               "samples": 42848
             },
             "shotNote": "Viewed at 3x: the amber ORCH bubble visibly separates Problem, Where and Remedy and shows the exact unsafe combined-lifecycle warning.",
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B23-0-1787378733344.png",
+              "textArtifact": "PP-002-B23-0-1787378733344.ocr.txt",
+              "textSha256": "175f3ae8a17c61c9a99da95d14e2c7e5fefc3e273b1db61465da377fe89d766e",
+              "confidence": 84,
+              "durationMs": 2569,
+              "rssStartBytes": 65802240,
+              "rssEndBytes": 102621184,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
             "tokensEst": 2500,
             "loc": {
               "baseline": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
@@ -6678,7 +6718,7 @@
         {
           "text": "Name the narrowest available repository, plan, branch, node and worker location without inventing missing scope, and keep workers fail-closed while the problem remains",
           "built": true,
-          "tested": true,
+          "tested": false,
           "verify": "python tests/head_orchestrator_character_e2e.py",
           "ui": true,
           "builtBy": {
@@ -6710,19 +6750,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T06:05:44.095Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:09:25.540Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-77024479",
-            "note": "ran `python tests/head_orchestrator_character_e2e.py` → exit 0 in 2510ms",
-            "log": "PP-002-B23-1-1787378740813.log",
-            "sha256": "19775191a41e7a69f051a415d56347e3d5108c815119c3f3ff934c5d74460299",
-            "exit": 0,
-            "durationMs": 2510,
+            "session": "s-049651b9",
+            "note": "reverify of: Name the narrowest available repository, plan, branch, node and worker location without inventing missing scope, and keep workers fail-closed while the problem remains",
+            "log": "PP-002-B23-1-1787414960418.log",
+            "sha256": "63f968794eb1c200442a0bd43cad4a5fbcea1445b28b66ac2ec56bcf9618e47f",
+            "exit": 1,
+            "durationMs": 3933,
             "git": {
-              "sha": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "python tests/head_orchestrator_character_e2e.py",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -6779,32 +6819,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "screenshotOcr": {
-              "status": "clear",
-              "role": "derived-warning-only",
-              "rawScreenshotAuthoritative": true,
-              "engine": "tesseract.js",
-              "engineVersion": "5.1.1",
-              "language": "eng",
-              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
-              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
-              "oem": 1,
-              "runtime": "one-shot-subprocess",
-              "resident": false,
-              "network": "disabled-local-model-only",
-              "shot": "PP-002-B23-1-1787378740813.png",
-              "textArtifact": "PP-002-B23-1-1787378740813.ocr.txt",
-              "textSha256": "e544ff7c2d0681b7b7daf35abefd8fca41fc78aceb8ff405e9acc880cacf15df",
-              "confidence": 84,
-              "durationMs": 2597,
-              "rssStartBytes": 65892352,
-              "rssEndBytes": 134361088,
-              "workerTerminated": true,
-              "expectedText": [],
-              "alarms": []
-            },
-            "diff": "PP-002-B23-1-1787378740813.diff",
-            "diffSha256": "4693211b7ebd0dcc34acf4c4f080f45f5dc5b0375b6fd1e0bc461b2033e3838f",
+            "diff": "PP-002-B23-1-1787414960418.diff",
+            "diffSha256": "ea48c2462b22246949193c4d857627ef5a47ffa1cf3ad4240f4c9112506a7d84",
             "diffBaseline": "eb2fb2817d88d207dd5f97cbf7c7cca6f194e677",
             "diffFiles": [
               "src/App.tsx",
@@ -6831,6 +6847,30 @@
               "samples": 42848
             },
             "shotNote": "Viewed at 3x: Where names Perfect Planner Desktop and the exact $start to Planner to $finish to $cleanup release boundary; the E2E also verifies repo, plan, node and worker scope for stale heartbeats.",
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B23-1-1787378740813.png",
+              "textArtifact": "PP-002-B23-1-1787378740813.ocr.txt",
+              "textSha256": "e544ff7c2d0681b7b7daf35abefd8fca41fc78aceb8ff405e9acc880cacf15df",
+              "confidence": 84,
+              "durationMs": 2597,
+              "rssStartBytes": 65892352,
+              "rssEndBytes": 134361088,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
             "tokensEst": 2500,
             "loc": {
               "baseline": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
@@ -6880,19 +6920,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T06:05:52.323Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:09:30.927Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-77024479",
-            "note": "ran `npm run build` → exit 0 in 3112ms",
-            "log": "PP-002-B23-2-1787378748576.log",
-            "sha256": "3193ea916c34f5e4a47ae086b76bc4e78e75f912041d21a1269e287215b77aae",
+            "session": "s-049651b9",
+            "note": "reverify of: Offer one safe recommended next action, distinguish advice from delivered commands, preserve finish as the authoritative release gate and cleanup as explicit-and-last, and keep the guidance readable to screen readers at three-times device scale",
+            "log": "PP-002-B23-2-1787414966239.log",
+            "sha256": "57ac0759185940cb829896815315f5f23f7476938731b7bc2a1e755a8b5edd8c",
             "exit": 0,
-            "durationMs": 3112,
+            "durationMs": 3819,
             "git": {
-              "sha": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "npm run build",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -6949,32 +6989,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "screenshotOcr": {
-              "status": "clear",
-              "role": "derived-warning-only",
-              "rawScreenshotAuthoritative": true,
-              "engine": "tesseract.js",
-              "engineVersion": "5.1.1",
-              "language": "eng",
-              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
-              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
-              "oem": 1,
-              "runtime": "one-shot-subprocess",
-              "resident": false,
-              "network": "disabled-local-model-only",
-              "shot": "PP-002-B23-2-1787378748576.png",
-              "textArtifact": "PP-002-B23-2-1787378748576.ocr.txt",
-              "textSha256": "e544ff7c2d0681b7b7daf35abefd8fca41fc78aceb8ff405e9acc880cacf15df",
-              "confidence": 84,
-              "durationMs": 2698,
-              "rssStartBytes": 65925120,
-              "rssEndBytes": 112308224,
-              "workerTerminated": true,
-              "expectedText": [],
-              "alarms": []
-            },
-            "diff": "PP-002-B23-2-1787378748576.diff",
-            "diffSha256": "4693211b7ebd0dcc34acf4c4f080f45f5dc5b0375b6fd1e0bc461b2033e3838f",
+            "diff": "PP-002-B23-2-1787414966239.diff",
+            "diffSha256": "ea48c2462b22246949193c4d857627ef5a47ffa1cf3ad4240f4c9112506a7d84",
             "diffBaseline": "eb2fb2817d88d207dd5f97cbf7c7cca6f194e677",
             "diffFiles": [
               "src/App.tsx",
@@ -7001,6 +7017,30 @@
               "samples": 42848
             },
             "shotNote": "Viewed at 3x: Remedy keeps $finish authoritative, $cleanup explicit and last, and the footer clearly labels the content as recommended action only rather than a delivered command.",
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-002-B23-2-1787378748576.png",
+              "textArtifact": "PP-002-B23-2-1787378748576.ocr.txt",
+              "textSha256": "e544ff7c2d0681b7b7daf35abefd8fca41fc78aceb8ff405e9acc880cacf15df",
+              "confidence": 84,
+              "durationMs": 2698,
+              "rssStartBytes": 65925120,
+              "rssEndBytes": 112308224,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
             "tokensEst": 2500,
             "loc": {
               "baseline": "e90bda5a513c48c5dd8498f17114b23ddf09c4e1",
@@ -7205,7 +7245,42 @@
           "text": "Capture zero browser console errors, page errors, failed requests and unexpected HTTP failures",
           "built": false,
           "tested": false,
-          "verify": "npm run test:e2e"
+          "verify": "npm run test:e2e",
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T16:09:39.546Z",
+            "model": null,
+            "user": "danielsivyer4567",
+            "session": "s-049651b9",
+            "note": "reverify of: Capture zero browser console errors, page errors, failed requests and unexpected HTTP failures",
+            "log": "PP-002-B13-3-1787414971775.log",
+            "sha256": "9a63ace1db2a9b1ed2da4881fdb168778aa8dad260a9cc9f91401bd6a9ec3771",
+            "exit": 1,
+            "durationMs": 6986,
+            "git": {
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "npm run test:e2e",
+            "cwd": "C:\\repos\\perfect-planner-tauri",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "diff": "PP-002-B13-3-1787414971775.diff",
+            "diffSha256": "e8370837acff1fc2c3b800352225fc90eaa310b36c21e0cb7218d88164570d0d",
+            "diffBaseline": "c007ad05ceff9b4eb3560a84c2c91bdc3acd2414",
+            "diffFiles": [
+              "package.json"
+            ]
+          }
         },
         {
           "text": "Capture one packaged Tauri WebView2 pass proving the native command permissions and assessor-first workflow",
@@ -7246,7 +7321,36 @@
           "text": "Document migration from current board discovery and repository-scoped catalogues into the machine-wide registry",
           "built": false,
           "tested": false,
-          "verify": "node -e \"const fs=require('fs');if(!fs.existsSync('docs/collision-assessor-rollout.md'))process.exit(1)\""
+          "verify": "node -e \"const fs=require('fs');if(!fs.existsSync('docs/collision-assessor-rollout.md'))process.exit(1)\"",
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T16:09:41.608Z",
+            "model": null,
+            "user": "danielsivyer4567",
+            "session": "s-049651b9",
+            "note": "reverify of: Document migration from current board discovery and repository-scoped catalogues into the machine-wide registry",
+            "log": "PP-002-B14-0-1787414980655.log",
+            "sha256": "03ce3d5aa75bcf22b8168499d0d0880f22c9c1f709dfa7a8ca57957ac984634e",
+            "exit": 1,
+            "durationMs": 230,
+            "git": {
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "node -e \"const fs=require('fs');if(!fs.existsSync('docs/collision-assessor-rollout.md'))process.exit(1)\"",
+            "cwd": "C:\\repos\\perfect-planner-tauri",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            }
+          }
         },
         {
           "text": "Make assessor absence, legacy unregistered Planner state and unsupported registry schema hard release blockers",
@@ -7264,7 +7368,36 @@
           "text": "Record installer hashes, immutable assessment artifacts, recovery commands and all honest limitations in the handover trio",
           "built": false,
           "tested": false,
-          "verify": "node -e \"const fs=require('fs');for(const p of ['docs/handovers/COLLISION-ASSESSOR/COMPLETION-REPORT.md','docs/handovers/COLLISION-ASSESSOR/LEFTOVERS.md','docs/handovers/COLLISION-ASSESSOR/changes.md'])if(!fs.existsSync(p))process.exit(1)\""
+          "verify": "node -e \"const fs=require('fs');for(const p of ['docs/handovers/COLLISION-ASSESSOR/COMPLETION-REPORT.md','docs/handovers/COLLISION-ASSESSOR/LEFTOVERS.md','docs/handovers/COLLISION-ASSESSOR/changes.md'])if(!fs.existsSync(p))process.exit(1)\"",
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-22T16:09:44.109Z",
+            "model": null,
+            "user": "danielsivyer4567",
+            "session": "s-049651b9",
+            "note": "reverify of: Record installer hashes, immutable assessment artifacts, recovery commands and all honest limitations in the handover trio",
+            "log": "PP-002-B14-3-1787414982827.log",
+            "sha256": "f7766dbca3e5c71bdc5ff787adee8477859cae3c3ea5c598cae8215ee86d9065",
+            "exit": 1,
+            "durationMs": 331,
+            "git": {
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "node -e \"const fs=require('fs');for(const p of ['docs/handovers/COLLISION-ASSESSOR/COMPLETION-REPORT.md','docs/handovers/COLLISION-ASSESSOR/LEFTOVERS.md','docs/handovers/COLLISION-ASSESSOR/changes.md'])if(!fs.existsSync(p))process.exit(1)\"",
+            "cwd": "C:\\repos\\perfect-planner-tauri",
+            "env": {
+              "node": "v24.7.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            }
+          }
         },
         {
           "text": "User confirms the displayed guarantee boundary, conflict workflow and recovery procedure before release is called complete",
@@ -7349,19 +7482,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T17:12:31.511Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-22T16:09:45.033Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-271db4a7",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 9455ms",
-            "log": "PP-002-B17-0-1787332341488.log",
-            "sha256": "102d3429429b03beb167355971453cb8b471eba75c2cbfe4471417f1d47236f6",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 9455,
             "git": {
-              "sha": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -7410,7 +7543,8 @@
               "fileCount": 3,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -7462,19 +7596,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T17:12:36.943Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-22T16:09:45.169Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-271db4a7",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 3486ms",
-            "log": "PP-002-B17-1-1787332352981.log",
-            "sha256": "e9d23d7a54af4fc4588af273c273710c3500faf259e0a0b9bbc1fd2e8edcf6f5",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 3486,
             "git": {
-              "sha": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -7523,7 +7657,8 @@
               "fileCount": 3,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -7575,19 +7710,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T17:12:42.76Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-22T16:09:45.296Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-271db4a7",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 3519ms",
-            "log": "PP-002-B17-2-1787332358404.log",
-            "sha256": "ceb5e68dfba8847e996381fd4644beb153848bf55da510505595a08493d816fb",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 3519,
             "git": {
-              "sha": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -7636,7 +7771,8 @@
               "fileCount": 3,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -7688,19 +7824,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T17:12:48.234Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-22T16:09:45.437Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-271db4a7",
-            "note": "ran `cargo test --manifest-path src-tauri/Cargo.toml` → exit 0 in 3185ms",
-            "log": "PP-002-B17-3-1787332364385.log",
-            "sha256": "951b1c373b19b97dc895adb0d24627ef04390111d5c861425162484d52792464",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 3185,
             "git": {
-              "sha": "ebad09f521aad3fbcccb14867cdbff65a0fb5f76",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -7749,7 +7885,8 @@
               "fileCount": 3,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         }
       ],
@@ -7873,19 +8010,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T17:36:39.177Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-22T16:09:45.555Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-57522136",
-            "note": "20k token estimate; full 127-test native suite",
-            "log": "PP-002-B18-0-1787333794275.log",
-            "sha256": "3369af71a46ed98552cde8061aa8659852752918a28f5177e8d6601f3fef64a0",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 4012,
             "git": {
-              "sha": "f4838931f15aa90014c2c4d7b305d94eb33de0b3",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -7958,7 +8095,8 @@
               "fileCount": 7,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -8031,19 +8169,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T17:36:50.079Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-22T16:09:45.688Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-57522136",
-            "note": "20k token estimate; full 127-test native suite",
-            "log": "PP-002-B18-1-1787333806051.log",
-            "sha256": "764030ede6fcfe6fa39536c9f7d5772268d27b54ade6148aa8a388968ec59729",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 3470,
             "git": {
-              "sha": "f4838931f15aa90014c2c4d7b305d94eb33de0b3",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -8116,7 +8254,8 @@
               "fileCount": 7,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -8189,19 +8328,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T17:36:55.407Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-22T16:09:45.840Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-57522136",
-            "note": "20k token estimate; full 127-test native suite",
-            "log": "PP-002-B18-2-1787333811662.log",
-            "sha256": "a0192332c5abe2fad272b0012049f1eaa837058fdf2f3a2714a3312542989bf7",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 2964,
             "git": {
-              "sha": "f4838931f15aa90014c2c4d7b305d94eb33de0b3",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -8274,7 +8413,8 @@
               "fileCount": 7,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         },
         {
@@ -8347,19 +8487,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T17:37:01.012Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-22T16:09:45.991Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-57522136",
-            "note": "20k token estimate; full 127-test native suite",
-            "log": "PP-002-B18-3-1787333816849.log",
-            "sha256": "c32895b1abface86305ce097ab238b1ede9798e7eccd45ec5c00fc2af8e5395b",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml` proven at B01:2",
+            "log": "PP-002-B01-2-1787414844358.log",
+            "sha256": "9598ddbf41f207c0021435ae80f988bd7c6f585aac1519d40c4b0706c2493cd8",
             "exit": 0,
             "durationMs": 3402,
             "git": {
-              "sha": "f4838931f15aa90014c2c4d7b305d94eb33de0b3",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -8432,7 +8572,8 @@
               "fileCount": 7,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B01:2"
           }
         }
       ],
@@ -8517,19 +8658,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T19:37:37.808Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:09:46.139Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "Full native suite: 175 passed, 0 failed, 3 intentional helper fixtures ignored; integration contracts 3/3 and 3/3",
-            "log": "PP-002-B19-0-1787341051945.log",
-            "sha256": "c0c619c5af1592edebb5f17fde3224fd6a357eb90f7486017f44ba53b0c57130",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` proven at B06:0",
+            "log": "PP-002-B06-0-1787414892511.log",
+            "sha256": "91aaf614874b88527ae50e3773817f0a6e1c26c07ec015b476b95846b34dc053",
             "exit": 0,
             "durationMs": 5490,
             "git": {
-              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -8568,7 +8709,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B06:0"
           }
         },
         {
@@ -8647,19 +8789,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T19:37:44.322Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:09:46.320Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "Full native suite: 175 passed, 0 failed, 3 intentional helper fixtures ignored; integration contracts 3/3 and 3/3",
-            "log": "PP-002-B19-1-1787341059536.log",
-            "sha256": "3b95cb725d70e992eeffc58ae0839b5293b3971a1ae33a9a12fa6922ab5d7c9c",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` proven at B06:0",
+            "log": "PP-002-B06-0-1787414892511.log",
+            "sha256": "91aaf614874b88527ae50e3773817f0a6e1c26c07ec015b476b95846b34dc053",
             "exit": 0,
             "durationMs": 4385,
             "git": {
-              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -8698,7 +8840,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B06:0"
           }
         },
         {
@@ -8731,19 +8874,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T19:37:50.543Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:09:46.418Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "Full native suite: 175 passed, 0 failed, 3 intentional helper fixtures ignored; integration contracts 3/3 and 3/3",
-            "log": "PP-002-B19-2-1787341065780.log",
-            "sha256": "affd05deaf920afe3262bbaed65042384a7cbd3c36e92bba5806fb31a8dca9c6",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` proven at B06:0",
+            "log": "PP-002-B06-0-1787414892511.log",
+            "sha256": "91aaf614874b88527ae50e3773817f0a6e1c26c07ec015b476b95846b34dc053",
             "exit": 0,
             "durationMs": 4142,
             "git": {
-              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -8782,7 +8925,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B06:0"
           }
         },
         {
@@ -8815,19 +8959,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T19:37:56.413Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:09:46.586Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "Full native suite: 175 passed, 0 failed, 3 intentional helper fixtures ignored; integration contracts 3/3 and 3/3",
-            "log": "PP-002-B19-3-1787341071894.log",
-            "sha256": "c56bf79a9280474140e2e287174eb81c430d6021138684a3280e7f6c7a03b900",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` proven at B06:0",
+            "log": "PP-002-B06-0-1787414892511.log",
+            "sha256": "91aaf614874b88527ae50e3773817f0a6e1c26c07ec015b476b95846b34dc053",
             "exit": 0,
             "durationMs": 4044,
             "git": {
-              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -8866,7 +9010,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B06:0"
           }
         },
         {
@@ -8899,19 +9044,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T19:38:02.663Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:09:46.748Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "Full native suite: 175 passed, 0 failed, 3 intentional helper fixtures ignored; integration contracts 3/3 and 3/3",
-            "log": "PP-002-B19-4-1787341077760.log",
-            "sha256": "027fbe876cd29177295136d49f0542041dd51919f3b848253aaa2802b8813fa4",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` proven at B06:0",
+            "log": "PP-002-B06-0-1787414892511.log",
+            "sha256": "91aaf614874b88527ae50e3773817f0a6e1c26c07ec015b476b95846b34dc053",
             "exit": 0,
             "durationMs": 4002,
             "git": {
-              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -8950,7 +9095,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B06:0"
           }
         },
         {
@@ -8983,19 +9129,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-21T19:38:08.58Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:09:46.912Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-a1b7589d",
-            "note": "Full native suite: 175 passed, 0 failed, 3 intentional helper fixtures ignored; integration contracts 3/3 and 3/3",
-            "log": "PP-002-B19-5-1787341084086.log",
-            "sha256": "00037b95fed81ce8118fe11079a2b61237d8eff8cff25c2509def8c1a95e1452",
+            "note": "reverified via the shared run of `cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast` proven at B06:0",
+            "log": "PP-002-B06-0-1787414892511.log",
+            "sha256": "91aaf614874b88527ae50e3773817f0a6e1c26c07ec015b476b95846b34dc053",
             "exit": 0,
             "durationMs": 3883,
             "git": {
-              "sha": "d2902812934f14870b0164dd7a3a99cca8ed9276",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -9034,7 +9180,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "B06:0"
           }
         }
       ],
@@ -9061,7 +9208,7 @@
       "spineId": "P3",
       "side": "R",
       "title": "Exclusive scheduler authority issuer",
-      "status": "pending",
+      "status": "recovery",
       "dependsOn": [
         "B15",
         "B19"
@@ -9160,7 +9307,46 @@
           "tested": false,
           "verify": "cargo test --manifest-path src-tauri/Cargo.toml"
         }
-      ]
+      ],
+      "startSha": "f60393896ab42032d37994302f995a5b28a56d6c",
+      "startedAt": "2026-08-22T16:49:33.915Z",
+      "startedBy": {
+        "model": null,
+        "user": "danielsivyer4567",
+        "session": "s-b6ba943f",
+        "at": "2026-08-22T16:49:33.915Z"
+      },
+      "recovery": {
+        "eventId": "pp-reaper-1787422242997-23",
+        "session": "s-b6ba943f",
+        "fence": 2,
+        "at": "2026-08-22T18:10:42.997Z",
+        "reason": "source remained Stale for the full recovery grace",
+        "files": [
+          "docs/collision-assessor-guarantee.md",
+          "src-tauri/src/collision_assessor/authority.rs",
+          "src-tauri/src/collision_assessor/clearance.rs",
+          "src-tauri/src/collision_assessor/journal.rs",
+          "src-tauri/src/collision_assessor/mod.rs",
+          "src-tauri/src/collision_assessor/registry.rs",
+          "src-tauri/src/collision_assessor/snapshot.rs",
+          "src-tauri/src/lib.rs",
+          "src-tauri/src/orchestrator/authority_projection.rs",
+          "src-tauri/src/orchestrator/mod.rs",
+          "src-tauri/src/orchestrator/model.rs",
+          "src-tauri/src/orchestrator/scheduler.rs",
+          "src-tauri/tests/collision_authority_issuer_contract.rs",
+          "src-tauri/src/collision_assessor/tickets.rs"
+        ],
+        "resources": [
+          "protocol:exclusive-authority-issuer",
+          "protocol:preclaim-scheduler-reservation",
+          "mutex:scheduler-authority-store",
+          "crypto:ed25519-native-issuer-owner"
+        ],
+        "source": "desktop-session-reaper",
+        "originalStartedAt": "2026-08-22T16:49:33.915Z"
+      }
     },
     {
       "id": "B21",
@@ -9235,19 +9421,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T04:05:24.158Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:09:58.370Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-4d15c758",
-            "note": "ran `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -ValidateOnly` → exit 0 in 5574ms",
-            "log": "PP-002-B21-0-1787371517994.log",
-            "sha256": "39ec0a80c24a9c8c58d4ddcde6697a8aa40107b9564f79ab300ae0884a63f66f",
+            "session": "s-049651b9",
+            "note": "reverify of: Reject wrong repository, non-Windows execution, missing Cargo tests, malformed stage selection and unsafe output paths before running any hazard case",
+            "log": "PP-002-B21-0-1787414988570.log",
+            "sha256": "9191cf735b4c4af7ec5b6620ec6c7bf50bc2b71f9a415a0ec7972ffb24d42259",
             "exit": 0,
-            "durationMs": 5574,
+            "durationMs": 8971,
             "git": {
-              "sha": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -ValidateOnly",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -9261,7 +9447,7 @@
               },
               "osRelease": "10.0.26200"
             },
-            "diff": "PP-002-B21-0-1787371517994.diff",
+            "diff": "PP-002-B21-0-1787414988570.diff",
             "diffSha256": "5e6521a5abbfd15b4ddb9c8c8701b2b59dcbd5289545f806ffbce7c85caad50b",
             "diffBaseline": "7f06cd6f309b41d38a6606fad2ae0186ff0baae3",
             "diffFiles": [
@@ -9317,19 +9503,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T04:06:09.125Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:10:40.684Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-4d15c758",
-            "note": "ran `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage Registry,Discovery,NativeCensus` → exit 0 in 33266ms",
-            "log": "PP-002-B21-1-1787371535042.log",
-            "sha256": "08301d1cca8b0e0e08a92a045d7c4b2a5f2be6db4a838a24dd09c04113517c59",
+            "session": "s-049651b9",
+            "note": "reverify of: Exercise registry, discovery capability and native census hazards including incomplete coverage, replay, expiry, alias swaps, malformed frames and post-scan plan races",
+            "log": "PP-002-B21-1-1787414999458.log",
+            "sha256": "367f3d62d26159bbdd90bec1febd3f254087ec53a9d0d3cb797cd493ca57a2ca",
             "exit": 0,
-            "durationMs": 33266,
+            "durationMs": 40369,
             "git": {
-              "sha": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage Registry,Discovery,NativeCensus",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -9343,7 +9529,7 @@
               },
               "osRelease": "10.0.26200"
             },
-            "diff": "PP-002-B21-1-1787371535042.diff",
+            "diff": "PP-002-B21-1-1787414999458.diff",
             "diffSha256": "5e6521a5abbfd15b4ddb9c8c8701b2b59dcbd5289545f806ffbce7c85caad50b",
             "diffBaseline": "7f06cd6f309b41d38a6606fad2ae0186ff0baae3",
             "diffFiles": [
@@ -9399,19 +9585,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T04:06:51.956Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:11:22.773Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-4d15c758",
-            "note": "ran `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage CanonicalClaims,CollisionGraph,Snapshot` → exit 0 in 33708ms",
-            "log": "PP-002-B21-2-1787371577728.log",
-            "sha256": "727e52cbf1f1064c2d0086c27b9b6345bfad06a1f05911af43fd95ba59095768",
+            "session": "s-049651b9",
+            "note": "reverify of: Exercise canonical claims, deterministic collision graph and immutable snapshot hazards including traversal, unsupported globs, permutation drift, overflow and proof splicing",
+            "log": "PP-002-B21-2-1787415041528.log",
+            "sha256": "9e86d10b98a7ef2c38de38ecd5b5240922a0582bb3cf2e42605b9e57ad6d9cb5",
             "exit": 0,
-            "durationMs": 33708,
+            "durationMs": 40276,
             "git": {
-              "sha": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage CanonicalClaims,CollisionGraph,Snapshot",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -9425,7 +9611,7 @@
               },
               "osRelease": "10.0.26200"
             },
-            "diff": "PP-002-B21-2-1787371577728.diff",
+            "diff": "PP-002-B21-2-1787415041528.diff",
             "diffSha256": "5e6521a5abbfd15b4ddb9c8c8701b2b59dcbd5289545f806ffbce7c85caad50b",
             "diffBaseline": "7f06cd6f309b41d38a6606fad2ae0186ff0baae3",
             "diffFiles": [
@@ -9481,19 +9667,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T04:07:36.817Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:12:06.997Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-4d15c758",
-            "note": "ran `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage Clearance,Tickets,Journal` → exit 0 in 35985ms",
-            "log": "PP-002-B21-3-1787371620003.log",
-            "sha256": "a58d1ac2db34e9cbac3576d0169207e4c16efbbcc4bb8a9b819e36df707b00c2",
+            "session": "s-049651b9",
+            "note": "reverify of: Exercise clearance, ticket broker and journal hazards including replay, cross-owner access, expiry, tamper, restart, rollback, torn writes and concurrent append contention",
+            "log": "PP-002-B21-3-1787415083635.log",
+            "sha256": "3ff62304837cf094e00b6d80a7379f87c4ff925969352555fa156954abe8fc21",
             "exit": 0,
-            "durationMs": 35985,
+            "durationMs": 42134,
             "git": {
-              "sha": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage Clearance,Tickets,Journal",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -9507,7 +9693,7 @@
               },
               "osRelease": "10.0.26200"
             },
-            "diff": "PP-002-B21-3-1787371620003.diff",
+            "diff": "PP-002-B21-3-1787415083635.diff",
             "diffSha256": "5e6521a5abbfd15b4ddb9c8c8701b2b59dcbd5289545f806ffbce7c85caad50b",
             "diffBaseline": "7f06cd6f309b41d38a6606fad2ae0186ff0baae3",
             "diffFiles": [
@@ -9532,7 +9718,7 @@
         {
           "text": "Run the full staged suite sequentially under CPU and free-memory admission gates, save per-case logs plus a machine-readable summary, and return nonzero on failure, timeout, pressure abort or missing coverage",
           "built": true,
-          "tested": true,
+          "tested": false,
           "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Full",
           "builtBy": {
             "model": "gpt-5.6-codex",
@@ -9563,19 +9749,19 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-22T04:11:46.094Z",
-            "model": "gpt-5.6-codex",
+            "at": "2026-08-22T16:12:13.079Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-4d15c758",
-            "note": "ran `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Full` → exit 0 in 239125ms",
-            "log": "PP-002-B21-4-1787371666269.log",
-            "sha256": "f2233a9fb9cd7fb4e79b5da484de1e058867b0c153078faeeecca21d1989f75e",
-            "exit": 0,
-            "durationMs": 239125,
+            "session": "s-049651b9",
+            "note": "reverify of: Run the full staged suite sequentially under CPU and free-memory admission gates, save per-case logs plus a machine-readable summary, and return nonzero on failure, timeout, pressure abort or missing coverage",
+            "log": "PP-002-B21-4-1787415127791.log",
+            "sha256": "105f05ad2f28fa011b065cfb787b1509e471a7b35879ff22095851f76c5d3a6c",
+            "exit": 2,
+            "durationMs": 4535,
             "git": {
-              "sha": "d7b1afc651d7f5f952045a69836bbebf3da50936",
+              "sha": "177208f653bdfe622f6c292b212c02417996346b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
-              "dirty": true
+              "dirty": false
             },
             "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Full",
             "cwd": "C:\\repos\\looplet-worktrees\\perfect-planner-desktop-orchestrator-messaging-20260821-223935",
@@ -9589,7 +9775,7 @@
               },
               "osRelease": "10.0.26200"
             },
-            "diff": "PP-002-B21-4-1787371666269.diff",
+            "diff": "PP-002-B21-4-1787415127791.diff",
             "diffSha256": "5e6521a5abbfd15b4ddb9c8c8701b2b59dcbd5289545f806ffbce7c85caad50b",
             "diffBaseline": "7f06cd6f309b41d38a6606fad2ae0186ff0baae3",
             "diffFiles": [
@@ -9630,5 +9816,12 @@
         "forced": false
       }
     }
-  ]
+  ],
+  "awaiting": {
+    "kind": "recovery",
+    "item": "B20",
+    "eventId": "pp-reaper-1787422242997-23",
+    "since": "2026-08-22T18:10:42.997Z",
+    "note": "B20 preserved output from s-b6ba943f. Review its diff, then run --resume-recovery B20 --note \"<what was checked>\"."
+  }
 }
