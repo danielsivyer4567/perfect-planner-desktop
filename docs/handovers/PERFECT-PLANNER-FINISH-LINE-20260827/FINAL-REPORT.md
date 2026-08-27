@@ -111,7 +111,8 @@ artifacts.
 
 ## Unsigned candidate fingerprints
 
-These hashes identify the locally tested **unsigned** candidates and must not be presented as signed
+These hashes identify the **installer-tested unsigned** candidates from the package build used for
+the MSI/NSIS install, launch, reinstall, and uninstall matrix. They must not be presented as signed
 release hashes:
 
 - app EXE: `A1846196F2C7B3D7F3DE7302A0653953C5639F072F14C5D0A3B27860265576A5`
@@ -119,6 +120,17 @@ release hashes:
 - NSIS: `28D15FE2D432BBA58E56B9BD2FBD4513C8FEAEAF3105273052C3B2CCE5E4B985`
 
 All three return `NotSigned`. Signed hashes must be generated again after signing.
+
+The final full local CI mirror ran on exact product commit
+`dff52d20df3fee7a68970368fde3b40b43c948af` and rebuilt the unsigned bundles. Bundle metadata makes
+those files non-reproducible against the prior package build; their post-matrix hashes are:
+
+- app EXE: `78E0280C0AE67DF8DE5AB1CB18C55E70F6779CEFC2729DAFA07FA7464592582D`
+- MSI: `DE223FD1A82005B8BB97FD371001B96362BBB5652F5B82C8F82E032DCF763AC4`
+- NSIS: `871DED5A00BEE845554C346C2B4C8B3CE93C54488DE2B744EBF96AC0CE1C4CD9`
+
+The exact-commit rebuild passed package creation but was not reinstalled after this final metadata
+change. Signing must produce the definitive artifacts, hashes, and clean-machine install evidence.
 
 ## Known gaps deliberately left open
 
