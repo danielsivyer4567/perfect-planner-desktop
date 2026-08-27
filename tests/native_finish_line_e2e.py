@@ -227,6 +227,25 @@ def main() -> None:
             )
         expect(inspector).to_be_hidden()
         expect(toggle).to_be_focused()
+        escape_restored_focus = toggle.evaluate(
+            "element => element === document.activeElement"
+        )
+
+        page.keyboard.press("Tab")
+        keyboard_focus_after_tab = page.evaluate(
+            """(() => {
+              const active = document.activeElement;
+              return active ? {
+                id: active.id || null,
+                tagName: active.tagName,
+                text: (active.textContent || '').trim().slice(0, 120),
+              } : null;
+            })()"""
+        )
+        assert keyboard_focus_after_tab, "keyboard Tab did not leave a visible active element"
+        assert keyboard_focus_after_tab["tagName"] not in {"BODY", "HTML"}, (
+            f"keyboard Tab fell back to the document root: {keyboard_focus_after_tab}"
+        )
 
         page.wait_for_timeout(1_500)
         expected_ipc_aborts = [
@@ -262,6 +281,48 @@ def main() -> None:
             }
             restore_windows_app(original_window)
             page.wait_for_timeout(300)
+
+        scale_screenshot = ARTIFACTS / "native-three-times-scale.png"
+        cdp = page.context.new_cdp_session(page)
+        try:
+            cdp.send(
+                "Emulation.setDeviceMetricsOverride",
+                {
+                    "width": 1152,
+                    "height": 686,
+                    "deviceScaleFactor": 3,
+                    "mobile": False,
+                },
+            )
+            page.wait_for_timeout(500)
+            scale_header = page.locator("#pp-entity-head-orchestrator").bounding_box()
+            scale_canvas = page.locator("#pp-frame-active-board").bounding_box()
+            scale_shell_overflow = page.evaluate(
+                "document.documentElement.scrollWidth > window.innerWidth"
+            )
+            scale_plan_overflow = active_board_body.evaluate(
+                "element => element.scrollWidth > element.clientWidth"
+            )
+            assert scale_header and scale_header["height"] <= 90
+            assert scale_canvas and scale_canvas["y"] <= 180
+            assert not scale_shell_overflow, (
+                "300% WebView scale emulation overflows the Perfect Planner shell"
+            )
+            page.screenshot(path=str(scale_screenshot), full_page=True)
+            scale_proof = {
+                "physicalViewport": {"width": 3456, "height": 2058},
+                "cssViewport": {"width": 1152, "height": 686},
+                "deviceScaleFactor": 3,
+                "header": scale_header,
+                "canvas": scale_canvas,
+                "horizontalShellOverflow": scale_shell_overflow,
+                "embeddedPlanHorizontalOverflow": scale_plan_overflow,
+                "screenshot": str(scale_screenshot),
+            }
+        finally:
+            cdp.send("Emulation.clearDeviceMetricsOverride")
+            cdp.detach()
+            page.wait_for_timeout(300)
         proof = {
             "native": page.evaluate("Boolean(window.__TAURI_INTERNALS__)"),
             "repository": active.get_attribute("data-repository-name"),
@@ -278,9 +339,11 @@ def main() -> None:
             "stageBar": stage_bar,
             "canvas": canvas,
             "inspectorDidNotDisplaceCanvas": frame_top_after == frame_top_before,
-            "escapeRestoredFocus": toggle.evaluate("element => element === document.activeElement"),
+            "escapeRestoredFocus": escape_restored_focus,
             "nativeKeyboardInjectionObserved": injected_escape_count > 0,
+            "keyboardFocusAfterTab": keyboard_focus_after_tab,
             "narrowWindow": narrow_proof,
+            "threeTimesScaleEmulation": scale_proof,
             "consoleErrors": console_errors,
             "pageErrors": page_errors,
             "expectedTauriIpcAborts": expected_ipc_aborts,

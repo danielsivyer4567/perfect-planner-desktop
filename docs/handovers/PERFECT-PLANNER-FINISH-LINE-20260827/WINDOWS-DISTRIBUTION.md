@@ -56,7 +56,9 @@ then, the app must never download or apply an update automatically.
 
 ## Known limitations
 
-- No Git remote/default branch is configured, so hosted CI and branch protection are not proven.
+- The exact private GitHub remote and `main` branch are configured, but hosted CI has not run because
+  no push was authorized. GitHub branch protection/rulesets are unavailable on the current private
+  repository account plan.
 - No Windows code-signing identity is installed; current binaries report `NotSigned`.
 - A physical native Escape event was not observed through WebView2 during automation. DOM focus
   return, browser keyboard navigation, and native narrow-window layout pass, but a human keyboard

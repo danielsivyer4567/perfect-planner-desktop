@@ -3,7 +3,7 @@
 Status snapshot: 2026-08-27
 Repository: `C:\repos\perfect-planner-tauri`
 Branch: `feature/tauri-orchestrator-messaging-20260821-223935`
-Current commit: `aa1ae3365304a4778411775b2f85611bd53c6e0b`
+Continuation base commit: `6c0f3000614ae841913805f87efcfb2c89ce2eb3`
 
 ## Finish-line definition
 
@@ -61,14 +61,22 @@ signed Windows installer has been installed and exercised successfully.
 - [x] Refresh and record the Tauri webview console: zero unexplained errors, failed requests, or
       security-policy violations.
 - [ ] Record native logs for launch, preflight, routing, interruption recovery, completion, and exit.
+  - [x] Bind the real native preflight, approval, admission, heartbeat, stale-lease recovery, and
+        fenced-completion events to SHA-256 hashes in `NATIVE-EVIDENCE.md`.
+  - [x] Preserve installer launch/process-exit evidence and zero-orphan-process results.
+  - [ ] Capture a packaged routed-message lifecycle and product-native launch/exit event pair.
 - [ ] Manually exercise keyboard navigation, visible focus, modal close/return-focus, narrow-window
       layout, and three-times display scaling.
+  - [x] Prove DOM keyboard navigation, visible focus return, narrow-window layout, and 300% WebView
+        device-scale emulation in the installed app.
+  - [ ] Confirm physical keyboard input and Windows OS-level 300% scaling on the target display.
 - [x] Install both MSI and NSIS candidates on Windows x64; verify launch, upgrade/reinstall,
       uninstall, retained user data, and no orphan background processes.
 
 ## 5. Establish the real release gate
 
-- [ ] Configure and verify the intended Git remote and default branch; do not guess either.
+- [x] Configure and verify the exact shared-history Git remote
+      `danielsivyer4567/perfect-planner-desktop`; its default branch is `main`.
 - [x] Add a CI workflow that runs frontend build, browser/integration tests, Rust format/tests/lint,
       and the Windows Tauri package build.
 - [ ] Run a clean simulated merge against the intended base and pass the full local CI mirror.
@@ -76,6 +84,9 @@ signed Windows installer has been installed and exercised successfully.
 - [x] Confirm the working tree is clean and record the exact handoff commit SHA in the final report.
 - [ ] Push only when explicitly authorized, then require the actual CI run to pass on that same SHA.
 - [ ] Confirm branch protection/review requirements and prevent release from an unverified commit.
+  - [x] Query branch protection and repository rulesets on the exact private repository.
+  - [ ] GitHub returned HTTP 403 because private-repository protection requires an account upgrade;
+        enforce this gate after the repository plan supports it or make an explicit alternative policy.
 
 ## 6. Prepare Windows production distribution
 
@@ -95,6 +106,9 @@ signed Windows installer has been installed and exercised successfully.
 - [x] All local verification commands pass on exact product commit
       `dff52d20df3fee7a68970368fde3b40b43c948af`; the later handoff commit changes documentation only.
 - [ ] Required screenshots, console output, native logs, and manual interaction notes are attached.
+  - [x] Attach the locally reproducible screenshot, console, geometry, scale-emulation, focus, and
+        native event-hash evidence described in `NATIVE-EVIDENCE.md`.
+  - [ ] Attach the still-missing packaged routing/launch/exit and physical-input evidence.
 - [ ] CI passes on the exact release commit.
 - [x] The working tree is clean and every intended file is committed.
 - [ ] Signed installers pass clean-machine installation and runtime smoke tests.

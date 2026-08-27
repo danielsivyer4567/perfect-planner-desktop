@@ -8,9 +8,9 @@ Branch: `feature/tauri-orchestrator-messaging-20260821-223935`
 
 The local Perfect Planner product lifecycle is substantially finished and regression-proven, but
 the application is **not production-ready**. Product, browser, native package, and both installer
-candidates pass locally. Production promotion remains blocked by the absent Git remote/hosted CI,
-absent Windows signing identity, untested physical keyboard/300% Windows scale, and absent clean-VM
-smoke.
+candidates pass locally. The exact private GitHub remote and `main` default branch are now verified.
+Production promotion remains blocked by an unrun hosted CI build, absent Windows signing identity,
+untested physical keyboard/OS-level 300% Windows scale, and absent clean-VM smoke.
 
 The Graphify architecture map influenced this review by separating the Session Recovery, Control
 Plane Messaging, Collision Registry/Census, Repository Identity, Verification Evidence, and Release
@@ -87,6 +87,13 @@ The exact final committed inventory is available with `git show --name-status --
   window has no horizontal document overflow.
 - Native console: zero console errors, page errors, unexpected request failures, or CSP violations.
   The WebView2 IPC transport's expected `ERR_ABORTED` receipt is classified separately.
+- Native focus and scale: inspector close returned focus to `Inspect`; the following Tab moved to a
+  repository tab. A 3456x2058 physical viewport represented at device scale factor 3 produced a
+  1152x686 CSS viewport without overflowing the Perfect Planner shell; the embedded plan remains
+  horizontally pannable. This is WebView emulation, not an OS-setting claim.
+- Native lifecycle records: real run `run-mt4oo7z4` durably records preflight, approval, admission,
+  heartbeat, stale-lease recovery, and evidence-gated fenced completion. The record hashes and
+  timeline are in `NATIVE-EVIDENCE.md`.
 - NSIS: install, installed-app native smoke, reinstall, uninstall, retained app data, and zero
   orphan app processes passed.
 - MSI: install, installed-app native smoke, reconfigure, uninstall, retained app data, and zero
@@ -99,6 +106,7 @@ The exact final committed inventory is available with `git show --name-status --
 
 - `artifacts/native-tauri/native-finish-line.png`
 - `artifacts/native-tauri/native-narrow-window.png`
+- `artifacts/native-tauri/native-three-times-scale.png`
 - `artifacts/native-tauri/finish-line-selection-before-restart.png`
 - `artifacts/native-tauri/finish-line-selection-after-restart.png`
 - `artifacts/native-tauri/native-finish-line.json`
@@ -134,14 +142,16 @@ change. Signing must produce the definitive artifacts, hashes, and clean-machine
 
 ## Known gaps deliberately left open
 
-1. No Git remote/default branch exists. Hosted CI, simulated merge against the true base, review,
-   push, and branch protection cannot be inferred.
+1. The exact remote is `https://github.com/danielsivyer4567/perfect-planner-desktop.git` and its
+   default branch is `main`. Hosted CI has not run because no push was authorized. GitHub returned
+   HTTP 403 for branch-protection and ruleset APIs because this private repository's current account
+   plan does not provide those controls.
 2. No user or machine code-signing certificate is installed. Signing and signed-artifact hashes
    cannot be completed.
 3. No clean Windows VM was available for final signed-installer smoke or artifact promotion.
 4. WebView2 did not surface an actual Windows Escape injection to the DOM. DOM focus return,
-   browser keyboard navigation, and native narrow-window behavior are proven; physical keyboard and
-   300% Windows display scaling require a human pass.
+   keyboard navigation, native narrow-window behavior, and 300% WebView device-scale emulation are
+   proven; physical keyboard input and Windows OS-level 300% display scaling require a human pass.
 5. The current native run `run-mt52331o` is honestly `ready` with no recorded preflight, worker,
    completion, or CI result. Those states were proven in isolated browser/native test fixtures and
    Rust tests, but were not invented in the packaged app.
@@ -154,3 +164,6 @@ change. Signing must produce the definitive artifacts, hashes, and clean-machine
 The verified local commit is suitable for review and for configuring a real remote CI/signing
 pipeline. It must not be labelled production-ready or distributed until the open gates in
 `FINISH-LINE-TODO.md` are completed on the exact signed release commit.
+
+See `NATIVE-EVIDENCE.md` for the exact local interaction proof, durable native event timeline,
+hashes, and remaining evidence boundary.
