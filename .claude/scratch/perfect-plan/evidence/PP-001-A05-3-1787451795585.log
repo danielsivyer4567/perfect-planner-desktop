@@ -1,0 +1,152 @@
+# perfect-planning proof artifact
+item: A05:3 — Existing build, Rust tests and browser regression suite remain green
+command: npm run build && npm run test:e2e && cargo test --manifest-path src-tauri/Cargo.toml
+cwd: C:\repos\perfect-planner-tauri
+exit: 1
+duration_ms: 15909
+at: 2026-08-23T02:23:32.396Z
+git: 77abb60cbbba9f964e04461e68e237b0255a9fd1 (feature/tauri-orchestrator-messaging-20260821-223935, dirty)
+before_shot: PP-001-A05-baseline-1787318419532.before.png
+before_shot_note: Untouched shell before the control-plane feature: worker reports are transient buttons only; no message delivery state, chat route truth, or scoped notes are visible.
+before_shot_check: ok (4320x2700, blankScore 0.4178)
+before_ocr: PP-001-A05-baseline-1787318419532.before.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 78, 4686ms)
+before_ocr_alarms: none
+diff: PP-001-A05-3-1787451795585.diff
+diff_baseline: 6b5d52e3ce1cd6157719144fd5506d1cc15d4900
+
+## stdout
+
+> perfect-planner-desktop@1.0.0 build
+> tsc && vite build
+
+vite v8.2.2 building client environment for production...
+transforming...
+✓ 1592 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.47 kB │ gzip:  0.31 kB
+dist/assets/index-B6RMOtQA.css   55.54 kB │ gzip: 12.47 kB
+dist/assets/core-CwxXejkd.js      0.09 kB │ gzip:  0.10 kB
+dist/assets/index-B_NJiKTF.js   289.15 kB │ gzip: 87.60 kB
+
+✓ built in 660ms
+
+> perfect-planner-desktop@1.0.0 test:e2e
+> node scripts/run-e2e.mjs
+
+control_connector_e2e: PASS
+proved: FNV scope, Git isolation, atomic drops, worker notes, Codex registration, no Codex execution
+
+## stderr
+Traceback (most recent call last):
+  File "C:\repos\perfect-planner-tauri\tests\approval_chat_bridge_e2e.py", line 199, in <module>
+    main()
+  File "C:\repos\perfect-planner-tauri\tests\approval_chat_bridge_e2e.py", line 186, in main
+    expect(page.locator("#pp-status-looplet-live-feed")).to_be_visible()
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\sync_api\_generated.py", line 23332, in to_be_visible
+    self._sync(
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_sync_base.py", line 115, in _sync
+    return task.result()
+           ^^^^^^^^^^^^^
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_assertions.py", line 852, in to_be_visible
+    await self._expect_impl(
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_assertions.py", line 128, in _expect_impl
+    _record_soft_or_raise(
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_assertions.py", line 60, in _record_soft_or_raise
+    raise error
+AssertionError: Locator expected to be visible
+Actual value: hidden 
+Call log:
+  - Expect "to_be_visible" with timeout 5000ms
+  - waiting for locator("#pp-status-looplet-live-feed")
+    14 � locator resolved to <div role="img" data-feed-state="live" id="pp-status-looplet-live-feed" class="looplet-live-feed-mark live" aria-label="Looplet control feed live">�</div>
+       - unexpected value "hidden"
+
+Aria snapshot:
+- complementary:
+  - heading "perfect planning" [level=1]
+  - paragraph: boards on 127.0.0.1:5230�5249
+  - region "Repository Alpha":
+    - text: repository A
+    - heading "Repository Alpha" [level=2]
+    - text: 1 feature/exact-approval 1 IN PROGRESS 1
+    - list "Repository Alpha, feature/exact-approval, in progress":
+      - listitem:
+        - button "PP-201 Repository A Repository Alpha feature/exact-approval Exact approval route" [pressed]: PP-201 Repository Alpha \u2387 feature/exact-approval Exact approval route alpha-work � :5230 chat � unverified board claim
+  - region "Repository Beta":
+    - text: repository B
+    - heading "Repository Beta" [level=2]
+    - text: 1 feature/unregistered 1 IN PROGRESS 1
+    - list "Repository Beta, feature/unregistered, in progress":
+      - listitem:
+        - button "PP-202 Repository B Repository Beta feature/unregistered Unregistered route remains blocked": PP-202 Repository Beta \u2387 feature/unregistered Unregistered route remains blocked beta-work � :5231 chat � unverified board claim
+  - region "Localhost visual output witness":
+    - img
+    - text: LOCAL OUTPUT
+    - code: app URL not declared
+    - text: NO CAPTURED LOCAL SCREEN P1 0/1
+    - paragraph: "Not shown in captured UI: B15"
+  - text: alarm � gentle rise
+  - status: armed
+  - button "sound on" [pressed]
+  - button "test"
+  - text: Alarm volume
+  - slider "Alarm volume": "0.5"
+  - button "rescan"
+  - text: 2 boards
+- main:
+  - region "Head orchestrator":
+    - text: HEAD ORCHESTRATOR � REPOSITORY A � Repository Alpha
+    - strong: orch-cbb93c61
+    - text: LEGACY LEASE + REAPER ACTIVE
+    - button "Expand orchestrator header": Expand
+  - strong: Repository Alpha
+  - text: � \u2387 feature/exact-approval � PP-201 � Exact approval route alpha-work � C:\repos\alpha-work\.claude\scratch\perfect-plan\a.json right-click plan for actions
+  - button "refresh"
+  - link "open in browser":
+    - /url: http://127.0.0.1:5230/
+  - iframe
+- button "CONSOLE 2 issues" [expanded]
+- text: SYSTEM TRUTH
+- strong: Session diagnostics
+- button "Maximize"
+- tablist "Console views":
+  - tab "STATUS" [selected]
+  - tab "PLAN GAPS � 1"
+  - tab "SESSION LOGS � 3"
+- tabpanel:
+  - article:
+    - text: Local board
+    - strong: LIVE � :5230
+    - text: C:\repos\alpha-work\.claude\scratch\perfect-plan\a.json
+  - article:
+    - text: Chat route
+    - strong: UNVERIFIED BOARD CLAIM
+    - text: Browser HTTP state is display-only and cannot attest a chat route.
+  - article:
+    - text: Tauri native
+    - strong: BROWSER ONLY
+    - text: Resource guard is available in the Tauri desktop app
+  - article:
+    - text: Orchestrator run
+    - strong: NOT INITIALIZED
+    - text: A Perfect Plan ID is not automatically an orchestrator run ID.
+  - article:
+    - text: MCP runtime
+    - strong: NOT ATTESTED
+    - text: No MCP handshake receipt is present. Worker access is not assumed.
+  - article:
+    - text: Collision guarantee
+    - strong: NOT ACTIVE � NO VERIFIED RUN
+    - text: Select or create an exact native run; a plan checkbox is not an admission receipt.
+file:///C:/repos/perfect-planner-tauri/scripts/run-e2e.mjs:29
+      else reject(new Error(`${test} failed (${signal || `exit ${code}`})`));
+                  ^
+
+Error: tests/approval_chat_bridge_e2e.py failed (exit 1)
+    at ChildProcess.<anonymous> (file:///C:/repos/perfect-planner-tauri/scripts/run-e2e.mjs:29:19)
+    at Object.onceWrapper (node:events:623:26)
+    at ChildProcess.emit (node:events:508:28)
+    at ChildProcess._handle.onexit (node:internal/child_process:294:12)
+
+Node.js v24.7.0

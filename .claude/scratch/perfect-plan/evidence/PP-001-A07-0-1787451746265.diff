@@ -1,0 +1,353 @@
+diff --git a/src/App.tsx b/src/App.tsx
+index 40f3379..c58dcc4 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -224,6 +224,7 @@ export const App: React.FC = () => {
+   } | null>(null);
+   const [pipelineSnapshot, setPipelineSnapshot] = useState<OrchestratorSnapshot | null>(null);
+   const [dismissedPlans, setDismissedPlans] = useState<Set<string>>(storedDismissedPlans);
++  const [orchestratorMinimized, setOrchestratorMinimized] = useState(true);
+   const [resourceGuard, setResourceGuard] = useState<ResourceGuardState>({
+     status: "checking",
+     result: null,
+@@ -873,6 +874,10 @@ export const App: React.FC = () => {
+     void scan();
+   };
+ 
++  const toggleOrchestratorMinimized = () => {
++    setOrchestratorMinimized((current) => !current);
++  };
++
+   const handleContextPlanAction = useCallback((action: "select" | "remove" | "open", planPath: string) => {
+     const board = boards.find((candidate) => candidate.planPath === planPath);
+     if (!board) {
+@@ -1160,7 +1165,8 @@ export const App: React.FC = () => {
+           data-repository-call-sign={activeRepositoryCallSign}
+           data-project-name={pipelineProjectLabel}
+           data-branch-name={pipelineBranchLabel}
+-          className={`orchestrator${decisionBoards.length ? " decision" : ""}${!boundPipelineSnapshot && (identityError || supervisorError) ? " identity-error" : ""}`}
++          className={`orchestrator${orchestratorMinimized ? " minimized" : ""}${decisionBoards.length ? " decision" : ""}${!boundPipelineSnapshot && (identityError || supervisorError) ? " identity-error" : ""}`}
++          data-minimized={orchestratorMinimized}
+           aria-label="Head orchestrator"
+         >
+           <div className="orchestrator-head">
+@@ -1205,8 +1211,26 @@ export const App: React.FC = () => {
+             <span className="head-stat" id="pp-stat-completed"><b>{scopedCleared}</b> {boundPipelineSnapshot ? "done" : "cleared"}</span>
+             <span className={`head-stat${decisionBoards.length ? " needs" : ""}`}><b>{decisionBoards.length}</b> decisions</span>
+             <ResourceGuard state={resourceGuard} onRefresh={refreshResourceGuard} />
++            <button
++              id="pp-btn-toggle-orchestrator"
++              type="button"
++              className="orchestrator-toggle"
++              aria-expanded={!orchestratorMinimized}
++              aria-controls="pp-panel-orchestrator-details pp-panel-orchestrator-pipeline"
++              aria-label={`${orchestratorMinimized ? "Expand" : "Minimise"} orchestrator header`}
++              title={`${orchestratorMinimized ? "Expand" : "Minimise"} orchestrator header`}
++              onClick={toggleOrchestratorMinimized}
++            >
++              <span aria-hidden="true">{orchestratorMinimized ? "+" : "−"}</span>
++              {orchestratorMinimized ? "Expand" : "Minimise"}
++            </button>
+           </div>
+ 
++          <div
++            id="pp-panel-orchestrator-details"
++            className="orchestrator-details"
++            hidden={orchestratorMinimized}
++          >
+           <div className="worker-wire" id="pp-list-worker-reports" role="list" aria-label="Worker reports">
+             {boundPipelineSnapshot ? pipelineNodes.length ? pipelineNodes.map((node) => {
+               const completion = boundPipelineSnapshot.scheduler.completions?.[node.id];
+@@ -1292,18 +1316,21 @@ export const App: React.FC = () => {
+             orchestratorId={orchestratorId}
+             workers={controlPlaneWorkers}
+           />
++          </div>
+         </section>
+ 
+-        <PipelineConsole
+-          runId={pipelineScope?.runId}
+-          repositoryRoot={pipelineScope?.repositoryRoot || active?.repoRoot}
+-          planPath={active?.planPath}
+-          snapshotSeed={pipelineSnapshotSeed}
+-          onSelectRun={selectPipelineRun}
+-          onRunCreated={selectCreatedPipelineRun}
+-          onSnapshotChange={setPipelineSnapshot}
+-          onDiagnostic={recordPipelineDiagnostic}
+-        />
++        <div id="pp-panel-orchestrator-pipeline" hidden={orchestratorMinimized}>
++          <PipelineConsole
++            runId={pipelineScope?.runId}
++            repositoryRoot={pipelineScope?.repositoryRoot || active?.repoRoot}
++            planPath={active?.planPath}
++            snapshotSeed={pipelineSnapshotSeed}
++            onSelectRun={selectPipelineRun}
++            onRunCreated={selectCreatedPipelineRun}
++            onSnapshotChange={setPipelineSnapshot}
++            onDiagnostic={recordPipelineDiagnostic}
++          />
++        </div>
+ 
+         {active ? (
+           <>
+diff --git a/src/index.css b/src/index.css
+index d7b6db6..13cf0a5 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -625,6 +625,36 @@ body {
+   border-bottom-color: var(--danger);
+ }
+ 
++.orchestrator.minimized .orchestrator-head {
++  min-height: 50px;
++  flex-wrap: nowrap;
++  gap: 10px;
++  padding: 7px 128px 7px 14px;
++}
++
++.orchestrator.minimized .head-orchestrator-command-post,
++.orchestrator.minimized .head-stat,
++.orchestrator.minimized .resource-guard {
++  display: none;
++}
++
++.orchestrator.minimized .head-copy {
++  min-width: 0;
++  flex: 1;
++}
++
++.orchestrator.minimized .head-eyebrow,
++.orchestrator.minimized .head-copy strong {
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.orchestrator.minimized .head-lease {
++  margin-right: 0;
++  white-space: nowrap;
++}
++
+ .orchestrator-head {
+   position: relative;
+   min-height: 136px;
+@@ -635,6 +665,41 @@ body {
+   padding: 9px 230px 7px 14px;
+ }
+ 
++.orchestrator-toggle {
++  position: absolute;
++  top: 45px;
++  right: 14px;
++  display: inline-flex;
++  min-width: 102px;
++  min-height: 30px;
++  align-items: center;
++  justify-content: center;
++  gap: 7px;
++  padding: 5px 9px;
++  border: 1px solid #78907d;
++  border-radius: 4px;
++  color: #eef4ef;
++  background: #1e2822;
++  font: 800 8.5px var(--mono);
++  letter-spacing: 0.55px;
++  cursor: pointer;
++}
++
++.orchestrator-toggle:hover {
++  border-color: #a7c1ac;
++  background: #334039;
++}
++
++.orchestrator-toggle > span {
++  color: #b9d1be;
++  font-size: 14px;
++  line-height: 1;
++}
++
++.orchestrator.minimized .orchestrator-toggle {
++  top: 10px;
++}
++
+ .head-orchestrator-command-post {
+   position: relative;
+   display: grid;
+diff --git a/tests/alarm_e2e.py b/tests/alarm_e2e.py
+index c6d2e92..fe3292f 100644
+--- a/tests/alarm_e2e.py
++++ b/tests/alarm_e2e.py
+@@ -113,6 +113,10 @@ def main():
+         page.route("http://127.0.0.1:5233/", lambda route: route.fulfill(body="<html></html>"))
+         page.goto(APP_URL)
+         page.wait_for_load_state("networkidle")
++        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
++        if orchestrator_toggle.get_attribute("aria-expanded") == "false":
++            orchestrator_toggle.click()
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
+         expect(page.locator(".rail-num", has_text="PP-TEST")).to_be_visible()
+         assert page.locator("#pp-list-boards .rail-item").count() == 1, (
+             "duplicate servers for the same plan must collapse to one plan row"
+diff --git a/tests/approval_chat_bridge_e2e.py b/tests/approval_chat_bridge_e2e.py
+index fa4c8a1..e35f45c 100644
+--- a/tests/approval_chat_bridge_e2e.py
++++ b/tests/approval_chat_bridge_e2e.py
+@@ -152,6 +152,11 @@ def main():
+         context.route("http://127.0.0.1:5231/**", mock_board)
+         page.goto(APP_URL, wait_until="networkidle")
+ 
++        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "false")
++        orchestrator_toggle.click()
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
++
+         exact_row = page.locator('[data-board-port="5230"]')
+         blocked_row = page.locator('[data-board-port="5231"]')
+         expect(exact_row.locator('[data-approval-bridge-state="UNVERIFIED_BOARD_CLAIM"]')).to_be_visible()
+diff --git a/tests/control_plane_e2e.py b/tests/control_plane_e2e.py
+index 96693b4..2e91eb8 100644
+--- a/tests/control_plane_e2e.py
++++ b/tests/control_plane_e2e.py
+@@ -127,6 +127,11 @@ def main():
+         expect(alpha).to_be_visible()
+         alpha.evaluate("element => element.click()")
+ 
++        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "false")
++        orchestrator_toggle.click()
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
++
+         messenger = page.locator("#pp-region-orchestrator-messenger")
+         expect(messenger).to_be_visible()
+         expect(page.locator("#pp-badge-orchestrator-inbox")).to_contain_text("0")
+diff --git a/tests/head_orchestrator_character_e2e.py b/tests/head_orchestrator_character_e2e.py
+index 632bce2..96b1c97 100644
+--- a/tests/head_orchestrator_character_e2e.py
++++ b/tests/head_orchestrator_character_e2e.py
+@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
+ APP_URL = "http://127.0.0.1:5180/"
+ PLAN_PATH = r"C:\fixtures\head-orchestrator-character.json"
+ SCREENSHOT = ROOT / "artifacts" / "head-orchestrator-character-3x.png"
++MINIMIZED_SCREENSHOT = ROOT / "artifacts" / "head-orchestrator-minimized-3x.png"
+ 
+ 
+ def main() -> None:
+@@ -93,8 +94,47 @@ def main() -> None:
+         speech = page.locator("#pp-status-head-orchestrator-speech")
+         worker_route = page.locator("#pp-list-worker-reports")
+         spinner = page.locator("#pp-status-looplet-live-feed")
++        minimize_toggle = page.locator("#pp-btn-toggle-orchestrator")
++        orchestrator_details = page.locator("#pp-panel-orchestrator-details")
++        pipeline_details = page.locator("#pp-panel-orchestrator-pipeline")
++        board_frame = page.locator("#pp-frame-active-board")
+ 
+         expect(head).to_be_visible()
++        expect(minimize_toggle).to_be_visible()
++        expect(minimize_toggle).to_have_attribute("aria-expanded", "false")
++        expect(minimize_toggle).to_have_accessible_name("Expand orchestrator header")
++        expect(head).to_have_attribute("data-minimized", "true")
++        expect(orchestrator_details).to_be_hidden()
++        expect(pipeline_details).to_be_hidden()
++        expect(board_frame).to_be_visible()
++        minimized_frame_box = board_frame.bounding_box()
++        assert minimized_frame_box, "the minimized planner frame has no layout box"
++
++        minimize_toggle.click()
++        expect(minimize_toggle).to_have_attribute("aria-expanded", "true")
++        expect(minimize_toggle).to_have_accessible_name("Minimise orchestrator header")
++        expect(head).to_have_attribute("data-minimized", "false")
++        expect(orchestrator_details).to_be_visible()
++        expect(pipeline_details).to_be_visible()
++        expanded_frame_box = board_frame.bounding_box()
++        assert expanded_frame_box, "the expanded planner frame has no layout box"
++        assert expanded_frame_box["y"] - minimized_frame_box["y"] >= 140, (
++            "minimising the orchestrator did not move the planner viewport and right scrollbar high enough"
++        )
++
++        # Expansion is deliberately temporary: every fresh load must return the
++        # planner canvas to the high, compact starting position.
++        page.reload()
++        page.wait_for_load_state("networkidle")
++        expect(minimize_toggle).to_have_attribute("aria-expanded", "false")
++        expect(head).to_have_attribute("data-minimized", "true")
++        page.screenshot(path=str(MINIMIZED_SCREENSHOT), full_page=False)
++        minimized_image_size = MINIMIZED_SCREENSHOT.stat().st_size
++        assert minimized_image_size > 100_000, (
++            f"minimized 3x screenshot is unexpectedly small: {minimized_image_size} bytes"
++        )
++        minimize_toggle.click()
++
+         expect(actor).to_be_visible()
+         expect(actor).to_have_attribute("data-role", "head-orchestrator-character")
+         expect(actor).to_have_attribute("data-orchestrator-id", head.get_attribute("data-entity-id"))
+@@ -159,6 +199,7 @@ def main() -> None:
+ 
+     print("head orchestrator character e2e: 1 scenario passed")
+     print(f"screenshot: {SCREENSHOT}")
++    print(f"minimized screenshot: {MINIMIZED_SCREENSHOT}")
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/tests/live_board_smoke.py b/tests/live_board_smoke.py
+index e805f45..6b0cb75 100644
+--- a/tests/live_board_smoke.py
++++ b/tests/live_board_smoke.py
+@@ -36,6 +36,10 @@ def main():
+         assert target_port and target_port.isdigit(), "selected live row has no board port"
+         target.click()
+         expect(target).to_have_class(re.compile(r"\bon\b"))
++        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
++        if orchestrator_toggle.get_attribute("aria-expanded") == "false":
++            orchestrator_toggle.click()
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
+         expect(page.locator("iframe.board")).to_have_attribute("src", re.compile(rf":{target_port}/$"))
+         target_topic = target.locator(".rail-topic").inner_text()
+         expect(page.locator(".crumb")).to_contain_text(target_topic)
+diff --git a/tests/native_tauri_lifecycle_e2e.py b/tests/native_tauri_lifecycle_e2e.py
+index e167613..28aa941 100644
+--- a/tests/native_tauri_lifecycle_e2e.py
++++ b/tests/native_tauri_lifecycle_e2e.py
+@@ -39,6 +39,10 @@ def select_run(page) -> None:
+     card = page.locator(f'[data-board-port="{BOARD_PORT}"]')
+     expect(card).to_be_visible(timeout=15_000)
+     card.dispatch_event("click")
++    orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
++    if orchestrator_toggle.get_attribute("aria-expanded") == "false":
++        orchestrator_toggle.dispatch_event("click")
++    expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
+     expect(page.locator("#pp-orch-btn-load-runs")).to_be_visible(timeout=10_000)
+     load = page.locator("#pp-orch-btn-load-runs")
+     expect(load).to_be_enabled(timeout=15_000)
+diff --git a/tests/native_webview_cdp_e2e.py b/tests/native_webview_cdp_e2e.py
+index 2ef333f..a3597be 100644
+--- a/tests/native_webview_cdp_e2e.py
++++ b/tests/native_webview_cdp_e2e.py
+@@ -147,6 +147,13 @@ def select_run(cdp: Cdp) -> None:
+         lambda: attribute(cdp, board, "aria-pressed") == "true",
+         "exact board selection",
+     )
++    if attribute(cdp, "#pp-btn-toggle-orchestrator", "aria-expanded") == "false":
++        click(cdp, "#pp-btn-toggle-orchestrator")
++    wait_until(
++        cdp,
++        lambda: attribute(cdp, "#pp-btn-toggle-orchestrator", "aria-expanded") == "true",
++        "expanded orchestrator header",
++    )
+     if RUN_ID in text(cdp, "#pp-orch-pipeline-console"):
+         assert cdp.evaluate("Boolean(window.__TAURI_INTERNALS__)") is True
+         return
+diff --git a/tests/orchestrator_pipeline_e2e.py b/tests/orchestrator_pipeline_e2e.py
+index 292d0dc..c8b243d 100644
+--- a/tests/orchestrator_pipeline_e2e.py
++++ b/tests/orchestrator_pipeline_e2e.py
+@@ -822,6 +822,10 @@ def main() -> None:
+         )
+ 
+         page.goto(APP_URL, wait_until="networkidle")
++        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "false")
++        orchestrator_toggle.click()
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
+         root = page.locator("#pp-orch-pipeline-console")
+         expect(root).to_be_visible(timeout=10_000)
+         assert page.evaluate(

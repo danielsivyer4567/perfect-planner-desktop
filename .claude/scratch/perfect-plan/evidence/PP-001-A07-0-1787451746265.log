@@ -1,0 +1,28 @@
+# perfect-planning proof artifact
+item: A07:0 — The orchestrator resets to a compact state on every load with an accessible temporary expand/minimise control
+command: python tests\head_orchestrator_character_e2e.py
+cwd: C:\repos\perfect-planner-tauri
+exit: 0
+duration_ms: 3735
+at: 2026-08-23T02:22:30.811Z
+git: 77abb60cbbba9f964e04461e68e237b0255a9fd1 (feature/tauri-orchestrator-messaging-20260821-223935, dirty)
+shot: PP-001-A07-0-1787451746265.png
+shot_note: Viewed at 4320x2700: the orchestration deck is one compact dark row with an Expand control, and the active planner viewport begins immediately beneath it near the top of the window.
+shot_check: ok (4320x2700, blankScore 0.5111)
+before_shot: PP-001-A07-baseline-1787450080991.before.png
+before_shot_note: Viewed 4320x2700 baseline: the full head actor, worker route, messenger, and pipeline consume most of the upper viewport, pushing the active planner and right-hand scrollbar down near mid-screen.
+before_shot_check: ok (4320x2700, blankScore 0.3807)
+before_ocr: PP-001-A07-baseline-1787450080991.before.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 71, 3412ms)
+before_ocr_alarms: none
+after_ocr: PP-001-A07-0-1787451746265.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 88, 2868ms)
+after_ocr_alarms: none
+diff: PP-001-A07-0-1787451746265.diff
+diff_baseline: 77abb60cbbba9f964e04461e68e237b0255a9fd1
+
+## stdout
+head orchestrator character e2e: 1 scenario passed
+screenshot: C:\repos\perfect-planner-tauri\artifacts\head-orchestrator-character-3x.png
+minimized screenshot: C:\repos\perfect-planner-tauri\artifacts\head-orchestrator-minimized-3x.png
+
+## stderr
+(empty)

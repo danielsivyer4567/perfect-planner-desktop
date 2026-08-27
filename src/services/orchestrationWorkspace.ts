@@ -22,6 +22,7 @@ export interface WorkspaceStatusInput {
   decisionCount: number;
   identityError: string | null;
   supervisorError: string | null;
+  recoveryDeliveryError?: string | null;
 }
 
 function newestScopedMessage(
@@ -83,6 +84,10 @@ export function deriveWorkspaceStatus(input: WorkspaceStatusInput): WorkspaceSta
     tone = "blocked";
     healthLabel = "Native supervision blocked";
     nextAction = `Inspect ${repositoryPlan} diagnostics; do not admit work until native supervision recovers.`;
+  } else if (input.recoveryDeliveryError) {
+    tone = "blocked";
+    healthLabel = "Recovery delivery blocked";
+    nextAction = `Inspect ${repositoryPlan} recovery diagnostics; keep the affected task blocked until its exact session and plan identity are verified.`;
   } else if (input.decisionCount || deadLetters || blocked || staleWorkers) {
     tone = "blocked";
     healthLabel = "Action required";

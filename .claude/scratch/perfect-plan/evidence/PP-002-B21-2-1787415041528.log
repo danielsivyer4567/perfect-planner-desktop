@@ -1,0 +1,26 @@
+# perfect-planning proof artifact
+item: B21:2 — Exercise canonical claims, deterministic collision graph and immutable snapshot hazards including traversal, unsupported globs, permutation drift, overflow and proof splicing
+command: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Invoke-CollisionHazardTests.ps1 -Profile Quick -Stage CanonicalClaims,CollisionGraph,Snapshot
+cwd: C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935
+exit: 0
+duration_ms: 40276
+at: 2026-08-22T16:11:22.773Z
+git: 177208f653bdfe622f6c292b212c02417996346b (feature/tauri-orchestrator-messaging-20260821-223935)
+diff: PP-002-B21-2-1787415041528.diff
+diff_baseline: 7f06cd6f309b41d38a6606fad2ae0186ff0baae3
+
+## stdout
+[CanonicalClaims] attempt 1/1 collision_assessor::registry::tests::unsupported_glob_remains_registered_but_snapshot_is_unknown
+[CanonicalClaims] attempt 1/1 collision_assessor::registry::tests::signed_publisher_rejects_every_unapproved_contract_mutation
+[CanonicalClaims] attempt 1/1 collision_assessor::registry::tests::owner_pin_rejects_same_generation_subset_and_no_receipt_tamper_laundering
+[CollisionGraph] attempt 1/1 collision_assessor::analyzer::tests::every_three_planner_and_root_permutation_has_identical_ids_graph_and_verdict
+[CollisionGraph] attempt 1/1 collision_assessor::analyzer::tests::complete_current_coverage_is_required_before_clear
+[CollisionGraph] attempt 1/1 collision_assessor::analyzer::tests::duplicate_participant_claim_and_contract_inputs_are_unknown
+[Snapshot] attempt 1/1 collision_assessor::snapshot::tests::clear_snapshot_cannot_hide_a_conflict
+[Snapshot] attempt 1/1 collision_assessor::snapshot::tests::tamper_expiry_and_participant_order_invalidate_the_hash_or_shape
+[Snapshot] attempt 1/1 collision_assessor::snapshot::tests::conflict_commitment_proves_every_exact_field_and_rejects_splices
+SUMMARY: C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935\artifacts\hazard-tests\20260822T161042911Z-19792\summary.json
+PASS 9/9; FAIL 0; TIMEOUT 0; PRESSURE_ABORT 0; SOURCE_DRIFT 0
+
+## stderr
+(empty)

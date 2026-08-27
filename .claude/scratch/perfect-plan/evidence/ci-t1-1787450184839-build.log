@@ -1,0 +1,30 @@
+# perfect-planning CI artifact
+run: ci-t1-1787450184839
+tier: 1
+id: build
+job: ?
+command: npm run build
+cwd: C:\repos\perfect-planner-tauri
+exit: 0
+duration_ms: 4150
+at: 2026-08-23T01:56:29.720Z
+
+## stdout
+
+> perfect-planner-desktop@1.0.0 build
+> tsc && vite build
+
+vite v8.2.2 building client environment for production...
+transforming...
+✓ 1592 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.47 kB │ gzip:  0.31 kB
+dist/assets/index-B6RMOtQA.css   55.54 kB │ gzip: 12.47 kB
+dist/assets/core-CwxXejkd.js      0.09 kB │ gzip:  0.10 kB
+dist/assets/index-CDuM6lBD.js   289.35 kB │ gzip: 87.63 kB
+
+✓ built in 891ms
+
+## stderr
+(empty)

@@ -1,0 +1,43 @@
+# perfect-planning proof artifact
+item: B15:5 — Prove an APPROVE click reaches the exact registered Codex task, records a delivery receipt and wakes no other task; prove an unregistered route stays visibly blocked
+command: python tests/approval_chat_bridge_e2e.py
+cwd: C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935
+exit: 1
+duration_ms: 4697
+at: 2026-08-22T16:08:51.702Z
+git: 177208f653bdfe622f6c292b212c02417996346b (feature/tauri-orchestrator-messaging-20260821-223935)
+before_shot: PP-002-B15-baseline-1787373372060.before.png
+before_shot_note: Untouched PP-002 board is visible at 3x scale with approved state, 49% built/tested, integrity OK, and no visible transactional approval-to-chat route or delivery status in the current top-level view.
+before_shot_check: ok (4320x2700, blankScore 0.6518)
+before_ocr: PP-002-B15-baseline-1787373372060.before.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 82, 2636ms)
+before_ocr_alarms: none
+diff: PP-002-B15-5-1787414925903.diff
+diff_baseline: e0f82c869e5eb62f11f8bb6797bcd297616ad4f0
+
+## stdout
+(empty)
+## stderr
+Traceback (most recent call last):
+  File "C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935\tests\approval_chat_bridge_e2e.py", line 194, in <module>
+    main()
+  File "C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935\tests\approval_chat_bridge_e2e.py", line 153, in main
+    page.goto(APP_URL, wait_until="networkidle")
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\sync_api\_generated.py", line 9875, in goto
+    self._sync(
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_sync_base.py", line 115, in _sync
+    return task.result()
+           ^^^^^^^^^^^^^
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_page.py", line 560, in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_frame.py", line 156, in goto
+    await self._channel.send(
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_connection.py", line 76, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_connection.py", line 632, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.Error: Page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:5180/
+Call log:
+  - navigating to "http://127.0.0.1:5180/", waiting until "networkidle"
+

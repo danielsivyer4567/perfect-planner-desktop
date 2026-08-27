@@ -145,6 +145,33 @@ def main():
         expect(page.locator("#pp-entity-head-orchestrator")).to_have_attribute(
             "data-repository-call-sign", "B"
         )
+        assert page.evaluate(
+            "JSON.parse(localStorage.getItem('perfect-planner:active-board'))"
+        ) == {
+            "repositoryRoot": BOARDS[5233]["repoRoot"],
+            "planPath": BOARDS[5233]["planPath"],
+        }
+
+        # A port is transport, not identity. If another repository appears on the selected
+        # port, fail closed until the exact saved repository + plan identity returns.
+        selected_board = BOARDS[5233]
+        BOARDS[5233] = {
+            **selected_board,
+            "planPath": r"C:\repos\foreign\.claude\scratch\perfect-plan\foreign.json",
+            "topic": "Foreign replacement",
+            "repoName": "Foreign Repository",
+            "repoRoot": r"C:\repos\foreign",
+            "project": "Foreign Repository",
+        }
+        page.locator("#pp-btn-rescan-boards").evaluate("element => element.click()")
+        expect(page.locator("#pp-btn-rescan-boards")).to_have_text("rescan", timeout=10_000)
+        expect(page.locator("#pp-region-empty-stage")).to_contain_text("Saved plan unavailable")
+        expect(page.locator("#pp-frame-active-board")).to_have_count(0)
+        BOARDS[5233] = selected_board
+        page.locator("#pp-btn-rescan-boards").evaluate("element => element.click()")
+        expect(page.locator("#pp-btn-rescan-boards")).to_have_text("rescan", timeout=10_000)
+        expect(active_scope).to_contain_text("Perfect Planner")
+        expect(active_scope).to_contain_text("Desktop shell")
 
         # A single missed discovery poll must not silently switch the selected plan to a
         # sibling board. Keep the last trusted card and active scope during the grace window.
@@ -171,6 +198,9 @@ def main():
         expect(repository_tabs).to_have_count(2)
         expect(repository_tabs.nth(0)).to_contain_text("Looplet CRM")
         expect(repository_tabs.nth(1)).to_contain_text("Perfect Planner")
+        expect(active_scope).to_contain_text("Perfect Planner")
+        expect(active_scope).to_contain_text("Desktop shell")
+        expect(planner_plan).to_have_attribute("aria-pressed", "true")
         expect(page.locator("#pp-status-workspace-health")).to_contain_text("run not selected")
         expect(page.locator("#pp-status-workspace-messages")).to_contain_text("CI unknown")
 
@@ -182,7 +212,7 @@ def main():
         print("repository rail: inspector opened", flush=True)
         inspector = page.locator("#pp-panel-orchestrator-inspector")
         expect(inspector).to_be_visible()
-        expect(inspector).to_contain_text("Looplet CRM")
+        expect(inspector).to_contain_text("Perfect Planner")
         print("repository rail: inspector scoped", flush=True)
         frame_top_after = page.locator("#pp-frame-active-board").bounding_box()["y"]
         assert frame_top_after == frame_top_before, (
@@ -199,6 +229,22 @@ def main():
         print("repository rail: inspector verified", flush=True)
         expect(inspector).to_be_hidden()
         expect(orchestrator_toggle).to_be_focused()
+
+        # A saved identity that is no longer in the discovery census must fail closed. It may
+        # not silently select the first plan from another repository.
+        page.evaluate(
+            """
+            localStorage.setItem('perfect-planner:active-board', JSON.stringify({
+              repositoryRoot: 'C:\\repos\\missing-repository',
+              planPath: 'C:\\repos\\missing-repository\\.claude\\scratch\\perfect-plan\\missing.json'
+            }))
+            """
+        )
+        page.reload()
+        page.wait_for_load_state("networkidle")
+        expect(page.locator("#pp-region-empty-stage")).to_contain_text("Saved plan unavailable")
+        expect(page.locator("#pp-frame-active-board")).to_have_count(0)
+        expect(page.locator(".rail-item[aria-pressed='true']")).to_have_count(0)
 
         target_plan = page.get_by_role(
             "button", name="PP-001 Repository B Perfect Planner main Desktop shell"

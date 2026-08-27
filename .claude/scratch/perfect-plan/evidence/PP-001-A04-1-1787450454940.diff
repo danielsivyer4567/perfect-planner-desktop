@@ -1,0 +1,3741 @@
+diff --git a/src/App.tsx b/src/App.tsx
+index c4068cd..3babfc1 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -12,14 +12,27 @@ import {
+   repositoryForBoard,
+   OrganizationScope,
+   readBoardPlan,
++  observeBoardApproval,
+   readBoardWorkers,
+   stalledWorkerKey,
+   WorkerAssignment,
+   PlanManifestSnapshot,
+ } from "./services/boards";
+ import { LocalOutputWitness } from "./components/LocalOutputWitness";
++import { OrchestratorMessenger } from "./components/OrchestratorMessenger";
++import { PipelineConsole } from "./components/PipelineConsole";
++import { ResourceGuard, type ResourceGuardState } from "./components/ResourceGuard";
++import { ActionContextMenu, type ContextActionLog } from "./components/ActionContextMenu";
++import { DiagnosticsConsole, type DiagnosticEntry } from "./components/DiagnosticsConsole";
++import {
++  browserOrchestratorScope,
++  OrchestratorSnapshot,
++  PipelineRunSummary,
++  PipelineSnapshotSeed,
++} from "./services/orchestratorPipeline";
+ import { PlanSnapshot } from "./types/plan";
+ import { alarmDurationMs, playRisingAlarm } from "./services/stallAlarm";
++import { probeResourceGuard } from "./services/resourceGuard";
+ import {
+   IdentityLease,
+   assignRepositoryCallSigns,
+@@ -34,9 +47,12 @@ import {
+   sessionLeaseKey,
+   SupervisorSnapshot,
+ } from "./services/sessionSupervisor";
++import { ControlPlaneScope } from "./services/controlPlane";
+ 
+ const SOUND_KEY = "perfect-planner:stall-sound";
+ const VOLUME_KEY = "perfect-planner:stall-volume";
++const DISMISSED_BOARDS_KEY = "perfect-planner:dismissed-plans";
++const ORCHESTRATOR_MINIMIZED_KEY = "perfect-planner:orchestrator-minimized";
+ 
+ interface WorkerReport {
+   boardPort: number;
+@@ -50,6 +66,80 @@ interface WorkerReport {
+   fence: number;
+ }
+ 
++type HeadOrchestratorActorState = "working" | "holding" | "standby" | "stopped";
++
++interface HeadOrchestratorGuidance {
++  problem: string;
++  where: string;
++  remedy: string;
++}
++
++interface HeadOrchestratorActorProps {
++  entityId: string;
++  state: HeadOrchestratorActorState;
++  guidance: HeadOrchestratorGuidance;
++}
++
++const HeadOrchestratorActor: React.FC<HeadOrchestratorActorProps> = ({
++  entityId,
++  state,
++  guidance,
++}) => (
++  <div
++    className={`head-orchestrator-command-post ${state}`}
++    data-speaking-to="pp-list-worker-reports"
++    data-delivery="visual-status-only"
++  >
++    <div
++      id="pp-entity-head-orchestrator-character"
++      className="head-orchestrator-character"
++      data-orchestrator-id={entityId || "unassigned"}
++      data-role="head-orchestrator-character"
++      role="img"
++      aria-label={`Head orchestrator character, ${state}`}
++    >
++      <svg viewBox="0 0 68 82" aria-hidden="true" focusable="false">
++        <path className="orch-antenna" d="M34 10V4M28 4h12" />
++        <rect className="orch-head" x="11" y="11" width="46" height="31" rx="5" />
++        <rect className="orch-eye" x="20" y="21" width="7" height="7" rx="1" />
++        <rect className="orch-eye" x="41" y="21" width="7" height="7" rx="1" />
++        <path className="orch-mouth" d="M24 34h20" />
++        <path className="orch-body" d="M20 46h28v21H20z" />
++        <path className="orch-arm" d="M20 50 10 60M48 50l9 7" />
++        <path className="orch-leg" d="M27 67v9h-8M41 67v9h8" />
++        <rect className="orch-radio" x="52" y="50" width="9" height="15" rx="2" />
++        <path className="orch-radio-aerial" d="m57 50 3-7" />
++        <circle className="orch-radio-light" cx="56.5" cy="54.5" r="1.5" />
++      </svg>
++      <span>ORCH</span>
++    </div>
++    <div
++      id="pp-status-head-orchestrator-speech"
++      className="head-orchestrator-speech"
++      role="status"
++      aria-live="polite"
++      aria-atomic="true"
++    >
++      <span>HEAD ORCH → WORKERS</span>
++      <dl>
++        <div className="orch-guidance-problem">
++          <dt>Problem</dt>
++          <dd>{guidance.problem}</dd>
++        </div>
++        <div>
++          <dt>Where</dt>
++          <dd>{guidance.where}</dd>
++        </div>
++        <div>
++          <dt>Remedy</dt>
++          <dd>{guidance.remedy}</dd>
++        </div>
++      </dl>
++      <small>recommended action only · delivered commands appear below</small>
++    </div>
++  </div>
++);
++
+ function storedSoundEnabled(): boolean {
+   try {
+     return localStorage.getItem(SOUND_KEY) !== "off";
+@@ -67,6 +157,27 @@ function storedVolume(): number {
+   }
+ }
+ 
++function storedDismissedPlans(): Set<string> {
++  try {
++    const value = JSON.parse(localStorage.getItem(DISMISSED_BOARDS_KEY) || "[]");
++    return new Set(
++      Array.isArray(value)
++        ? value.filter((item): item is string => typeof item === "string")
++        : []
++    );
++  } catch {
++    return new Set();
++  }
++}
++
++function storedOrchestratorMinimized(): boolean {
++  try {
++    return localStorage.getItem(ORCHESTRATOR_MINIMIZED_KEY) !== "expanded";
++  } catch {
++    return true;
++  }
++}
++
+ function isPlanComplete(plan: PlanSnapshot | undefined): boolean {
+   const items = plan?.vertebrae.flatMap((vertebra) => vertebra.checklist || []) || [];
+   if (!items.length) return false;
+@@ -85,6 +196,12 @@ function isPlanComplete(plan: PlanSnapshot | undefined): boolean {
+   });
+ }
+ 
++function pipelineNodeDomToken(value: string): string {
++  return value.replace(/[^A-Za-z0-9_-]/g, (character) =>
++    `-${character.codePointAt(0)?.toString(16) || "x"}-`
++  );
++}
++
+ /**
+  * The real skill board remains the main app surface. The shell adds repository coordination
+  * and a compact left-rail witness for captured localhost output.
+@@ -94,6 +211,7 @@ export const App: React.FC = () => {
+   const [activePort, setActivePort] = useState<number | null>(null);
+   const [scanning, setScanning] = useState(true);
+   const [scannedOnce, setScannedOnce] = useState(false);
++  const [scanGeneration, setScanGeneration] = useState(0);
+   const [nonce, setNonce] = useState(0);
+   const [soundEnabled, setSoundEnabled] = useState(storedSoundEnabled);
+   const [volume, setVolume] = useState(storedVolume);
+@@ -108,6 +226,22 @@ export const App: React.FC = () => {
+   const [supervisorError, setSupervisorError] = useState<string | null>(null);
+   const [identityError, setIdentityError] = useState<string | null>(null);
+   const [planSnapshots, setPlanSnapshots] = useState<Record<string, PlanManifestSnapshot>>({});
++  const [selectedPipelineScope, setSelectedPipelineScope] = useState<{
++    runId: string;
++    repositoryRoot: string;
++    planPath: string;
++  } | null>(null);
++  const [pipelineSnapshot, setPipelineSnapshot] = useState<OrchestratorSnapshot | null>(null);
++  const [dismissedPlans, setDismissedPlans] = useState<Set<string>>(storedDismissedPlans);
++  const [orchestratorMinimized, setOrchestratorMinimized] = useState(
++    storedOrchestratorMinimized
++  );
++  const [resourceGuard, setResourceGuard] = useState<ResourceGuardState>({
++    status: "checking",
++    result: null,
++    error: null,
++  });
++  const [diagnosticEntries, setDiagnosticEntries] = useState<DiagnosticEntry[]>([]);
+   const frameRef = useRef<HTMLIFrameElement>(null);
+   const scanRunningRef = useRef(false);
+   const soundEnabledRef = useRef(soundEnabled);
+@@ -116,6 +250,26 @@ export const App: React.FC = () => {
+   const stallsByPlanRef = useRef(new Map<string, Set<string>>());
+   const orchestratorLeasesRef = useRef(new Map<string, IdentityLease>());
+   const mirroredRecoveryEventsRef = useRef(new Set<string>());
++  const dismissedPlansRef = useRef(dismissedPlans);
++  const diagnosticSequenceRef = useRef(0);
++  const lastResourceDiagnosticRef = useRef("");
++  const activePortRef = useRef<number | null>(null);
++  const activePortMissesRef = useRef(0);
++
++  const activateBoardPort = useCallback((port: number | null) => {
++    activePortRef.current = port;
++    activePortMissesRef.current = 0;
++    setActivePort(port);
++  }, []);
++
++  const recordDiagnostic = useCallback((entry: Omit<DiagnosticEntry, "id" | "at">) => {
++    diagnosticSequenceRef.current += 1;
++    setDiagnosticEntries((current) => [...current.slice(-199), {
++      ...entry,
++      id: `diagnostic-${diagnosticSequenceRef.current}`,
++      at: Date.now(),
++    }]);
++  }, []);
+ 
+   const ring = useCallback(async (force = false) => {
+     if ((!force && !soundEnabledRef.current) || alarmPlayingRef.current) return;
+@@ -139,16 +293,44 @@ export const App: React.FC = () => {
+     setScanning(true);
+     try {
+       const found = await discoverBoards();
+-      setBoards(found);
+-      setActivePort((current) => {
+-        if (current !== null && found.some((b) => b.port === current)) return current;
+-        return found.length ? found[0].port : null;
+-      });
++      const visible = found.filter((board) => !dismissedPlansRef.current.has(board.planPath));
++      const currentPort = activePortRef.current;
++      let nextPort = currentPort;
++      if (currentPort !== null && visible.some((board) => board.port === currentPort)) {
++        activePortMissesRef.current = 0;
++      } else if (currentPort !== null && activePortMissesRef.current < 3) {
++        // Board discovery is a network census and one endpoint can miss a single poll while
++        // its sibling boards remain visible. Do not silently switch plans during that gap:
++        // retain the explicit user selection and its last trusted metadata for three scans.
++        activePortMissesRef.current += 1;
++      } else {
++        activePortMissesRef.current = 0;
++        nextPort = visible.length ? visible[0].port : null;
++      }
++      activePortRef.current = nextPort;
++      setActivePort(nextPort);
+ 
+-      const [snapshots, manifests] = await Promise.all([
++      const [snapshots, manifests, approvalBridges] = await Promise.all([
+         Promise.all(found.map(readBoardWorkers)),
+         Promise.all(found.map(readBoardPlan)),
++        Promise.all(found.map(observeBoardApproval)),
+       ]);
++      const observedBoards = found.map((board, index) => ({
++          ...board,
++          approvalBridge: approvalBridges[index],
++        }));
++      setBoards((currentBoards) => {
++        const selectedPort = activePortRef.current;
++        if (
++          selectedPort === null ||
++          observedBoards.some((board) => board.port === selectedPort) ||
++          activePortMissesRef.current === 0
++        ) {
++          return observedBoards;
++        }
++        const retained = currentBoards.find((board) => board.port === selectedPort);
++        return retained ? [...observedBoards, retained] : observedBoards;
++      });
+       setPlanSnapshots(
+         Object.fromEntries(
+           found.flatMap((board, index) => manifests[index] ? [[board.planPath, manifests[index]]] : [])
+@@ -161,6 +343,9 @@ export const App: React.FC = () => {
+       const observedIdsByOrganization = new Map<string, Set<string>>();
+       for (let index = 0; index < found.length; index++) {
+         const board = found[index];
++        if (dismissedPlansRef.current.has(board.planPath)) {
++          continue;
++        }
+         const organization = repositoryForBoard(board);
+         const observedIds = observedIdsByOrganization.get(organization.id) || new Set<string>();
+         observedIds.add(boardEntitySource(board));
+@@ -295,6 +480,7 @@ export const App: React.FC = () => {
+     } finally {
+       setScanning(false);
+       setScannedOnce(true);
++      setScanGeneration((generation) => generation + 1);
+       scanRunningRef.current = false;
+     }
+   }, [ring]);
+@@ -314,16 +500,22 @@ export const App: React.FC = () => {
+     []
+   );
+ 
+-  const active = boards.find((b) => b.port === activePort) || null;
++  const visibleBoards = useMemo(
++    () => boards.filter((board) => !dismissedPlans.has(board.planPath)),
++    [boards, dismissedPlans]
++  );
++  const hiddenBoardCount = boards.length - visibleBoards.length;
++  const active = visibleBoards.find((b) => b.port === activePort) || null;
++  const isNativeTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+   const activePlan = active ? planSnapshots[active.planPath]?.plan || null : null;
+   const repositoryGroups = useMemo(() => {
+-    const groups = groupBoardsByRepository(boards);
++    const groups = groupBoardsByRepository(visibleBoards);
+     const callSigns = assignRepositoryCallSigns(groups.map((repository) => repository.scope.id));
+     return groups.map((repository) => ({
+       ...repository,
+       callSign: callSigns.get(repository.scope.id) || "?",
+     }));
+-  }, [boards]);
++  }, [visibleBoards]);
+   const activeRepository = active ? repositoryForBoard(active) : null;
+   const activeRepositoryCallSign = activeRepository
+     ? repositoryGroups.find((repository) => repository.scope.id === activeRepository.id)?.callSign || "?"
+@@ -331,8 +523,8 @@ export const App: React.FC = () => {
+   const orchestratorId = activeRepository
+     ? orchestratorIds[activeRepository.id] || null
+     : null;
+-  const firstStalledBoard = boards.find((board) => (stalledByPlan[board.planPath] || 0) > 0);
+-  const decisionBoards = boards
++  const firstStalledBoard = visibleBoards.find((board) => (stalledByPlan[board.planPath] || 0) > 0);
++  const decisionBoards = visibleBoards
+     .map((board) => ({ board, decision: decisionRequest(board) }))
+     .filter(
+       (entry) =>
+@@ -346,17 +538,254 @@ export const App: React.FC = () => {
+   const visibleWorkerReports = scopedWorkerReports.filter(
+     (report) => report.disposition !== "CLEARED"
+   );
+-  const activeWorkers = visibleWorkerReports.filter(
++  const legacyActiveWorkers = visibleWorkerReports.filter(
+     (report) => report.worker.state === "ACTIVE"
+   ).length;
+-  const scopedStalled = visibleWorkerReports.filter(
++  const legacyScopedStalled = visibleWorkerReports.filter(
+     (report) => report.worker.state !== "ACTIVE"
+   ).length;
+-  const scopedCleared = supervisor?.leases.filter(
++  const legacyScopedCleared = supervisor?.leases.filter(
+     (lease) =>
+       lease.disposition === "CLEARED" &&
+       (!activeRepository || lease.organizationId === activeRepository.id)
+   ).length || 0;
++  const boundPipelineSnapshot = pipelineSnapshot && (
++    !isNativeTauri || (
++      selectedPipelineScope?.planPath === active?.planPath &&
++      selectedPipelineScope?.runId === pipelineSnapshot.run.runId
++    )
++  ) ? pipelineSnapshot : null;
++  const pipelineNodes = boundPipelineSnapshot
++    ? Object.values(boundPipelineSnapshot.scheduler.nodes).sort(
++      (left, right) => left.wave - right.wave || left.id.localeCompare(right.id)
++    )
++    : [];
++  const pipelineRunningNodes = pipelineNodes.filter(
++    (node) => node.status === "RUNNING" && node.lease
++  );
++  const pipelineBlockedNodes = pipelineNodes.filter((node) => node.status === "BLOCKED");
++  const pipelineCompletedNodes = pipelineNodes.filter((node) => node.status === "DONE");
++  const pipelineReadyNodes = pipelineNodes.filter((node) => node.status === "READY");
++  const workerReportCount = boundPipelineSnapshot ? pipelineNodes.length : visibleWorkerReports.length;
++  const activeWorkers = boundPipelineSnapshot ? pipelineRunningNodes.length : legacyActiveWorkers;
++  const scopedStalled = boundPipelineSnapshot ? pipelineBlockedNodes.length : legacyScopedStalled;
++  const scopedCleared = boundPipelineSnapshot ? pipelineCompletedNodes.length : legacyScopedCleared;
++  const pipelineAdmissionBlocked = Boolean(
++    boundPipelineSnapshot &&
++    pipelineReadyNodes.length &&
++    (!boundPipelineSnapshot.runApproval || !boundPipelineSnapshot.preflightFresh)
++  );
++  const headActorState: HeadOrchestratorActorState = boundPipelineSnapshot
++    ? pipelineRunningNodes.length
++      ? "working"
++      : pipelineBlockedNodes.length || pipelineAdmissionBlocked
++        ? "holding"
++        : "standby"
++    : identityError || supervisorError
++      ? "stopped"
++      : decisionBoards.length || scopedStalled
++        ? "holding"
++        : activeWorkers
++          ? "working"
++          : "standby";
++  const firstDecisionEntry = decisionBoards[0];
++  const firstDecision = firstDecisionEntry?.decision;
++  const firstProblemWorker = visibleWorkerReports.find(
++    (report) => report.worker.state !== "ACTIVE"
++  );
++  const selectedScope = [activeRepository?.label, active?.number, active?.branch]
++    .filter((part): part is string => Boolean(part))
++    .join(" / ") || "No repository or plan selected";
++  const headActorGuidance: HeadOrchestratorGuidance = (() => {
++    if (boundPipelineSnapshot) {
++      const runScope = `${selectedScope} / ${boundPipelineSnapshot.run.runId}`;
++      const running = pipelineRunningNodes[0];
++      if (running?.lease) {
++        return {
++          problem: "No blocking issue detected in the bound native run.",
++          where: `${runScope} / ${running.id} / worker ${running.lease.workerId}`,
++          remedy: "Monitor the native heartbeat, keep edits inside the immutable manifest, then validate evidence before completion.",
++        };
++      }
++      if (pipelineNodes.length > 0 && pipelineCompletedNodes.length === pipelineNodes.length) {
++        return {
++          problem: "Native run completed with durable evidence.",
++          where: runScope,
++          remedy: `${pipelineCompletedNodes.length} node${pipelineCompletedNodes.length === 1 ? "" : "s"} passed fenced completion; controls remain disabled and hot-resume state is compact.`,
++        };
++      }
++      if (pipelineBlockedNodes.length) {
++        return {
++          problem: `${pipelineBlockedNodes[0].id} is blocked by the native scheduler.`,
++          where: `${runScope} / ${pipelineBlockedNodes[0].id}`,
++          remedy: "Inspect the recorded failure and audit trail; do not issue new authority until the node is explicitly recovered or re-planned.",
++        };
++      }
++      if (!boundPipelineSnapshot.preflightFresh) {
++        return {
++          problem: "Native preflight has expired; admission is blocked.",
++          where: `${runScope} / preflight gate`,
++          remedy: "Refresh the native preflight and explicitly approve this exact run before admitting a dependency-ready node.",
++        };
++      }
++      if (!boundPipelineSnapshot.runApproval) {
++        return {
++          problem: "The exact native run has not been explicitly approved.",
++          where: `${runScope} / approval gate`,
++          remedy: "Review the collision census and record explicit approval; renderer state alone cannot release admission.",
++        };
++      }
++      return {
++        problem: "A dependency-ready node is waiting for native admission.",
++        where: `${runScope} / ${pipelineReadyNodes[0]?.id || "scheduler"}`,
++        remedy: "Admit only through the native control; worker identity, fence, lease, clock, and manifest remain native-owned.",
++      };
++    }
++    if (identityError) {
++      return {
++        problem: "Orchestrator identity could not be reserved; workers remain blocked.",
++        where: `${selectedScope} / identity registry`,
++        remedy: "Release the conflicting lease or allocate a new unique ID, then rescan before admitting workers.",
++      };
++    }
++    if (supervisorError) {
++      return {
++        problem: "Worker supervision could not be loaded; legacy board claim state is untrusted.",
++        where: `${selectedScope} / board lease supervisor`,
++        remedy: "Keep legacy board claims blocked, restore the supervisor, inspect its log, and rescan before retrying.",
++      };
++    }
++    if (firstDecisionEntry && firstDecision) {
++      return {
++        problem: firstDecision.problem || `Decision required: ${firstDecision.kind}.`,
++        where: firstDecision.where || [
++          firstDecisionEntry.board.repoName,
++          firstDecisionEntry.board.number,
++          firstDecision.item,
++          firstDecisionEntry.board.branch,
++        ].filter((part): part is string => Boolean(part)).join(" / "),
++        remedy: firstDecision.remedy || "Keep the affected route on hold, review the decision request, then approve or re-plan it.",
++      };
++    }
++    if (firstProblemWorker) {
++      return {
++        problem: `${firstProblemWorker.worker.state} worker heartbeat; its claim cannot progress safely.`,
++        where: [
++          firstProblemWorker.organization.label,
++          active?.number,
++          firstProblemWorker.worker.vertebra,
++          `worker ${firstProblemWorker.worker.session}`,
++        ].filter((part): part is string => Boolean(part)).join(" / "),
++        remedy: "Pause new claims, check the worker heartbeat, then recover or release its claim and re-plan before restarting.",
++      };
++    }
++    if (activeWorkers) {
++      return {
++        problem: "No blocking issue detected.",
++        where: `${selectedScope} / clockwise worker route`,
++        remedy: `Continue ${activeWorkers} active worker${activeWorkers === 1 ? "" : "s"} and require a report after each node.`,
++      };
++    }
++    return scannedOnce
++      ? {
++          problem: "No worker claims are currently reporting.",
++          where: `${selectedScope} / worker route`,
++          remedy: "No recovery is required; keep the orchestrator standing by until a validated claim arrives.",
++        }
++      : {
++          problem: "Fleet assessment has not completed yet.",
++          where: `${selectedScope} / initial census`,
++          remedy: "Keep workers blocked until the first read-only census and collision assessment finish.",
++        };
++  })();
++  const controlPlaneScope = useMemo<ControlPlaneScope | null>(() => {
++    if (!active || !activeRepository || !orchestratorId) return null;
++    const normalizedPlanPath = active.planPath.replace(/\\/g, "/");
++    const planDirectoryMarker = "/.claude/scratch/perfect-plan/";
++    const markerIndex = normalizedPlanPath.toLocaleLowerCase().indexOf(planDirectoryMarker);
++    const worktreePath = markerIndex >= 0
++      ? normalizedPlanPath.slice(0, markerIndex)
++      : active.repoRoot;
++    return {
++      organizationId: activeRepository.id,
++      repositoryId: activeRepository.id,
++      repositoryRoot: active.repoRoot,
++      worktreePath,
++      branch: active.branch,
++      planId: stableEntityId("plan", active.planPath.toLocaleLowerCase()),
++      planPath: active.planPath,
++      nodeId: null,
++      itemId: null,
++      workerId: null,
++      orchestratorId,
++    };
++  }, [active, activeRepository, orchestratorId]);
++  const browserPipelineScope = useMemo(() => browserOrchestratorScope(), []);
++  const pipelineScope = useMemo(() => {
++    if (browserPipelineScope) return browserPipelineScope;
++    if (selectedPipelineScope?.planPath === active?.planPath) return selectedPipelineScope;
++    return null;
++  }, [active?.planPath, browserPipelineScope, selectedPipelineScope]);
++  useEffect(() => {
++    if (
++      selectedPipelineScope &&
++      active?.repoRoot &&
++      (selectedPipelineScope.repositoryRoot.toLocaleLowerCase() !==
++        active.repoRoot.toLocaleLowerCase() ||
++        selectedPipelineScope.planPath !== active.planPath)
++    ) {
++      setSelectedPipelineScope(null);
++    }
++  }, [active?.planPath, active?.repoRoot, selectedPipelineScope]);
++  useEffect(() => {
++    setSelectedPipelineScope(null);
++    setPipelineSnapshot(null);
++  }, [active?.planPath]);
++  const selectPipelineRun = useCallback((run: PipelineRunSummary) => {
++    if (!active?.planPath) return;
++    setSelectedPipelineScope({
++      runId: run.runId,
++      repositoryRoot: run.repositoryRoot,
++      planPath: active.planPath,
++    });
++  }, [active?.planPath]);
++  const selectCreatedPipelineRun = useCallback((scope: { runId: string; repositoryRoot: string }) => {
++    if (!active?.planPath) return;
++    setSelectedPipelineScope({ ...scope, planPath: active.planPath });
++  }, [active?.planPath]);
++  const recordPipelineDiagnostic = useCallback(
++    (level: "info" | "warning" | "error", message: string) =>
++      recordDiagnostic({ level, source: "pipeline", message }),
++    [recordDiagnostic]
++  );
++  const pipelineRepositoryLabel =
++    activeRepository?.label || pipelineSnapshot?.run.repositoryId || "UNSCOPED";
++  const pipelineRepositoryId =
++    activeRepository?.id || pipelineSnapshot?.run.repositoryId || "unscoped";
++  const pipelineProjectLabel =
++    active?.project || pipelineSnapshot?.run.title || pipelineRepositoryLabel;
++  const pipelineBranchLabel = active?.branch || pipelineSnapshot?.run.branch || "unscoped";
++  const pipelineSnapshotSeed = useMemo<PipelineSnapshotSeed | undefined>(() => {
++    if (!active || !activeRepository) return undefined;
++    return {
++      organizationId: activeRepository.id,
++      repositoryId: activeRepository.id,
++      worktreePath: controlPlaneScope?.worktreePath || active.repoRoot,
++      planId: controlPlaneScope?.planId || active.number || undefined,
++      title: active.topic || active.project || boardLabel(active),
++    };
++  }, [active, activeRepository, controlPlaneScope]);
++  const controlPlaneWorkers = useMemo(
++    () => visibleWorkerReports
++      .filter((report) => report.planPath === active?.planPath)
++      .map((report) => ({
++        id: report.worker.session,
++        nodeId: report.worker.vertebra,
++        label: `${report.worker.session} · ${report.worker.vertebra}`,
++        state: report.worker.state === "ACTIVE" ? "LIVE" : report.disposition,
++      })),
++    [active?.planPath, visibleWorkerReports]
++  );
+ 
+   const toggleSound = () => {
+     const next = !soundEnabledRef.current;
+@@ -384,8 +813,108 @@ export const App: React.FC = () => {
+     void ring(true);
+   };
+ 
++  const refreshResourceGuard = useCallback(() => {
++    if (!active?.repoRoot) {
++      setResourceGuard({
++        status: "unavailable",
++        result: null,
++        error: "Select a repository to check system resources",
++      });
++      return;
++    }
++    setResourceGuard({ status: "checking", result: null, error: null });
++    void probeResourceGuard(active.repoRoot).then(
++      (result) => setResourceGuard({ status: "active", result, error: null }),
++      (error) => setResourceGuard({
++        status: "unavailable",
++        result: null,
++        error: error instanceof Error ? error.message : "Windows resource probe failed",
++      })
++    );
++  }, [active?.repoRoot]);
++
++  useEffect(() => {
++    refreshResourceGuard();
++    const timer = window.setInterval(refreshResourceGuard, 30_000);
++    return () => window.clearInterval(timer);
++  }, [refreshResourceGuard]);
++
++  useEffect(() => {
++    if (resourceGuard.status === "checking") return;
++    const signature = resourceGuard.status === "active"
++      ? `active:${resourceGuard.result.provider}`
++      : `unavailable:${resourceGuard.error}`;
++    if (signature === lastResourceDiagnosticRef.current) return;
++    lastResourceDiagnosticRef.current = signature;
++    const browserOnly = resourceGuard.status === "unavailable" && resourceGuard.error.includes("Tauri desktop app");
++    recordDiagnostic({
++      level: resourceGuard.status === "active" || browserOnly ? "info" : "error",
++      source: "resource-guard",
++      message: resourceGuard.status === "active"
++        ? `Windows resource probe active via ${resourceGuard.result.provider}.`
++        : resourceGuard.error,
++    });
++  }, [recordDiagnostic, resourceGuard]);
++
++  const dismissPlan = useCallback((planPath: string) => {
++    const next = new Set(dismissedPlansRef.current);
++    next.add(planPath);
++    dismissedPlansRef.current = next;
++    setDismissedPlans(next);
++    try {
++      localStorage.setItem(DISMISSED_BOARDS_KEY, JSON.stringify([...next]));
++    } catch {
++      // Dismissal remains reversible for this session when storage is unavailable.
++    }
++    const replacement = boards.find((board) => !next.has(board.planPath));
++    activateBoardPort(replacement?.port ?? null);
++    recordDiagnostic({ level: "info", source: "plan", message: `Removed ${planPath} from the live rail; the plan file was not changed.` });
++    void scan();
++  }, [activateBoardPort, boards, recordDiagnostic, scan]);
++
++  const restoreDismissedPlans = () => {
++    const next = new Set<string>();
++    dismissedPlansRef.current = next;
++    setDismissedPlans(next);
++    try {
++      localStorage.removeItem(DISMISSED_BOARDS_KEY);
++    } catch {
++      // The in-memory restore still takes effect.
++    }
++    activateBoardPort(boards[0]?.port ?? null);
++    void scan();
++  };
++
++  const toggleOrchestratorMinimized = () => {
++    setOrchestratorMinimized((current) => {
++      const next = !current;
++      try {
++        localStorage.setItem(ORCHESTRATOR_MINIMIZED_KEY, next ? "minimized" : "expanded");
++      } catch {
++        // The compact state still works for this session when storage is unavailable.
++      }
++      return next;
++    });
++  };
++
++  const handleContextPlanAction = useCallback((action: "select" | "remove" | "open", planPath: string) => {
++    const board = boards.find((candidate) => candidate.planPath === planPath);
++    if (!board) {
++      recordDiagnostic({ level: "warning", source: "context-menu", message: `Plan action refused because ${planPath} is no longer in the current board census.` });
++      return;
++    }
++    if (action === "select") activateBoardPort(board.port);
++    if (action === "remove") dismissPlan(planPath);
++    if (action === "open") window.open(board.url, "_blank", "noopener,noreferrer");
++  }, [activateBoardPort, boards, dismissPlan, recordDiagnostic]);
++
++  const recordContextAction = useCallback((entry: ContextActionLog) => {
++    recordDiagnostic({ level: entry.level, source: entry.source, message: entry.message });
++  }, [recordDiagnostic]);
++
+   return (
+     <div className="shell" id="pp-app-shell" data-orchestrator-id={orchestratorId || "pending"}>
++      <ActionContextMenu onPlanAction={handleContextPlanAction} onLog={recordContextAction} />
+       <aside className="rail" id="pp-region-board-rail">
+         <div className="rail-head" id="pp-region-board-rail-heading">
+           <h1>
+@@ -405,6 +934,9 @@ export const App: React.FC = () => {
+               data-repository-id={repository.scope.id}
+               data-repository-name={repository.scope.label}
+               data-repository-call-sign={repository.callSign}
++              data-context-kind="surface"
++              data-context-id={repository.scope.id}
++              data-context-label={`Repository ${repository.callSign} ${repository.scope.label}`}
+               aria-labelledby={`pp-repository-heading-${repository.scope.id}`}
+             >
+               <header className="repo-heading">
+@@ -427,6 +959,9 @@ export const App: React.FC = () => {
+                     className="branch-group"
+                     data-branch-id={branch.id}
+                     data-branch-name={branch.name}
++                    data-context-kind="surface"
++                    data-context-id={branch.id}
++                    data-context-label={`Branch ${branch.name}`}
+                   >
+                     <div className="branch-heading" title={branch.name}>
+                       <span aria-hidden="true">⎇</span>
+@@ -473,8 +1008,12 @@ export const App: React.FC = () => {
+                               data-project-name={projectLabel}
+                               data-branch-name={branch.name}
+                               data-board-port={b.port}
++                              data-context-kind="plan"
++                              data-context-id={boardId}
++                              data-context-label={`${b.number || "Unnumbered plan"} · ${b.topic || "untitled plan"}`}
++                              data-plan-path={b.planPath}
+                               className={`rail-item${b.port === activePort ? " on" : ""}${boardStalls ? " stalled" : ""}${isComplete ? " complete" : ""}`}
+-                              onClick={() => setActivePort(b.port)}
++                              onClick={() => activateBoardPort(b.port)}
+                               title={`Repository ${repository.callSign} · ${repository.scope.label}${hasDistinctProject ? ` · Project ${projectLabel}` : ""} · ${branch.name}\n${b.planPath}`}
+                               aria-label={`${b.number || "Unnumbered plan"} Repository ${repository.callSign} ${repository.scope.label}${hasDistinctProject ? ` Project ${projectLabel}` : ""} ${branch.name} ${b.topic || "untitled plan"}`}
+                               aria-pressed={b.port === activePort}
+@@ -504,6 +1043,17 @@ export const App: React.FC = () => {
+                                 {b.awaiting ? " · awaiting" : ""}
+                                 {boardStalls ? ` · ${boardStalls} stalled` : ""}
+                               </span>
++                              <span
++                                className={`rail-chat-route ${isNativeTauri && b.approvalBridge?.admissionReleased ? "delivered" : "blocked"}`}
++                                data-approval-bridge-state={isNativeTauri ? b.approvalBridge?.state || "UNAVAILABLE" : "UNVERIFIED_BOARD_CLAIM"}
++                                title={isNativeTauri
++                                  ? b.approvalBridge?.lastError || b.approvalBridge?.routeId || "No native task route is registered"
++                                  : "Browser mode cannot verify a board-reported chat route"}
++                              >
++                                chat · {isNativeTauri
++                                  ? b.approvalBridge?.state?.replace(/_/g, " ").toLowerCase() || "unavailable"
++                                  : "unverified board claim"}
++                              </span>
+                             </button>
+                           </div>
+                         );
+@@ -531,6 +1081,14 @@ export const App: React.FC = () => {
+               </p>
+             </div>
+           )}
++          {scannedOnce && boards.length > 0 && !visibleBoards.length && (
++            <div className="rail-empty">
++              <p>All running boards are hidden.</p>
++              <button id="pp-btn-restore-dismissed-empty" type="button" className="chip" onClick={restoreDismissedPlans}>
++                restore {hiddenBoardCount}
++              </button>
++            </div>
++          )}
+         </div>
+ 
+         <LocalOutputWitness board={active} plan={activePlan} />
+@@ -547,7 +1105,7 @@ export const App: React.FC = () => {
+                   id="pp-btn-show-stalled"
+                   type="button"
+                   className="alarm-jump"
+-                  onClick={() => setActivePort(firstStalledBoard.port)}
++                  onClick={() => activateBoardPort(firstStalledBoard.port)}
+                   title="Show the first stalled board"
+                 >
+                   {stalledCount} stalled
+@@ -602,12 +1160,18 @@ export const App: React.FC = () => {
+             className="chip"
+             onClick={scan}
+             disabled={scanning}
++            data-scan-generation={scanGeneration}
+           >
+             {scanning ? "scanning…" : "rescan"}
+           </button>
+           <span className="rail-count">
+-            {boards.length} board{boards.length === 1 ? "" : "s"}
++            {visibleBoards.length} board{visibleBoards.length === 1 ? "" : "s"}
+           </span>
++          {hiddenBoardCount ? (
++            <button id="pp-btn-restore-dismissed" type="button" className="chip" onClick={restoreDismissedPlans}>
++              restore {hiddenBoardCount}
++            </button>
++          ) : null}
+         </div>
+       </aside>
+ 
+@@ -615,19 +1179,24 @@ export const App: React.FC = () => {
+         <section
+           id="pp-entity-head-orchestrator"
+           data-entity-id={orchestratorId || "unassigned"}
+-          data-organization-id={activeRepository?.id || "unscoped"}
+-          data-repository-name={activeRepository?.label || "unscoped"}
++          data-organization-id={pipelineSnapshot?.run.organizationId || pipelineRepositoryId}
++          data-repository-name={pipelineRepositoryLabel}
+           data-repository-call-sign={activeRepositoryCallSign}
+-          data-project-name={active?.project || activeRepository?.label || "unscoped"}
+-          data-branch-name={active?.branch || "unscoped"}
+-          className={`orchestrator${decisionBoards.length ? " decision" : ""}${identityError || supervisorError ? " identity-error" : ""}`}
++          data-project-name={pipelineProjectLabel}
++          data-branch-name={pipelineBranchLabel}
++          className={`orchestrator${orchestratorMinimized ? " minimized" : ""}${decisionBoards.length ? " decision" : ""}${!boundPipelineSnapshot && (identityError || supervisorError) ? " identity-error" : ""}`}
++          data-minimized={orchestratorMinimized}
+           aria-label="Head orchestrator"
+         >
+           <div className="orchestrator-head">
+-            <span className="head-mark" aria-hidden="true">◎</span>
++            <HeadOrchestratorActor
++              entityId={orchestratorId || ""}
++              state={headActorState}
++              guidance={headActorGuidance}
++            />
+             <span className="head-copy">
+               <span className="head-eyebrow">
+-                HEAD ORCHESTRATOR · REPOSITORY {activeRepositoryCallSign} · {activeRepository?.label || "UNSCOPED"}
++                HEAD ORCHESTRATOR · REPOSITORY {activeRepositoryCallSign} · {pipelineRepositoryLabel}
+                 {active?.project && activeRepository && active.project.localeCompare(activeRepository.label, undefined, { sensitivity: "base" }) !== 0
+                   ? ` · PROJECT ${active.project}`
+                   : ""}
+@@ -636,24 +1205,84 @@ export const App: React.FC = () => {
+                 {identityError ? "ID RESERVATION FAILED" : shortEntityId(orchestratorId)}
+               </strong>
+             </span>
+-            <span className="head-lease">
+-              {supervisorError
+-                ? "REAPER STOPPED"
+-                : orchestratorId
+-                  ? "LEASE + REAPER ACTIVE"
+-                  : identityError
+-                    ? "STOPPED"
+-                    : "INSPECTING SETUP"}
++            <span className="head-lease" id="pp-status-head-lease">
++              {boundPipelineSnapshot
++                ? pipelineNodes.length > 0 && pipelineCompletedNodes.length === pipelineNodes.length
++                  ? "PIPELINE COMPLETE"
++                  : pipelineRunningNodes.length
++                    ? "NATIVE LEASE ACTIVE"
++                    : pipelineBlockedNodes.length
++                      ? "NATIVE RUN BLOCKED"
++                      : pipelineAdmissionBlocked
++                        ? "NATIVE GATE BLOCKED"
++                        : "NATIVE GATE READY"
++                : supervisorError
++                  ? "LEGACY REAPER STOPPED"
++                  : orchestratorId
++                    ? "LEGACY LEASE + REAPER ACTIVE"
++                    : identityError
++                      ? "STOPPED"
++                      : "INSPECTING SETUP"}
+             </span>
+-            <span className="head-stat"><b>{visibleWorkerReports.length}</b> reports</span>
+-            <span className="head-stat"><b>{activeWorkers}</b> active</span>
+-            <span className={`head-stat${scopedStalled ? " bad" : ""}`}><b>{scopedStalled}</b> grace</span>
+-            <span className="head-stat"><b>{scopedCleared}</b> cleared</span>
++            <span className="head-stat" id="pp-stat-worker-reports"><b>{workerReportCount}</b> {boundPipelineSnapshot ? "nodes" : "reports"}</span>
++            <span className="head-stat" id="pp-stat-active"><b>{activeWorkers}</b> active</span>
++            <span className={`head-stat${scopedStalled ? " bad" : ""}`} id="pp-stat-held"><b>{scopedStalled}</b> {boundPipelineSnapshot ? "blocked" : "grace"}</span>
++            <span className="head-stat" id="pp-stat-completed"><b>{scopedCleared}</b> {boundPipelineSnapshot ? "done" : "cleared"}</span>
+             <span className={`head-stat${decisionBoards.length ? " needs" : ""}`}><b>{decisionBoards.length}</b> decisions</span>
++            <ResourceGuard state={resourceGuard} onRefresh={refreshResourceGuard} />
++            <button
++              id="pp-btn-toggle-orchestrator"
++              type="button"
++              className="orchestrator-toggle"
++              aria-expanded={!orchestratorMinimized}
++              aria-controls="pp-panel-orchestrator-details pp-panel-orchestrator-pipeline"
++              aria-label={`${orchestratorMinimized ? "Expand" : "Minimise"} orchestrator header`}
++              title={`${orchestratorMinimized ? "Expand" : "Minimise"} orchestrator header`}
++              onClick={toggleOrchestratorMinimized}
++            >
++              <span aria-hidden="true">{orchestratorMinimized ? "+" : "−"}</span>
++              {orchestratorMinimized ? "Expand" : "Minimise"}
++            </button>
+           </div>
+ 
++          <div
++            id="pp-panel-orchestrator-details"
++            className="orchestrator-details"
++            hidden={orchestratorMinimized}
++          >
+           <div className="worker-wire" id="pp-list-worker-reports" role="list" aria-label="Worker reports">
+-            {visibleWorkerReports.length ? visibleWorkerReports.map((report) => {
++            {boundPipelineSnapshot ? pipelineNodes.length ? pipelineNodes.map((node) => {
++              const completion = boundPipelineSnapshot.scheduler.completions?.[node.id];
++              const workerId = node.lease?.workerId || completion?.workerId || "unclaimed";
++              const fence = node.lease?.fence || completion?.fence || 0;
++              const state = node.lease
++                ? "LIVE"
++                : node.status === "READY" && node.attempts > 0
++                  ? "RECOVERED"
++                  : node.status;
++              return (
++                <button
++                  id={`pp-btn-open-pipeline-${stableEntityId("assignment", `${boundPipelineSnapshot.run.runId}\u0000${node.id}`)}`}
++                  type="button"
++                  key={node.id}
++                  role="listitem"
++                  className={`worker-report ${state.toLowerCase()}`}
++                  data-pipeline-node-id={node.id}
++                  data-worker-id={workerId}
++                  data-fence={fence || "none"}
++                  onClick={() => document
++                    .getElementById(`pp-orch-node-${pipelineNodeDomToken(node.id)}`)
++                    ?.scrollIntoView({ block: "center" })}
++                  title={`${boundPipelineSnapshot.run.runId} · ${node.id} · ${workerId} · fence ${fence || "none"}`}
++                >
++                  <span className="worker-id">{workerId}</span>
++                  <span>{node.id}</span>
++                  <em>{state}</em>
++                </button>
++              );
++            }) : (
++              <span className="worker-empty">The verified native run has no scheduler nodes.</span>
++            ) : visibleWorkerReports.length ? visibleWorkerReports.map((report) => {
+               const assignmentSource = `${report.organization.id}\u0000${report.planPath}\u0000${report.worker.vertebra}\u0000${report.worker.session}`;
+               const assignmentId = stableEntityId("assignment", assignmentSource);
+               return (
+@@ -666,7 +1295,7 @@ export const App: React.FC = () => {
+                   data-entity-id={assignmentId}
+                   data-worker-id={report.worker.session}
+                   data-fence={report.fence}
+-                  onClick={() => setActivePort(report.boardPort)}
++                  onClick={() => activateBoardPort(report.boardPort)}
+                   title={`${report.boardLabel} · ${report.worker.session} · fence ${report.fence}`}
+                 >
+                   <span className="worker-id">{report.worker.session}</span>
+@@ -693,7 +1322,7 @@ export const App: React.FC = () => {
+                   key={decisionId}
+                   className="decision-report"
+                   data-entity-id={decisionId}
+-                  onClick={() => setActivePort(board.port)}
++                  onClick={() => activateBoardPort(board.port)}
+                   title={`Decision requested by ${boardLabel(board)}`}
+                 >
+                   DECISION · {decision?.item || decision?.kind}
+@@ -701,8 +1330,27 @@ export const App: React.FC = () => {
+               );
+             })}
+           </div>
++          <OrchestratorMessenger
++            scope={controlPlaneScope}
++            orchestratorId={orchestratorId}
++            workers={controlPlaneWorkers}
++          />
++          </div>
+         </section>
+ 
++        <div id="pp-panel-orchestrator-pipeline" hidden={orchestratorMinimized}>
++          <PipelineConsole
++            runId={pipelineScope?.runId}
++            repositoryRoot={pipelineScope?.repositoryRoot || active?.repoRoot}
++            planPath={active?.planPath}
++            snapshotSeed={pipelineSnapshotSeed}
++            onSelectRun={selectPipelineRun}
++            onRunCreated={selectCreatedPipelineRun}
++            onSnapshotChange={setPipelineSnapshot}
++            onDiagnostic={recordPipelineDiagnostic}
++          />
++        </div>
++
+         {active ? (
+           <>
+             <div
+@@ -712,6 +1360,10 @@ export const App: React.FC = () => {
+               data-repository-call-sign={activeRepositoryCallSign}
+               data-project-name={active.project || active.repoName}
+               data-branch-name={active.branch}
++              data-context-kind="plan"
++              data-context-id={stableEntityId("board", boardEntitySource(active))}
++              data-context-label={boardLabel(active)}
++              data-plan-path={active.planPath}
+             >
+               <span className="active-scope" aria-label="Active repository, branch and plan">
+                 <span className="scope-call-sign" aria-hidden="true">{activeRepositoryCallSign}</span>
+@@ -731,6 +1383,7 @@ export const App: React.FC = () => {
+                 {active.worktreeName} · {active.planPath}
+               </span>
+               <span className="stage-actions">
++                <span className="context-action-hint" id="pp-hint-plan-context-actions">right-click plan for actions</span>
+                 <button
+                   id="pp-btn-reload-active-board"
+                   type="button"
+@@ -776,6 +1429,14 @@ export const App: React.FC = () => {
+           </div>
+         )}
+       </main>
++      <DiagnosticsConsole
++        activeBoard={active}
++        activePlan={activePlan}
++        resourceGuard={resourceGuard}
++        pipelineSnapshot={boundPipelineSnapshot}
++        entries={diagnosticEntries}
++        onClear={() => setDiagnosticEntries([])}
++      />
+     </div>
+   );
+ };
+diff --git a/src/components/OrchestratorMessenger.tsx b/src/components/OrchestratorMessenger.tsx
+new file mode 100644
+index 0000000..19c3bb8
+--- /dev/null
++++ b/src/components/OrchestratorMessenger.tsx
+@@ -0,0 +1,811 @@
++import {
++  FormEvent,
++  useCallback,
++  useEffect,
++  useMemo,
++  useRef,
++  useState,
++} from "react";
++import {
++  acknowledgeControlMessage,
++  claimControlDeliveries,
++  getControlPlaneSnapshot,
++  postControlMessage,
++  recordControlDelivery,
++  type ControlMessage,
++  type ControlPlaneScope,
++} from "../services/controlPlane";
++
++export interface OrchestratorWorker {
++  id: string;
++  nodeId: string;
++  label: string;
++  state: string;
++}
++
++export interface OrchestratorMessengerProps {
++  scope: ControlPlaneScope | null;
++  orchestratorId: string | null;
++  workers: OrchestratorWorker[];
++  refreshToken?: number;
++  chatDestination?: {
++    registrationId?: string;
++    address?: string;
++    enabled?: boolean;
++    label?: string;
++    requiresAcknowledgement?: boolean;
++    maxAttempts?: number;
++    retryBaseMs?: number;
++    registeredAtMs?: number;
++    metadata?: Record<string, string>;
++  };
++}
++
++type Snapshot = Awaited<ReturnType<typeof getControlPlaneSnapshot>>;
++type UnknownRecord = Record<string, unknown>;
++
++interface RetryEnvelope {
++  fingerprint: string;
++  correlationId: string;
++  noteKey: string;
++  escalationKey: string;
++}
++
++const DELIVERY_STATES = [
++  "QUEUED",
++  "UNROUTED",
++  "CLAIMED",
++  "DELIVERED",
++  "ACKNOWLEDGED",
++  "DEAD_LETTER",
++] as const;
++
++type LoopletFeedState = "live" | "waiting" | "blocked" | "idle";
++type Point3 = { x: number; y: number; z: number };
++
++const BRAILLE_BLANK = "\u2800";
++const LOOPLET_DOT_WEIGHTS = [
++  [0x01, 0x08],
++  [0x02, 0x10],
++  [0x04, 0x20],
++  [0x40, 0x80],
++] as const;
++
++function rotateX(point: Point3, angle: number): Point3 {
++  const cosine = Math.cos(angle);
++  const sine = Math.sin(angle);
++  return { x: point.x, y: point.y * cosine - point.z * sine, z: point.y * sine + point.z * cosine };
++}
++
++function rotateY(point: Point3, angle: number): Point3 {
++  const cosine = Math.cos(angle);
++  const sine = Math.sin(angle);
++  return { x: point.x * cosine + point.z * sine, y: point.y, z: -point.x * sine + point.z * cosine };
++}
++
++function rotateZ(point: Point3, angle: number): Point3 {
++  const cosine = Math.cos(angle);
++  const sine = Math.sin(angle);
++  return { x: point.x * cosine - point.y * sine, y: point.x * sine + point.y * cosine, z: point.z };
++}
++
++function makeLoopletRings(): Array<{ outer: boolean; points: Point3[] }> {
++  const circle = (transform: (point: Point3) => Point3, outer = false) => ({
++    outer,
++    points: Array.from({ length: 181 }, (_, index) => {
++      const angle = index / 180 * Math.PI * 2;
++      return transform({ x: Math.cos(angle), y: Math.sin(angle), z: 0 });
++    }),
++  });
++  return [
++    circle((point) => rotateX(point, Math.PI / 2)),
++    circle((point) => rotateY(point, Math.PI / 2)),
++    circle((point) => rotateX(point, Math.PI / 6)),
++    circle((point) => rotateX(point, -Math.PI / 6)),
++    circle((point) => point, true),
++  ];
++}
++
++const LOOPLET_RINGS = makeLoopletRings();
++
++function renderLoopletBraille(time: number, width = 12, height = 6): string {
++  const subWidth = width * 2;
++  const subHeight = height * 4;
++  const pixels = Array.from({ length: subHeight }, () => Array<number>(subWidth).fill(0));
++  const angleY = time * 1.54;
++  const angleX = 0.32 + 0.08 * Math.sin(time * 0.44);
++  const angleZ = 0.06 * Math.cos(time * 0.33);
++  const scaleX = (subWidth - 5) * 0.45;
++  const scaleY = (subHeight - 3) * 0.46;
++  const centerX = subWidth / 2;
++  const centerY = subHeight / 2;
++  const cameraDistance = 2.8;
++
++  const plot = (point: Point3) => {
++    const depth = point.z + cameraDistance;
++    if (depth <= 0.1) return;
++    const x = Math.round(centerX + point.x * scaleX * cameraDistance / depth);
++    const y = Math.round(centerY - point.y * scaleY * cameraDistance / depth);
++    if (x >= 0 && x < subWidth && y >= 0 && y < subHeight) pixels[y][x] = 1;
++  };
++
++  for (const ring of LOOPLET_RINGS) {
++    for (const source of ring.points) {
++      let point = ring.outer ? rotateZ(source, -time * 0.44) : rotateY(source, angleY);
++      if (!ring.outer) {
++        point = rotateX(point, angleX);
++        point = rotateZ(point, angleZ);
++      }
++      plot(point);
++    }
++  }
++
++  const loopPhase = time * 2.2 % (Math.PI * 2);
++  let ball = rotateX({ x: Math.cos(loopPhase), y: Math.sin(loopPhase), z: 0 }, Math.PI / 7);
++  ball = rotateZ(rotateX(rotateY(ball, angleY), angleX), angleZ);
++  const ballDepth = ball.z + cameraDistance;
++  const ballX = Math.round(centerX + ball.x * scaleX * cameraDistance / ballDepth);
++  const ballY = Math.round(centerY - ball.y * scaleY * cameraDistance / ballDepth);
++  for (let yOffset = -1; yOffset <= 1; yOffset += 1) {
++    for (let xOffset = -1; xOffset <= 1; xOffset += 1) {
++      const x = ballX + xOffset;
++      const y = ballY + yOffset;
++      if (x >= 0 && x < subWidth && y >= 0 && y < subHeight) pixels[y][x] = 1;
++    }
++  }
++
++  return Array.from({ length: height }, (_, cellY) =>
++    Array.from({ length: width }, (_, cellX) => {
++      let code = 0;
++      for (let dotY = 0; dotY < 4; dotY += 1) {
++        for (let dotX = 0; dotX < 2; dotX += 1) {
++          if (pixels[cellY * 4 + dotY][cellX * 2 + dotX]) code |= LOOPLET_DOT_WEIGHTS[dotY][dotX];
++        }
++      }
++      return code ? String.fromCharCode(0x2800 + code) : BRAILLE_BLANK;
++    }).join("")
++  ).join("\n");
++}
++
++function LoopletLiveFeedMark({ state }: { state: LoopletFeedState }) {
++  const frameRef = useRef<HTMLPreElement | null>(null);
++  const label = state === "blocked"
++    ? "DELIVERY BLOCKED"
++    : state === "waiting"
++      ? "ROUTE ATTENTION"
++      : state === "live"
++        ? "CONTROL FEED LIVE"
++        : "CONTROL FEED STANDBY";
++
++  useEffect(() => {
++    const frame = frameRef.current;
++    if (!frame) return;
++    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
++    let requestId = 0;
++    let lastPaint = 0;
++    const start = performance.now();
++
++    const paint = (now: number) => {
++      if (!document.hidden && now - lastPaint >= 125) {
++        const elapsed = reducedMotion.matches ? 0.55 : (now - start) / 1_000;
++        frame.textContent = renderLoopletBraille(elapsed);
++        lastPaint = now;
++      }
++      if (!reducedMotion.matches) requestId = window.requestAnimationFrame(paint);
++    };
++
++    paint(performance.now());
++    const onPreferenceChange = () => {
++      window.cancelAnimationFrame(requestId);
++      requestId = 0;
++      paint(performance.now());
++    };
++    reducedMotion.addEventListener("change", onPreferenceChange);
++    return () => {
++      window.cancelAnimationFrame(requestId);
++      reducedMotion.removeEventListener("change", onPreferenceChange);
++    };
++  }, []);
++
++  return (
++    <div
++      className={`looplet-live-feed-mark ${state}`}
++      id="pp-status-looplet-live-feed"
++      role="img"
++      aria-label={`Looplet ${label.toLowerCase()}`}
++      data-feed-state={state}
++    >
++      <pre ref={frameRef} aria-hidden="true">{renderLoopletBraille(0.55)}</pre>
++      <span>
++        <b>LOOPLET LIVE</b>
++        <em>{label}</em>
++      </span>
++    </div>
++  );
++}
++
++function asRecord(value: unknown): UnknownRecord {
++  return value && typeof value === "object" ? value as UnknownRecord : {};
++}
++
++function stringValue(value: unknown): string {
++  return typeof value === "string" ? value : value == null ? "" : String(value);
++}
++
++function messageField(message: ControlMessage, field: string): unknown {
++  return asRecord(message)[field];
++}
++
++function messageId(message: ControlMessage): string {
++  return stringValue(messageField(message, "id") || messageField(message, "messageId"));
++}
++
++function messageAuthor(message: ControlMessage): string {
++  return stringValue(messageField(message, "authorId") || messageField(message, "sourceActorId")) || "unknown actor";
++}
++
++function messageBody(message: ControlMessage): string {
++  return stringValue(messageField(message, "body") || messageField(message, "text"));
++}
++
++function messageKind(message: ControlMessage): string {
++  return stringValue(messageField(message, "kind")) || "status";
++}
++
++function messageScope(message: ControlMessage): UnknownRecord {
++  return asRecord(messageField(message, "scope"));
++}
++
++function messageTimestamp(message: ControlMessage): number {
++  const value = messageField(message, "createdAtMs") ?? messageField(message, "createdAt");
++  if (typeof value === "number") return value;
++  const parsed = Date.parse(stringValue(value));
++  return Number.isFinite(parsed) ? parsed : 0;
++}
++
++function deliveryState(message: ControlMessage): typeof DELIVERY_STATES[number] | string {
++  const raw = stringValue(messageField(message, "state")) || "queued";
++  const collapsed = raw.replace(/[\s_-]+/g, "").toLowerCase();
++  if (collapsed === "queued") return "QUEUED";
++  if (collapsed === "unrouted") return "UNROUTED";
++  if (collapsed === "claimed") return "CLAIMED";
++  if (collapsed === "delivered") return "DELIVERED";
++  if (collapsed === "acknowledged") return "ACKNOWLEDGED";
++  if (collapsed === "deadletter" || collapsed === "deadlettered") return "DEAD_LETTER";
++  return raw.replace(/([a-z])([A-Z])/g, "$1_$2").replace(/[\s-]+/g, "_").toUpperCase();
++}
++
++function formatKind(kind: string): string {
++  return kind.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").toUpperCase();
++}
++
++function formatTime(timestamp: number): string {
++  if (!timestamp) return "time not recorded";
++  return new Date(timestamp).toLocaleString();
++}
++
++function domToken(value: string): string {
++  return value.replace(/[^A-Za-z0-9_-]/g, (character) => `-${character.codePointAt(0)?.toString(16) || "x"}-`);
++}
++
++function newKey(prefix: string): string {
++  const random = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
++    ? crypto.randomUUID()
++    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
++  return `${prefix}:${random}`;
++}
++
++function primitiveScopeEntries(scope: ControlPlaneScope): Array<[string, string | number | boolean]> {
++  return Object.entries(asRecord(scope)).filter((entry): entry is [string, string | number | boolean] => {
++    // The orchestrator process ID is intentionally ephemeral. Durable worker notes must
++    // remain visible after a head-orchestrator restart, while repository/plan/node/worker
++    // identity continues to provide the hard isolation boundary.
++    if (entry[0] === "orchestratorId") return false;
++    const value = entry[1];
++    return value !== undefined && value !== null && (typeof value === "string" || typeof value === "number" || typeof value === "boolean");
++  });
++}
++
++function belongsToScope(message: ControlMessage, scope: ControlPlaneScope): boolean {
++  const actual = messageScope(message);
++  return primitiveScopeEntries(scope).every(([key, value]) => actual[key] === value);
++}
++
++export function OrchestratorMessenger({
++  scope,
++  orchestratorId,
++  workers,
++  refreshToken,
++  chatDestination,
++}: OrchestratorMessengerProps) {
++  const isNativeTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
++  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
++  const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
++  const [draft, setDraft] = useState("");
++  const [escalate, setEscalate] = useState(false);
++  const [loading, setLoading] = useState(false);
++  const [acknowledgingId, setAcknowledgingId] = useState<string | null>(null);
++  const [error, setError] = useState<string | null>(null);
++  const [syncError, setSyncError] = useState<string | null>(null);
++  const [notice, setNotice] = useState<string | null>(null);
++  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
++  const panelRef = useRef<HTMLElement | null>(null);
++  const returnFocusRef = useRef<HTMLButtonElement | null>(null);
++  const retryEnvelopeRef = useRef<RetryEnvelope | null>(null);
++  const refreshRunningRef = useRef(false);
++
++  const selectedWorker = useMemo(
++    () => workers.find((worker) => worker.id === selectedWorkerId) || null,
++    [selectedWorkerId, workers],
++  );
++
++  const refresh = useCallback(async () => {
++    if (!scope) {
++      setSnapshot(null);
++      return;
++    }
++    if (refreshRunningRef.current) return;
++    refreshRunningRef.current = true;
++    try {
++      let next = await getControlPlaneSnapshot({
++        repositoryId: scope.repositoryId,
++        organizationId: scope.organizationId,
++      });
++      if (orchestratorId) {
++        const claimed = await claimControlDeliveries({
++          repositoryId: scope.repositoryId,
++          organizationId: scope.organizationId,
++          consumerId: orchestratorId,
++          destinationKinds: ["localUi"],
++          limit: 50,
++          leaseMs: 15_000,
++          filter: { planId: scope.planId },
++        });
++        for (const message of claimed) {
++          const attempt = [...message.attempts]
++            .reverse()
++            .find((candidate) => candidate.state === "claimed");
++          if (!attempt) continue;
++          await recordControlDelivery({
++            repositoryId: scope.repositoryId,
++            messageId: message.id,
++            attemptId: attempt.attemptId,
++            consumerId: orchestratorId,
++            outcome: "delivered",
++          });
++        }
++        if (claimed.length) {
++          next = await getControlPlaneSnapshot({
++            repositoryId: scope.repositoryId,
++            organizationId: scope.organizationId,
++          });
++        }
++      }
++      setSnapshot(next);
++      setSyncError(null);
++    } catch (cause) {
++      setSyncError(cause instanceof Error ? cause.message : String(cause));
++    } finally {
++      refreshRunningRef.current = false;
++    }
++  }, [orchestratorId, scope]);
++
++  useEffect(() => {
++    void refresh();
++    const timer = window.setInterval(() => void refresh(), 4_000);
++    return () => window.clearInterval(timer);
++  }, [refresh, refreshToken]);
++
++  useEffect(() => {
++    if (selectedWorkerId && !selectedWorker) setSelectedWorkerId(null);
++  }, [selectedWorker, selectedWorkerId]);
++
++  useEffect(() => {
++    if (!selectedWorker) return;
++    const onKeyDown = (event: KeyboardEvent) => {
++      if (event.key === "Escape") {
++        setSelectedWorkerId(null);
++        window.setTimeout(() => returnFocusRef.current?.focus(), 0);
++        return;
++      }
++      if (event.key !== "Tab" || !panelRef.current) return;
++      const focusable = [...panelRef.current.querySelectorAll<HTMLElement>(
++        "button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex='-1'])",
++      )].filter((element) => !element.hasAttribute("hidden"));
++      if (!focusable.length) return;
++      const first = focusable[0];
++      const last = focusable[focusable.length - 1];
++      if (event.shiftKey && document.activeElement === first) {
++        event.preventDefault();
++        last.focus();
++      } else if (!event.shiftKey && document.activeElement === last) {
++        event.preventDefault();
++        first.focus();
++      }
++    };
++    window.addEventListener("keydown", onKeyDown);
++    window.setTimeout(() => textAreaRef.current?.focus(), 0);
++    return () => window.removeEventListener("keydown", onKeyDown);
++  }, [selectedWorker]);
++
++  const messages = useMemo(
++    () => [...(snapshot?.messages || [])].sort((left, right) => messageTimestamp(right) - messageTimestamp(left)),
++    [snapshot],
++  );
++  const effectiveChatDestination = useMemo(
++    () => chatDestination || snapshot?.registrations.find(
++      (registration) =>
++        registration.kind === "codexChat" &&
++        registration.enabled &&
++        Boolean(registration.registrationId && registration.address)
++    ),
++    [chatDestination, snapshot]
++  );
++
++  const scopedMessages = useMemo(
++    () => scope ? messages.filter((message) => belongsToScope(message, scope)) : [],
++    [messages, scope],
++  );
++
++  const inboxCount = scopedMessages.filter((message) =>
++    messageAuthor(message) !== orchestratorId && deliveryState(message) !== "ACKNOWLEDGED"
++  ).length;
++  const outboxCount = scopedMessages.filter((message) =>
++    messageAuthor(message) === orchestratorId && deliveryState(message) !== "ACKNOWLEDGED"
++  ).length;
++  const feedState: LoopletFeedState = syncError || (snapshot?.stateCounts.deadLetter || 0) > 0
++    ? "blocked"
++    : (snapshot?.stateCounts.unrouted || 0) > 0 || (snapshot?.stateCounts.queued || 0) > 0 || (snapshot?.stateCounts.claimed || 0) > 0
++      ? "waiting"
++      : snapshot
++        ? "live"
++        : "idle";
++
++  const workerScope = useMemo(() => {
++    if (!scope || !selectedWorker) return null;
++    return {
++      ...scope,
++      workerId: selectedWorker.id,
++      nodeId: selectedWorker.nodeId,
++    } as ControlPlaneScope;
++  }, [scope, selectedWorker]);
++
++  const workerMessages = useMemo(() => {
++    if (!workerScope) return [];
++    return messages.filter((message) => belongsToScope(message, workerScope));
++  }, [messages, workerScope]);
++
++  const closePanel = useCallback(() => {
++    setSelectedWorkerId(null);
++    setError(null);
++    setNotice(null);
++    window.setTimeout(() => returnFocusRef.current?.focus(), 0);
++  }, []);
++
++  const updateDraft = (value: string) => {
++    setDraft(value);
++    retryEnvelopeRef.current = null;
++  };
++
++  const updateEscalation = (value: boolean) => {
++    setEscalate(value);
++    retryEnvelopeRef.current = null;
++  };
++
++  const submitNote = async (event: FormEvent<HTMLFormElement>) => {
++    event.preventDefault();
++    const body = draft.trim();
++    if (!workerScope || !selectedWorker || !orchestratorId || !body || loading) return;
++
++    const targetFingerprint = JSON.stringify(effectiveChatDestination || {});
++    const fingerprint = `${selectedWorker.id}\u0000${selectedWorker.nodeId}\u0000${body}\u0000${escalate}\u0000${targetFingerprint}`;
++    let envelope = retryEnvelopeRef.current;
++    if (!envelope || envelope.fingerprint !== fingerprint) {
++      const correlationId = newKey("pp-correlation");
++      envelope = {
++        fingerprint,
++        correlationId,
++        noteKey: `${correlationId}:worker-note`,
++        escalationKey: `${correlationId}:chat-notification`,
++      };
++      retryEnvelopeRef.current = envelope;
++    }
++
++    setLoading(true);
++    setError(null);
++    setNotice(null);
++    try {
++      await postControlMessage({
++        scope: workerScope,
++        idempotencyKey: envelope.noteKey,
++        correlationId: envelope.correlationId,
++        kind: "workerNote",
++        authorId: orchestratorId,
++        body,
++        destination: {
++          registrationId: `pp-local-ui:${workerScope.repositoryId}`,
++          kind: "localUi",
++          label: "Perfect Planner orchestrator messenger",
++          address: "pp-region-orchestrator-messenger",
++          enabled: true,
++          requiresAcknowledgement: false,
++          maxAttempts: 1,
++          retryBaseMs: 5_000,
++          registeredAtMs: Date.now(),
++          metadata: {
++            workerId: selectedWorker.id,
++            nodeId: selectedWorker.nodeId,
++          },
++        },
++      });
++
++      if (escalate) {
++        await postControlMessage({
++          scope: workerScope,
++          idempotencyKey: envelope.escalationKey,
++          correlationId: envelope.correlationId,
++          kind: "alert",
++          authorId: orchestratorId,
++          body,
++          destination: {
++            kind: "codexChat",
++            registrationId: effectiveChatDestination?.registrationId || null,
++            label: effectiveChatDestination?.label || "Codex chat notification",
++            address: effectiveChatDestination?.address || null,
++            enabled: effectiveChatDestination?.enabled ?? true,
++            requiresAcknowledgement: effectiveChatDestination?.requiresAcknowledgement ?? true,
++            maxAttempts: effectiveChatDestination?.maxAttempts ?? 3,
++            retryBaseMs: effectiveChatDestination?.retryBaseMs ?? 5_000,
++            registeredAtMs: effectiveChatDestination?.registeredAtMs ?? null,
++            metadata: { ...effectiveChatDestination?.metadata },
++          },
++        });
++      }
++
++      retryEnvelopeRef.current = null;
++      setDraft("");
++      setEscalate(false);
++      setNotice(escalate
++        ? "Worker note recorded. Chat notification created; verify its delivery state below."
++        : "Worker note recorded in the control-plane ledger.");
++      await refresh();
++    } catch (cause) {
++      setError(`${cause instanceof Error ? cause.message : String(cause)} The same idempotency keys will be reused if you retry this unchanged note.`);
++      await refresh();
++    } finally {
++      setLoading(false);
++    }
++  };
++
++  const acknowledge = async (message: ControlMessage) => {
++    const id = messageId(message);
++    if (!id || !orchestratorId || acknowledgingId) return;
++    setAcknowledgingId(id);
++    setError(null);
++    try {
++      await acknowledgeControlMessage({
++        repositoryId: message.scope.repositoryId,
++        messageId: id,
++        acknowledgedBy: orchestratorId,
++      });
++      await refresh();
++    } catch (cause) {
++      setError(cause instanceof Error ? cause.message : String(cause));
++    } finally {
++      setAcknowledgingId(null);
++    }
++  };
++
++  return (
++    <section
++      className="orchestrator-messenger"
++      id="pp-region-orchestrator-messenger"
++      aria-label="Orchestrator messages"
++      data-entity-id={orchestratorId || "unassigned"}
++    >
++      <header className="orchestrator-messenger-header" id="pp-header-orchestrator-messenger">
++        <LoopletLiveFeedMark state={feedState} />
++        <div className="orchestrator-messenger-title">
++          <span>ORCHESTRATOR MESSAGES</span>
++          <code id="pp-value-orchestrator-message-id">{orchestratorId || "ID UNASSIGNED"}</code>
++        </div>
++        <div className="orchestrator-message-badges" aria-label="Persistent inbox and outbox counts">
++          <span className="orchestrator-message-badge inbox" id="pp-badge-orchestrator-inbox">
++            INBOX <b>{inboxCount}</b>
++          </span>
++          <span className="orchestrator-message-badge outbox" id="pp-badge-orchestrator-outbox">
++            OUTBOX <b>{outboxCount}</b>
++          </span>
++          <span className="orchestrator-message-badge unrouted" id="pp-badge-orchestrator-unrouted">
++            UNROUTED <b>{snapshot?.stateCounts.unrouted || 0}</b>
++          </span>
++        </div>
++      </header>
++      {syncError ? <p className="orchestrator-message-error" id="pp-error-orchestrator-sync" role="alert">SYNC FAILED · {syncError}</p> : null}
++
++      <div className="orchestrator-worker-message-list" id="pp-list-orchestrator-workers" role="list">
++        {workers.map((worker) => {
++          const workerDomId = domToken(worker.id);
++          const workerMessageCount = scope
++            ? messages.filter((message) => belongsToScope(message, {
++              ...scope,
++              workerId: worker.id,
++              nodeId: worker.nodeId,
++            } as ControlPlaneScope)).length
++            : 0;
++          return (
++            <div
++              className="orchestrator-worker-message-item"
++              id={`pp-item-orchestrator-worker-${workerDomId}`}
++              key={`${worker.id}:${worker.nodeId}`}
++              role="listitem"
++              data-worker-id={worker.id}
++              data-node-id={worker.nodeId}
++              data-context-kind="node"
++              data-context-id={`${worker.id}:${worker.nodeId}`}
++              data-context-label={`${worker.label} · ${worker.nodeId}`}
++            >
++              <button
++                className="orchestrator-worker-message-button"
++                id={`pp-btn-open-worker-notes-${workerDomId}`}
++                type="button"
++                aria-haspopup="dialog"
++                aria-controls="pp-panel-worker-notes"
++                onClick={(event) => {
++                  returnFocusRef.current = event.currentTarget;
++                  setSelectedWorkerId(worker.id);
++                  setDraft("");
++                  setEscalate(false);
++                  setError(null);
++                  setNotice(null);
++                  retryEnvelopeRef.current = null;
++                }}
++              >
++                <span className="orchestrator-worker-message-label">{worker.label}</span>
++                <code>{worker.nodeId}</code>
++                <span className="orchestrator-worker-message-state">{worker.state}</span>
++                <span className="orchestrator-worker-message-count" aria-label={`${workerMessageCount} messages`}>
++                  {workerMessageCount}
++                </span>
++              </button>
++            </div>
++          );
++        })}
++        {!workers.length ? <p id="pp-empty-orchestrator-workers">No messaging destinations are registered in this scope.</p> : null}
++      </div>
++
++      <div className="orchestrator-delivery-state-legend" id="pp-legend-orchestrator-delivery-states" aria-label="Delivery state legend">
++        {DELIVERY_STATES.map((state) => <span key={state} className={`delivery-state ${state.toLowerCase().replace("_", "-")}`}>{state}</span>)}
++      </div>
++
++      {selectedWorker && workerScope ? (
++        <div className="orchestrator-worker-notes-backdrop" id="pp-backdrop-worker-notes" onMouseDown={(event) => {
++          if (event.target === event.currentTarget) closePanel();
++        }}>
++          <section
++            className="orchestrator-worker-notes-panel"
++            id="pp-panel-worker-notes"
++            ref={panelRef}
++            role="dialog"
++            aria-modal="true"
++            aria-labelledby="pp-title-worker-notes"
++            aria-describedby="pp-description-worker-notes"
++            data-worker-id={selectedWorker.id}
++            data-node-id={selectedWorker.nodeId}
++            data-context-kind="modal"
++            data-context-id={`${selectedWorker.id}:${selectedWorker.nodeId}`}
++            data-context-label={`Worker notes · ${selectedWorker.label}`}
++            data-context-close="#pp-btn-close-worker-notes"
++          >
++            <header className="orchestrator-worker-notes-header">
++              <div>
++                <h2 id="pp-title-worker-notes">{selectedWorker.label}</h2>
++                <p id="pp-description-worker-notes">
++                  Worker <code>{selectedWorker.id}</code> · node <code>{selectedWorker.nodeId}</code> · {selectedWorker.state}
++                </p>
++              </div>
++              <button className="orchestrator-worker-notes-close" id="pp-btn-close-worker-notes" type="button" onClick={closePanel} aria-label="Close worker notes">
++                CLOSE
++              </button>
++            </header>
++
++            <div className="orchestrator-worker-notes-history" id="pp-list-worker-notes" aria-label="Worker note history" aria-live="polite">
++              {workerMessages.map((message) => {
++                const id = messageId(message);
++                const state = deliveryState(message);
++                const safeId = domToken(id || `${messageTimestamp(message)}-${messageAuthor(message)}`);
++                return (
++                  <article
++                    className="orchestrator-worker-note"
++                    id={`pp-message-${safeId}`}
++                    key={id || safeId}
++                    data-message-id={id || "unassigned"}
++                    data-delivery-state={state}
++                    data-context-surface="worker-note"
++                    data-context-id={id || safeId}
++                    data-context-label={`${formatKind(messageKind(message))} · ${messageAuthor(message)}`}
++                  >
++                    <header>
++                      <span className="orchestrator-worker-note-kind">{formatKind(messageKind(message))}</span>
++                      <span className={`delivery-state ${state.toLowerCase().replace("_", "-")}`} id={`pp-status-${safeId}`}>{state}</span>
++                    </header>
++                    <p className="orchestrator-worker-note-body">{messageBody(message)}</p>
++                    <footer>
++                      <span>{messageAuthor(message)}</span>
++                      <time dateTime={messageTimestamp(message) ? new Date(messageTimestamp(message)).toISOString() : undefined}>
++                        {formatTime(messageTimestamp(message))}
++                      </time>
++                      {state === "DELIVERED" && message.destination.requiresAcknowledgement ? (
++                        <button
++                          className="orchestrator-worker-note-acknowledge"
++                          id={`pp-btn-ack-${safeId}`}
++                          type="button"
++                          disabled={!orchestratorId || acknowledgingId !== null}
++                          onClick={() => void acknowledge(message)}
++                        >
++                          {acknowledgingId === id ? "ACKNOWLEDGING…" : "ACKNOWLEDGE"}
++                        </button>
++                      ) : null}
++                    </footer>
++                  </article>
++                );
++              })}
++              {!workerMessages.length ? <p id="pp-empty-worker-notes">No notes or routed messages exist for this exact worker and node.</p> : null}
++            </div>
++
++            <form className="orchestrator-worker-note-form" id="pp-form-worker-note" onSubmit={submitNote}>
++              <label htmlFor="pp-input-worker-note">Leave a worker note</label>
++              <textarea
++                id="pp-input-worker-note"
++                ref={textAreaRef}
++                value={draft}
++                rows={4}
++                maxLength={8_000}
++                disabled={loading || !orchestratorId}
++                aria-describedby="pp-help-worker-note"
++                onChange={(event) => updateDraft(event.currentTarget.value)}
++              />
++              <p id="pp-help-worker-note">
++                This records an immutable, worker-and-node-scoped note. It does not claim a chat notification was sent.
++              </p>
++              <label className="orchestrator-worker-note-escalation" htmlFor="pp-check-escalate-chat">
++                <input
++                  id="pp-check-escalate-chat"
++                  type="checkbox"
++                  checked={escalate}
++                  disabled={loading || !orchestratorId || isNativeTauri}
++                  onChange={(event) => updateEscalation(event.currentTarget.checked)}
++                />
++                {isNativeTauri
++                  ? "Chat escalation awaiting B16 native route"
++                  : "Also create an unverified browser chat-delivery record"}
++              </label>
++              {isNativeTauri ? (
++                <p className="orchestrator-chat-route-status" id="pp-status-chat-route-native-blocked">
++                  The renderer is forbidden from selecting a chat destination. B16 must derive and deliver the registered route inside the native orchestrator.
++                </p>
++              ) : null}
++              {escalate ? (
++                <p className="orchestrator-chat-route-status" id="pp-status-chat-route">
++                  {effectiveChatDestination?.registrationId && effectiveChatDestination?.address && effectiveChatDestination?.enabled !== false
++                    ? "A registered chat destination was supplied. Delivery still requires a DELIVERED state."
++                    : "No chat destination is registered. This notification will remain UNROUTED. Register a connector, then retry the escalation."}
++                </p>
++              ) : null}
++              {error ? <p className="orchestrator-message-error" id="pp-error-worker-note" role="alert">{error}</p> : null}
++              {notice ? <p className="orchestrator-message-notice" id="pp-notice-worker-note" role="status">{notice}</p> : null}
++              <button
++                className="orchestrator-worker-note-submit"
++                id="pp-btn-send-worker-note"
++                type="submit"
++                disabled={loading || !orchestratorId || !draft.trim()}
++              >
++                {loading ? "RECORDING…" : escalate ? "RECORD NOTE + CREATE CHAT DELIVERY" : "RECORD NOTE"}
++              </button>
++            </form>
++          </section>
++        </div>
++      ) : null}
++    </section>
++  );
++}
+diff --git a/src/index.css b/src/index.css
+index 40dcf65..13cf0a5 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -421,6 +421,25 @@ body {
+   white-space: nowrap;
+ }
+ 
++.rail-chat-route {
++  margin-top: 4px;
++  width: fit-content;
++  max-width: 100%;
++  border: 1px solid #b35b51;
++  border-radius: 999px;
++  padding: 2px 7px;
++  color: #8c4038;
++  font: 700 9px var(--mono);
++  letter-spacing: 0.25px;
++  text-transform: uppercase;
++}
++
++.rail-chat-route.delivered {
++  border-color: #4e8a5c;
++  color: #347145;
++}
++
++
+ .rail-empty {
+   padding: 12px 4px;
+   color: var(--dim);
+@@ -528,6 +547,10 @@ body {
+   gap: 8px;
+ }
+ 
++.rail-foot .chip {
++  padding-inline: 8px;
++}
++
+ .rail-count {
+   font: 10px var(--mono);
+   color: var(--dim);
+@@ -556,6 +579,12 @@ body {
+   cursor: default;
+ }
+ 
++.chip-danger {
++  border-color: #c96b63;
++  color: #9f352f;
++  background: #fff0ee;
++}
++
+ .sr-only {
+   position: absolute;
+   width: 1px;
+@@ -596,25 +625,272 @@ body {
+   border-bottom-color: var(--danger);
+ }
+ 
++.orchestrator.minimized .orchestrator-head {
++  min-height: 50px;
++  flex-wrap: nowrap;
++  gap: 10px;
++  padding: 7px 128px 7px 14px;
++}
++
++.orchestrator.minimized .head-orchestrator-command-post,
++.orchestrator.minimized .head-stat,
++.orchestrator.minimized .resource-guard {
++  display: none;
++}
++
++.orchestrator.minimized .head-copy {
++  min-width: 0;
++  flex: 1;
++}
++
++.orchestrator.minimized .head-eyebrow,
++.orchestrator.minimized .head-copy strong {
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.orchestrator.minimized .head-lease {
++  margin-right: 0;
++  white-space: nowrap;
++}
++
+ .orchestrator-head {
+-  min-height: 48px;
++  position: relative;
++  min-height: 136px;
+   display: flex;
+   align-items: center;
++  flex-wrap: wrap;
+   gap: 12px;
+-  padding: 7px 14px 5px;
++  padding: 9px 230px 7px 14px;
++}
++
++.orchestrator-toggle {
++  position: absolute;
++  top: 45px;
++  right: 14px;
++  display: inline-flex;
++  min-width: 102px;
++  min-height: 30px;
++  align-items: center;
++  justify-content: center;
++  gap: 7px;
++  padding: 5px 9px;
++  border: 1px solid #78907d;
++  border-radius: 4px;
++  color: #eef4ef;
++  background: #1e2822;
++  font: 800 8.5px var(--mono);
++  letter-spacing: 0.55px;
++  cursor: pointer;
++}
++
++.orchestrator-toggle:hover {
++  border-color: #a7c1ac;
++  background: #334039;
++}
++
++.orchestrator-toggle > span {
++  color: #b9d1be;
++  font-size: 14px;
++  line-height: 1;
++}
++
++.orchestrator.minimized .orchestrator-toggle {
++  top: 10px;
++}
++
++.head-orchestrator-command-post {
++  position: relative;
++  display: grid;
++  width: min(460px, 42vw);
++  min-width: 340px;
++  grid-template-columns: 64px minmax(0, 1fr);
++  align-items: center;
++  gap: 10px;
++  flex: none;
+ }
+ 
+-.head-mark {
++.head-orchestrator-command-post::after {
++  position: absolute;
++  bottom: -18px;
++  left: 31px;
++  width: 1px;
++  height: 15px;
++  content: "";
++  background: linear-gradient(#b9d1be, rgba(185, 209, 190, 0.08));
++}
++
++.head-orchestrator-character {
++  --orch-actor: #dce8df;
++  --orch-actor-dark: #17231c;
++  position: relative;
+   display: grid;
++  width: 64px;
++  min-height: 76px;
+   place-items: center;
+-  width: 30px;
+-  height: 30px;
+-  flex: none;
+-  border: 1px solid #9bb1a0;
+-  border-radius: 50%;
+-  color: #b9d1be;
+-  font: 20px/1 var(--mono);
+-  box-shadow: 0 0 0 3px rgba(155, 177, 160, 0.12);
++  align-content: center;
++  color: var(--orch-actor);
++  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.28));
++  transform-origin: 50% 100%;
++}
++
++.head-orchestrator-character svg {
++  display: block;
++  width: 53px;
++  height: 64px;
++  overflow: visible;
++}
++
++.head-orchestrator-character > span {
++  position: absolute;
++  bottom: 1px;
++  padding: 1px 4px;
++  border: 1px solid rgba(185, 209, 190, 0.48);
++  border-radius: 2px;
++  color: #f7f4ec;
++  background: #27312b;
++  font: 900 7px var(--mono);
++  letter-spacing: 1px;
++}
++
++.orch-head,
++.orch-body,
++.orch-radio {
++  fill: var(--orch-actor-dark);
++  stroke: var(--orch-actor);
++  stroke-width: 2.5;
++}
++
++.orch-eye,
++.orch-radio-light {
++  fill: var(--orch-actor);
++}
++
++.orch-antenna,
++.orch-mouth,
++.orch-arm,
++.orch-leg,
++.orch-radio-aerial {
++  fill: none;
++  stroke: var(--orch-actor);
++  stroke-width: 2.5;
++  stroke-linecap: square;
++  stroke-linejoin: round;
++}
++
++.head-orchestrator-command-post.working .head-orchestrator-character {
++  animation: head-orchestrator-watch 3.8s ease-in-out infinite;
++}
++
++.head-orchestrator-command-post.holding .head-orchestrator-character {
++  --orch-actor: #f1cb79;
++}
++
++.head-orchestrator-command-post.stopped .head-orchestrator-character {
++  --orch-actor: #ff9b96;
++}
++
++.head-orchestrator-command-post.standby .head-orchestrator-character {
++  opacity: 0.82;
++}
++
++.head-orchestrator-speech {
++  position: relative;
++  display: grid;
++  min-width: 0;
++  gap: 6px;
++  padding: 9px 11px;
++  border: 1px solid rgba(185, 209, 190, 0.58);
++  border-radius: 10px 10px 10px 3px;
++  color: #1d2a22;
++  background: #eef3ef;
++  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.2);
++}
++
++.head-orchestrator-speech::before {
++  position: absolute;
++  top: 24px;
++  left: -8px;
++  width: 13px;
++  height: 13px;
++  content: "";
++  border-bottom: 1px solid rgba(185, 209, 190, 0.58);
++  border-left: 1px solid rgba(185, 209, 190, 0.58);
++  background: #eef3ef;
++  transform: rotate(45deg);
++}
++
++.head-orchestrator-speech > span {
++  color: #4c6954;
++  font: 900 7px var(--mono);
++  letter-spacing: 0.9px;
++}
++
++.head-orchestrator-speech dl {
++  display: grid;
++  gap: 4px;
++  margin: 0;
++}
++
++.head-orchestrator-speech dl > div {
++  display: grid;
++  min-width: 0;
++  grid-template-columns: 47px minmax(0, 1fr);
++  gap: 7px;
++  align-items: start;
++}
++
++.head-orchestrator-speech dt {
++  color: #5e7665;
++  font: 900 7px/1.4 var(--mono);
++  letter-spacing: 0.55px;
++  text-transform: uppercase;
++}
++
++.head-orchestrator-speech dd {
++  min-width: 0;
++  margin: 0;
++  color: #17231c;
++  font: 750 8px/1.4 var(--mono);
++  overflow-wrap: anywhere;
++}
++
++.head-orchestrator-speech .orch-guidance-problem dd {
++  font-weight: 900;
++}
++
++.head-orchestrator-speech small {
++  color: #69776d;
++  font: 7px/1.25 var(--mono);
++}
++
++.head-orchestrator-command-post.holding .head-orchestrator-speech {
++  border-color: #d2a74b;
++  background: #fff5db;
++}
++
++.head-orchestrator-command-post.holding .head-orchestrator-speech::before {
++  border-color: #d2a74b;
++  background: #fff5db;
++}
++
++.head-orchestrator-command-post.holding .orch-guidance-problem dd {
++  color: #865700;
++}
++
++.head-orchestrator-command-post.stopped .head-orchestrator-speech {
++  border-color: #c86c66;
++  background: #ffe9e7;
++}
++
++.head-orchestrator-command-post.stopped .head-orchestrator-speech::before {
++  border-color: #c86c66;
++  background: #ffe9e7;
++}
++
++.head-orchestrator-command-post.stopped .orch-guidance-problem dd {
++  color: #9f352f;
+ }
+ 
+ .head-copy {
+@@ -653,87 +929,649 @@ body {
+   white-space: nowrap;
+ }
+ 
+-.head-stat b {
+-  color: #ffffff;
+-  font-size: 12px;
++.head-stat b {
++  color: #ffffff;
++  font-size: 12px;
++}
++
++.head-stat.bad,
++.head-stat.bad b {
++  color: #ff9b96;
++}
++
++.head-stat.needs,
++.head-stat.needs b {
++  color: #f1cb79;
++}
++
++.resource-guard {
++  position: absolute;
++  top: 9px;
++  right: 14px;
++  flex: none;
++  font-family: var(--mono);
++}
++
++.resource-guard > summary {
++  display: inline-flex;
++  min-height: 25px;
++  align-items: center;
++  gap: 6px;
++  padding: 4px 8px;
++  border: 1px solid #66816d;
++  border-radius: 3px;
++  color: #dce8df;
++  background: #1e2822;
++  font: 800 7.5px var(--mono);
++  letter-spacing: 0.45px;
++  cursor: pointer;
++  list-style: none;
++}
++
++.resource-guard > summary::-webkit-details-marker { display: none; }
++
++.resource-guard-light {
++  width: 7px;
++  height: 7px;
++  border-radius: 50%;
++  background: #82bf8d;
++  box-shadow: 0 0 7px rgba(130, 191, 141, 0.58);
++}
++
++.resource-guard-checking .resource-guard-light { background: #e2b75d; }
++.resource-guard-unavailable .resource-guard-light { background: #e57e76; }
++
++.resource-guard-panel {
++  position: absolute;
++  z-index: 20;
++  top: calc(100% + 7px);
++  right: 0;
++  width: min(390px, 72vw);
++  padding: 12px;
++  border: 1px solid #78907d;
++  border-radius: 5px;
++  color: #e8eee9;
++  background: #172019;
++  box-shadow: 0 15px 34px rgba(0, 0, 0, 0.42);
++}
++
++.resource-guard-panel header,
++.resource-guard-panel dl,
++.resource-guard-panel p { margin: 0 0 9px; }
++
++.resource-guard-panel header { display: grid; gap: 3px; }
++.resource-guard-panel header strong { font-size: 10px; }
++.resource-guard-panel header span { color: #9fb1a3; font-size: 8px; }
++.resource-guard-panel dl { display: grid; gap: 6px; }
++.resource-guard-panel dl > div { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; }
++.resource-guard-panel dt { color: #8fa294; font-size: 8px; }
++.resource-guard-panel dd { overflow: hidden; margin: 0; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
++.resource-guard-panel p { color: #ffd0cc; font-size: 9px; line-height: 1.45; }
++
++.resource-guard-refresh {
++  border: 1px solid #66816d;
++  border-radius: 3px;
++  padding: 4px 8px;
++  color: #e8eee9;
++  background: #27372c;
++  font: 800 8px var(--mono);
++  cursor: pointer;
++}
++
++.worker-wire {
++  min-height: 34px;
++  display: flex;
++  align-items: center;
++  gap: 6px;
++  padding: 4px 14px 7px;
++  overflow-x: auto;
++  border-top: 1px solid rgba(255, 255, 255, 0.08);
++}
++
++.worker-wire::before {
++  content: "CLOCKWISE WORKERS ↑ ORCH";
++  flex: none;
++  color: #7f9384;
++  font: 800 7.5px var(--mono);
++  letter-spacing: 0.6px;
++}
++
++@keyframes head-orchestrator-watch {
++  0%, 30%, 100% { transform: translateX(0); }
++  45%, 65% { transform: translateX(3px); }
++}
++
++.worker-report,
++.decision-report {
++  flex: none;
++  display: inline-flex;
++  align-items: center;
++  gap: 6px;
++  min-height: 23px;
++  padding: 3px 7px;
++  border: 1px solid #66746a;
++  border-radius: 4px;
++  color: #ebefec;
++  background: #354039;
++  font: 8.5px var(--mono);
++  cursor: pointer;
++}
++
++.worker-report:hover,
++.worker-report:focus-visible {
++  border-color: #a9c2af;
++  background: #3d4b42;
++}
++
++.worker-report.stale,
++.worker-report.gone {
++  color: #ffd2cf;
++  border-color: #a85c58;
++  background: #493332;
++}
++
++.worker-id {
++  color: #b9d1be;
++}
++
++.worker-report em {
++  color: inherit;
++  font: 800 7.5px var(--mono);
++  letter-spacing: 0.5px;
++}
++
++.decision-report {
++  color: #ffe0a0;
++  border-color: #a68035;
++  background: #4a3e26;
++}
++
++.worker-empty {
++  color: #9aa69e;
++  font: 9px var(--mono);
++}
++
++.orchestrator-messenger {
++  display: grid;
++  grid-template-columns: minmax(500px, 1.5fr) minmax(170px, 1fr) minmax(190px, auto);
++  align-items: center;
++  gap: 8px;
++  min-height: 38px;
++  padding: 5px 14px 7px;
++  border-top: 1px solid rgba(255, 255, 255, 0.08);
++  background: #1f2823;
++  font-family: var(--mono);
++}
++
++.orchestrator-messenger-header,
++.orchestrator-messenger-title,
++.orchestrator-message-badges,
++.orchestrator-worker-message-list,
++.orchestrator-worker-message-button,
++.orchestrator-delivery-state-legend,
++.orchestrator-worker-note header,
++.orchestrator-worker-note footer {
++  display: flex;
++  align-items: center;
++}
++
++.orchestrator-messenger-header {
++  min-width: 0;
++  gap: 8px;
++}
++
++.orchestrator-messenger-header .orchestrator-message-badges {
++  flex-wrap: wrap;
++}
++
++.looplet-live-feed-mark {
++  --looplet-glow: #38bdf8;
++  --looplet-bright: #e0f2fe;
++  --looplet-deep: #0c4a6e;
++  position: relative;
++  display: grid;
++  grid-template-columns: auto minmax(92px, 1fr);
++  flex: none;
++  align-items: center;
++  min-width: 204px;
++  min-height: 58px;
++  padding: 4px 7px 4px 5px;
++  border: 1px solid transparent;
++  border-radius: 5px;
++  background:
++    linear-gradient(#121a1f, #172127) padding-box,
++    linear-gradient(135deg, #d8f4ff 0%, var(--looplet-glow) 24%, var(--looplet-deep) 72%, #071820 100%) border-box;
++  box-shadow: inset 0 0 18px rgba(56, 189, 248, 0.06), 0 0 12px rgba(56, 189, 248, 0.08);
++  overflow: hidden;
++  color: var(--looplet-glow);
++}
++
++.looplet-live-feed-mark::after {
++  position: absolute;
++  inset: 0;
++  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.08) 50%, transparent 65%);
++  content: "";
++  pointer-events: none;
++  transform: translateX(-120%);
++  animation: looplet-feed-scan 5s ease-in-out infinite;
++}
++
++.looplet-live-feed-mark pre {
++  width: 12ch;
++  margin: 0;
++  color: var(--looplet-glow);
++  font: 7px/0.76 "Cascadia Mono", "Segoe UI Symbol", monospace;
++  letter-spacing: 0;
++  text-shadow: 0 0 7px color-mix(in srgb, var(--looplet-glow) 72%, transparent);
++  white-space: pre;
++}
++
++.looplet-live-feed-mark > span {
++  display: grid;
++  gap: 3px;
++  min-width: 0;
++}
++
++.looplet-live-feed-mark b,
++.looplet-live-feed-mark em {
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.looplet-live-feed-mark b {
++  color: var(--looplet-bright);
++  font: 900 8px var(--mono);
++  letter-spacing: 1px;
++}
++
++.looplet-live-feed-mark em {
++  color: var(--looplet-glow);
++  font: 800 6.5px var(--mono);
++  font-style: normal;
++  letter-spacing: 0.5px;
++}
++
++.looplet-live-feed-mark.waiting {
++  --looplet-glow: #fbbf24;
++  --looplet-bright: #fef3c7;
++  --looplet-deep: #78350f;
++}
++
++.looplet-live-feed-mark.blocked {
++  --looplet-glow: #fb7185;
++  --looplet-bright: #ffe4e6;
++  --looplet-deep: #881337;
++}
++
++.looplet-live-feed-mark.idle {
++  --looplet-glow: #94a3b8;
++  --looplet-bright: #e2e8f0;
++  --looplet-deep: #334155;
++}
++
++@keyframes looplet-feed-scan {
++  0%, 72%, 100% { transform: translateX(-120%); }
++  86% { transform: translateX(120%); }
++}
++
++@media (prefers-reduced-motion: reduce) {
++  .looplet-live-feed-mark::after,
++  .head-orchestrator-character { animation: none !important; }
++}
++
++.orchestrator-messenger-title {
++  min-width: 0;
++  flex-direction: column;
++  align-items: flex-start;
++  color: #a9b9ad;
++  font: 800 8px var(--mono);
++  letter-spacing: 0.7px;
++}
++
++.orchestrator-messenger-title code {
++  max-width: 170px;
++  overflow: hidden;
++  color: #eef3ef;
++  font: 8px var(--mono);
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.orchestrator-message-badges {
++  gap: 4px;
++}
++
++.orchestrator-message-badge,
++.delivery-state {
++  padding: 2px 5px;
++  border: 1px solid #59675d;
++  border-radius: 3px;
++  color: #d8dfda;
++  background: #303b34;
++  font: 800 7.5px var(--mono);
++  letter-spacing: 0.35px;
++  white-space: nowrap;
++}
++
++.orchestrator-message-badge b {
++  color: #fff;
++}
++
++.orchestrator-message-badge.unrouted,
++.delivery-state.unrouted,
++.delivery-state.dead-letter {
++  border-color: #ac7046;
++  color: #ffd0aa;
++  background: #4a3427;
++}
++
++.delivery-state.delivered,
++.delivery-state.acknowledged {
++  border-color: #628e6b;
++  color: #c8eccf;
++  background: #2d4433;
++}
++
++.delivery-state.claimed {
++  border-color: #8a7d50;
++  color: #f3e3a9;
++  background: #403b27;
++}
++
++.orchestrator-worker-message-list {
++  min-width: 0;
++  gap: 5px;
++  overflow-x: auto;
++}
++
++.orchestrator-worker-message-item {
++  flex: none;
++}
++
++.orchestrator-worker-message-button {
++  min-height: 26px;
++  gap: 6px;
++  padding: 3px 7px;
++  border: 1px solid #65736a;
++  border-radius: 4px;
++  color: #edf1ee;
++  background: #344139;
++  font: 8px var(--mono);
++  cursor: pointer;
++}
++
++.orchestrator-worker-message-button:hover,
++.orchestrator-worker-message-button:focus-visible {
++  border-color: #b3cbb9;
++  outline: none;
++  box-shadow: 0 0 0 2px rgba(179, 203, 185, 0.18);
++}
++
++.orchestrator-worker-message-label {
++  max-width: 150px;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.orchestrator-worker-message-button code,
++.orchestrator-worker-message-state {
++  color: #b7c9bc;
++  font: 800 7.5px var(--mono);
++}
++
++.orchestrator-worker-message-count {
++  display: grid;
++  min-width: 16px;
++  height: 16px;
++  place-items: center;
++  border-radius: 50%;
++  color: #172019;
++  background: #b9d1be;
++  font: 800 7px var(--mono);
++}
++
++.orchestrator-delivery-state-legend {
++  max-width: 220px;
++  justify-content: flex-end;
++  gap: 3px;
++  overflow-x: auto;
++  flex-wrap: wrap;
++}
++
++.orchestrator-delivery-state-legend .delivery-state {
++  font-size: 6.5px;
++}
++
++.orchestrator-message-error,
++.orchestrator-message-notice,
++.orchestrator-chat-route-status {
++  margin: 4px 0;
++  padding: 6px 8px;
++  border-left: 3px solid #b45f58;
++  color: #7a2924;
++  background: #fff0ed;
++  font: 9px/1.5 var(--mono);
++}
++
++.orchestrator-messenger > .orchestrator-message-error {
++  grid-column: 1 / -1;
++  margin: 0;
++}
++
++.orchestrator-message-notice {
++  border-left-color: #598c65;
++  color: #285b34;
++  background: #eef8f0;
++}
++
++.orchestrator-chat-route-status {
++  border-left-color: #bb8339;
++  color: #6e481a;
++  background: #fff7e9;
++}
++
++.orchestrator-worker-notes-backdrop {
++  position: fixed;
++  inset: 0;
++  z-index: 10000;
++  display: flex;
++  align-items: stretch;
++  justify-content: flex-start;
++  padding: 18px;
++  background: rgba(13, 16, 14, 0.58);
++  backdrop-filter: blur(2px);
++}
++
++.orchestrator-worker-notes-panel {
++  display: grid;
++  grid-template-rows: auto minmax(160px, 1fr) auto;
++  width: min(760px, calc(100vw - 36px));
++  min-width: min(560px, calc(100vw - 36px));
++  max-height: calc(100vh - 36px);
++  overflow: hidden;
++  color: #272b28;
++  background: #faf8f2;
++  border: 1px solid #d7d2c7;
++  border-radius: 7px;
++  outline: 5px solid #2b3330;
++  box-shadow:
++    0 0 0 7px #9aa49f,
++    0 18px 60px rgba(0, 0, 0, 0.45);
++}
++
++.orchestrator-worker-notes-header {
++  display: flex;
++  align-items: flex-start;
++  justify-content: space-between;
++  gap: 20px;
++  padding: 16px 18px 13px;
++  color: #f6f4ee;
++  background: #28322c;
++  border-bottom: 3px double #84958b;
++}
++
++.orchestrator-worker-notes-header h2,
++.orchestrator-worker-notes-header p {
++  margin: 0;
++}
++
++.orchestrator-worker-notes-header h2 {
++  font: 800 16px var(--mono);
++}
++
++.orchestrator-worker-notes-header p {
++  margin-top: 5px;
++  color: #b8c4bc;
++  font: 9px var(--mono);
++}
++
++.orchestrator-worker-notes-close,
++.orchestrator-worker-note-submit,
++.orchestrator-worker-note-acknowledge {
++  border: 1px solid #718078;
++  border-radius: 4px;
++  color: #f6f4ee;
++  background: #36443c;
++  font: 800 8px var(--mono);
++  letter-spacing: 0.5px;
++  cursor: pointer;
++}
++
++.orchestrator-worker-notes-close {
++  min-height: 30px;
++  padding: 4px 9px;
++}
++
++.orchestrator-worker-notes-history {
++  overflow: auto;
++  padding: 14px 18px;
++  background: #f1eee6;
++}
++
++.orchestrator-worker-note {
++  margin-bottom: 10px;
++  padding: 11px;
++  border: 1px solid #d5d0c4;
++  border-left: 4px solid #667f6c;
++  border-radius: 4px;
++  background: #fff;
++}
++
++.orchestrator-worker-note header,
++.orchestrator-worker-note footer {
++  justify-content: space-between;
++  gap: 8px;
+ }
+ 
+-.head-stat.bad,
+-.head-stat.bad b {
+-  color: #ff9b96;
++.orchestrator-worker-note-kind {
++  color: #4f6655;
++  font: 800 8px var(--mono);
++  letter-spacing: 0.6px;
+ }
+ 
+-.head-stat.needs,
+-.head-stat.needs b {
+-  color: #f1cb79;
++.orchestrator-worker-note-body {
++  margin: 10px 0;
++  color: #2b302c;
++  font: 12px/1.55 var(--sans);
++  white-space: pre-wrap;
+ }
+ 
+-.worker-wire {
+-  min-height: 34px;
+-  display: flex;
+-  align-items: center;
+-  gap: 6px;
+-  padding: 4px 14px 7px;
+-  overflow-x: auto;
+-  border-top: 1px solid rgba(255, 255, 255, 0.08);
++.orchestrator-worker-note footer {
++  color: #77736a;
++  font: 8px var(--mono);
+ }
+ 
+-.worker-wire::before {
+-  content: "REPORTS";
+-  flex: none;
+-  color: #7f9384;
+-  font: 800 7.5px var(--mono);
+-  letter-spacing: 0.6px;
++.orchestrator-worker-note-acknowledge {
++  margin-left: auto;
++  padding: 4px 7px;
+ }
+ 
+-.worker-report,
+-.decision-report {
+-  flex: none;
+-  display: inline-flex;
+-  align-items: center;
+-  gap: 6px;
+-  min-height: 23px;
+-  padding: 3px 7px;
+-  border: 1px solid #66746a;
++.orchestrator-worker-note-form {
++  display: grid;
++  gap: 7px;
++  padding: 14px 18px 16px;
++  border-top: 1px solid #d1ccbf;
++  background: #fff;
++}
++
++.orchestrator-worker-note-form > label:first-child {
++  color: #445049;
++  font: 800 9px var(--mono);
++  letter-spacing: 0.5px;
++  text-transform: uppercase;
++}
++
++.orchestrator-worker-note-form textarea {
++  width: 100%;
++  resize: vertical;
++  padding: 9px;
++  border: 1px solid #a9a397;
+   border-radius: 4px;
+-  color: #ebefec;
+-  background: #354039;
+-  font: 8.5px var(--mono);
+-  cursor: pointer;
++  color: #242825;
++  background: #fbfaf6;
++  font: 11px/1.5 var(--mono);
+ }
+ 
+-.worker-report:hover,
+-.worker-report:focus-visible {
+-  border-color: #a9c2af;
+-  background: #3d4b42;
++.orchestrator-worker-note-form textarea:focus {
++  border-color: #496b53;
++  outline: 3px solid rgba(73, 107, 83, 0.18);
+ }
+ 
+-.worker-report.stale,
+-.worker-report.gone {
+-  color: #ffd2cf;
+-  border-color: #a85c58;
+-  background: #493332;
++.orchestrator-worker-note-form > p {
++  margin: 0;
++  color: #6f6b63;
++  font: 8px/1.4 var(--mono);
+ }
+ 
+-.worker-id {
+-  color: #b9d1be;
++.orchestrator-worker-note-escalation {
++  display: flex;
++  align-items: center;
++  gap: 7px;
++  color: #464b47;
++  font: 9px var(--mono);
+ }
+ 
+-.worker-report em {
+-  color: inherit;
+-  font: 800 7.5px var(--mono);
+-  letter-spacing: 0.5px;
++.orchestrator-worker-note-submit {
++  justify-self: end;
++  min-height: 34px;
++  padding: 6px 12px;
++  border-color: #385944;
++  background: #385944;
+ }
+ 
+-.decision-report {
+-  color: #ffe0a0;
+-  border-color: #a68035;
+-  background: #4a3e26;
++.orchestrator-worker-note-submit:disabled,
++.orchestrator-worker-note-acknowledge:disabled {
++  cursor: not-allowed;
++  opacity: 0.5;
+ }
+ 
+-.worker-empty {
+-  color: #9aa69e;
+-  font: 9px var(--mono);
++@media (max-width: 1050px) {
++  .orchestrator-head {
++    align-items: flex-start;
++    flex-wrap: wrap;
++    padding-right: 14px;
++  }
++
++  .resource-guard {
++    position: relative;
++    top: auto;
++    right: auto;
++  }
++
++  .head-orchestrator-command-post {
++    width: min(100%, 360px);
++  }
++
++  .orchestrator-messenger {
++    grid-template-columns: 1fr;
++  }
++
++  .orchestrator-delivery-state-legend {
++    max-width: none;
++    justify-content: flex-start;
++  }
+ }
+ 
+ .stage-bar {
+@@ -1078,3 +1916,618 @@ input:focus-visible {
+ ::-webkit-scrollbar-thumb:hover {
+   background: #c3bdb0;
+ }
++
++/* ---------- isolated orchestrator pipeline console ---------- */
++
++.pipeline-console {
++  --pipeline-ink: #171b18;
++  --pipeline-muted: #666d68;
++  --pipeline-line: #c9cec9;
++  --pipeline-paper: #f7f6f1;
++  --pipeline-panel: #ffffff;
++  --pipeline-green: #2f7046;
++  --pipeline-green-soft: #e6f0e9;
++  --pipeline-amber: #9b5b10;
++  --pipeline-amber-soft: #fff2dc;
++  --pipeline-red: #983c36;
++  --pipeline-red-soft: #fbe9e6;
++  position: relative;
++  display: grid;
++  gap: 14px;
++  width: 100%;
++  padding: 18px 20px 36px;
++  border-block: 1px solid #b9beb9;
++  color: var(--pipeline-ink);
++  background:
++    linear-gradient(rgba(34, 43, 36, .035) 1px, transparent 1px),
++    linear-gradient(90deg, rgba(34, 43, 36, .035) 1px, transparent 1px),
++    var(--pipeline-paper);
++  background-size: 24px 24px;
++  box-shadow: inset 0 1px #fff;
++  font-family: "Segoe UI", sans-serif;
++}
++
++.pipeline-console code,
++.pipeline-console small,
++.pipeline-console time,
++.pipeline-console button,
++.pipeline-console input,
++.pipeline-console select,
++.pipeline-console-header p,
++.pipeline-spine > header p,
++.pipeline-audit-header p {
++  font-family: var(--mono);
++}
++
++.pipeline-console-header,
++.pipeline-gate-panel > header,
++.pipeline-run-shelf > header,
++.pipeline-audit-header {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 12px;
++}
++
++.pipeline-console-header {
++  padding: 12px 14px;
++  border: 1px solid #242a25;
++  border-radius: 6px;
++  color: #f4f7f4;
++  background: #171c18;
++  box-shadow: 0 7px 18px rgba(26, 31, 27, .14);
++}
++
++.pipeline-console-header p:first-child,
++.pipeline-spine > header p,
++.pipeline-audit-header p {
++  color: #79ad87;
++  font-size: 8px;
++  font-weight: 850;
++  letter-spacing: 1.5px;
++}
++
++.pipeline-console-header h1 {
++  margin-top: 3px;
++  font-size: 15px;
++  line-height: 1.15;
++}
++
++#pp-orch-console-scope {
++  margin-top: 4px;
++  color: #aeb8b0;
++  font-size: 8px;
++}
++
++.pipeline-console button {
++  border: 1px solid #aeb5af;
++  border-radius: 4px;
++  padding: 6px 9px;
++  color: #263029;
++  background: #fff;
++  font-size: 8px;
++  font-weight: 800;
++  letter-spacing: .35px;
++  cursor: pointer;
++}
++
++.pipeline-console button:hover:not(:disabled) {
++  border-color: #567661;
++  background: #eef4ef;
++}
++
++.pipeline-console button:focus-visible,
++.pipeline-console input:focus-visible,
++.pipeline-console select:focus-visible,
++.pipeline-console summary:focus-visible,
++.pipeline-audit-resize-handle:focus-visible {
++  outline: 3px solid rgba(61, 126, 80, .32);
++  outline-offset: 2px;
++}
++
++.pipeline-console button:disabled {
++  opacity: .52;
++  cursor: not-allowed;
++}
++
++.pipeline-console-header button {
++  border-color: #587161;
++  color: #d9e6dc;
++  background: #27332b;
++}
++
++.pipeline-console-error,
++.pipeline-console-empty,
++.pipeline-no-warnings {
++  padding: 12px 14px;
++  border: 1px solid var(--pipeline-line);
++  border-radius: 5px;
++  color: var(--pipeline-muted);
++  background: rgba(255, 255, 255, .9);
++  font-size: 10px;
++}
++
++.pipeline-console-error {
++  border-color: #c98279;
++  color: var(--pipeline-red);
++  background: var(--pipeline-red-soft);
++}
++
++.pipeline-warning-stack {
++  position: sticky;
++  z-index: 14;
++  top: 0;
++  border: 1px solid #bd7b2d;
++  border-radius: 6px;
++  overflow: hidden;
++  background: var(--pipeline-amber-soft);
++  box-shadow: 0 5px 16px rgba(78, 49, 14, .13);
++}
++
++.pipeline-warning-stack > h2 {
++  padding: 7px 10px;
++  color: #fff6e7;
++  background: #8c5312;
++  font: 850 8px var(--mono);
++  letter-spacing: .8px;
++  text-transform: uppercase;
++}
++
++.pipeline-warning-stack ul {
++  display: grid;
++  gap: 1px;
++  background: #e5cba2;
++}
++
++.pipeline-warning-stack li {
++  display: grid;
++  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
++  align-items: center;
++  gap: 8px;
++  padding: 8px 10px;
++  background: #fff7e8;
++  font-size: 9px;
++}
++
++.pipeline-warning-stack li[data-severity="critical"] {
++  color: #713630;
++  background: var(--pipeline-red-soft);
++}
++
++.pipeline-warning-stack code,
++.pipeline-warning-stack time {
++  font-size: 7px;
++}
++
++.pipeline-shelves {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
++  gap: 0;
++  border: 1px solid var(--pipeline-line);
++  border-radius: 6px;
++  overflow: hidden;
++  background: #fff;
++}
++
++.pipeline-run-shelf {
++  min-width: 0;
++  padding: 10px;
++}
++
++.pipeline-run-shelf + .pipeline-run-shelf {
++  border-left: 2px solid #757d77;
++}
++
++.pipeline-run-shelf > header {
++  margin-bottom: 8px;
++  padding-bottom: 7px;
++  border-bottom: 1px solid var(--pipeline-line);
++}
++
++.pipeline-run-shelf h3 {
++  font: 850 9px var(--mono);
++  letter-spacing: .8px;
++  text-transform: uppercase;
++}
++
++.pipeline-run-shelf > header span {
++  display: grid;
++  min-width: 23px;
++  height: 20px;
++  place-items: center;
++  border-radius: 99px;
++  color: #fff;
++  background: #4d5550;
++  font: 800 8px var(--mono);
++}
++
++.pipeline-run-shelf-completed > header span {
++  background: var(--pipeline-green);
++}
++
++.pipeline-run-list {
++  display: grid;
++  gap: 6px;
++}
++
++.pipeline-run-list button {
++  display: grid;
++  width: 100%;
++  grid-template-columns: auto 1fr auto;
++  gap: 3px 8px;
++  text-align: left;
++}
++
++.pipeline-run-list button > span:first-child {
++  color: #59615b;
++}
++
++.pipeline-run-list button strong {
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.pipeline-run-list button small {
++  grid-column: 1 / 3;
++  overflow: hidden;
++  color: #747b76;
++  font-size: 7px;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.pipeline-run-shelf-completed .pipeline-run-list button {
++  border-color: #6b9d79;
++  color: var(--pipeline-green);
++  background: var(--pipeline-green-soft);
++}
++
++.pipeline-spine,
++.pipeline-gate-panel {
++  border: 1px solid var(--pipeline-line);
++  border-radius: 6px;
++  background: rgba(255, 255, 255, .96);
++  box-shadow: 0 4px 13px rgba(36, 43, 38, .06);
++}
++
++.pipeline-spine {
++  padding: 14px;
++}
++
++.pipeline-spine > header h2,
++.pipeline-gate-panel > header h2,
++.pipeline-audit-header h2 {
++  margin-top: 3px;
++  color: var(--pipeline-ink);
++  font-size: 12px;
++}
++
++.pipeline-stage-list {
++  position: relative;
++  display: grid;
++  grid-template-columns: minmax(0, 1fr);
++  gap: 8px;
++  margin-top: 12px;
++  padding-bottom: 4px;
++}
++
++.pipeline-stage-list::before {
++  position: absolute;
++  top: 15px;
++  bottom: 15px;
++  left: 22px;
++  width: 2px;
++  background: #b7beb8;
++  content: "";
++}
++
++.pipeline-stage {
++  position: relative;
++  z-index: 1;
++  display: grid;
++  grid-template-columns: 30px minmax(0, 1fr) auto;
++  align-items: center;
++  gap: 10px;
++  padding: 8px;
++  border: 1px solid #c6cbc7;
++  border-radius: 5px;
++  background: #fafafa;
++}
++
++.pipeline-stage-index {
++  display: grid;
++  width: 30px;
++  height: 30px;
++  place-items: center;
++  border: 3px solid #fff;
++  border-radius: 50%;
++  color: #fff;
++  background: #5e6560;
++  box-shadow: 0 0 0 1px #89918b;
++  font: 850 8px var(--mono);
++}
++
++.pipeline-stage h3 { font-size: 9px; }
++.pipeline-stage p { margin-top: 3px; color: var(--pipeline-muted); font-size: 8px; line-height: 1.3; }
++.pipeline-stage-state { color: #59615b; font: 850 7px var(--mono); text-transform: uppercase; }
++.pipeline-stage-passed { border-color: #6b9d79; background: var(--pipeline-green-soft); }
++.pipeline-stage-passed .pipeline-stage-index { background: var(--pipeline-green); }
++.pipeline-stage-passed .pipeline-stage-state { color: var(--pipeline-green); }
++.pipeline-stage-blocked { border-color: #ca8279; background: var(--pipeline-red-soft); }
++.pipeline-stage-blocked .pipeline-stage-index { background: var(--pipeline-red); }
++.pipeline-stage-blocked .pipeline-stage-state { color: var(--pipeline-red); }
++.pipeline-stage-running { border-color: #c99550; background: var(--pipeline-amber-soft); }
++.pipeline-stage-running .pipeline-stage-index { background: var(--pipeline-amber); }
++
++.pipeline-gate-panel > header {
++  padding: 9px 11px;
++  border-bottom: 1px solid var(--pipeline-line);
++  background: #f4f4f0;
++}
++
++.pipeline-gate-panel > header strong {
++  color: #59615b;
++  font: 850 8px var(--mono);
++  text-transform: uppercase;
++}
++
++.pipeline-gate-panel > p,
++.pipeline-gate-panel > ul,
++.pipeline-gate-panel > dl,
++.pipeline-gate-panel > div:not(.pipeline-node-list) {
++  margin: 10px;
++}
++
++.pipeline-resource-grid,
++.pipeline-node-detail dl,
++.pipeline-delivery-summary {
++  display: grid;
++  grid-template-columns: repeat(4, minmax(0, 1fr));
++  gap: 1px;
++  border: 1px solid var(--pipeline-line);
++  background: var(--pipeline-line);
++}
++
++.pipeline-resource-grid > div,
++.pipeline-node-detail dl > div,
++.pipeline-delivery-summary > div {
++  min-width: 0;
++  padding: 8px;
++  background: #fff;
++}
++
++.pipeline-resource-grid dt,
++.pipeline-node-detail dt,
++.pipeline-delivery-summary dt {
++  color: #777e79;
++  font: 750 7px var(--mono);
++  text-transform: uppercase;
++}
++
++.pipeline-resource-grid dd,
++.pipeline-node-detail dd,
++.pipeline-delivery-summary dd {
++  margin-top: 3px;
++  overflow: hidden;
++  font-size: 9px;
++  text-overflow: ellipsis;
++}
++
++.pipeline-table-scroll { overflow: auto; }
++.pipeline-table-scroll table { width: 100%; border-collapse: collapse; }
++.pipeline-table-scroll caption { padding: 8px; color: #6b726d; font: 700 7px var(--mono); text-align: left; }
++.pipeline-table-scroll th,
++.pipeline-table-scroll td { padding: 7px 8px; border: 1px solid #d5d9d5; font-size: 8px; text-align: left; vertical-align: top; }
++.pipeline-table-scroll th { color: #59615b; background: #f0f1ee; font: 850 7px var(--mono); text-transform: uppercase; }
++
++.pipeline-node-list { display: grid; gap: 7px; padding: 10px; }
++.pipeline-node { border: 1px solid #bcc3bd; border-radius: 5px; overflow: hidden; background: #fff; }
++.pipeline-node[open] { border-color: #4c6f57; box-shadow: 0 5px 18px rgba(40, 60, 46, .12); }
++.pipeline-node summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 9px; padding: 9px 10px; background: #f5f5f2; cursor: pointer; font-size: 8px; }
++.pipeline-node summary strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
++.pipeline-node-detail { display: grid; gap: 9px; padding: 10px; border-top: 1px solid #cdd2ce; }
++.pipeline-node-detail h3 { margin-bottom: 5px; color: #59615b; font: 850 7px var(--mono); text-transform: uppercase; }
++.pipeline-node-detail ul { display: flex; flex-wrap: wrap; gap: 5px; }
++.pipeline-node-detail li { min-width: 0; font-size: 8px; }
++.pipeline-node-detail code { overflow-wrap: anywhere; }
++.pipeline-evidence-list li { display: grid; min-width: 210px; grid-template-columns: auto 1fr auto; gap: 3px 7px; padding: 7px; border: 1px solid #cbd1cc; border-radius: 4px; background: #f6f8f6; }
++.pipeline-evidence-list small { grid-column: 1 / -1; color: #727a74; font-size: 7px; }
++
++#pp-orch-list-reconciliation-violations,
++#pp-orch-list-release-issues {
++  display: grid;
++  gap: 5px;
++}
++
++#pp-orch-list-reconciliation-violations li,
++#pp-orch-list-release-issues li {
++  display: grid;
++  grid-template-columns: auto 1fr auto;
++  gap: 8px;
++  padding: 7px 8px;
++  border: 1px solid #d7a29a;
++  border-radius: 4px;
++  color: #653a36;
++  background: var(--pipeline-red-soft);
++  font-size: 8px;
++}
++
++.pipeline-audit-drawer {
++  position: sticky;
++  z-index: 40;
++  bottom: 0;
++  display: flex;
++  min-height: 180px;
++  overflow: hidden;
++  flex-direction: column;
++  border: 2px solid #414944;
++  border-radius: 8px 8px 0 0;
++  color: var(--pipeline-ink);
++  background: #fbfbf8;
++  box-shadow: 0 -10px 32px rgba(24, 30, 26, .22);
++}
++
++.pipeline-audit-drawer.is-maximized {
++  position: fixed;
++  z-index: 120;
++  inset: 12px 12px 0;
++  width: auto;
++  height: calc(100vh - 12px) !important;
++}
++
++.pipeline-audit-drawer.is-collapsed { min-height: 0; }
++.pipeline-audit-resize-handle { display: grid; height: 14px; flex: none; place-items: center; background: #1e2520; cursor: ns-resize; touch-action: none; }
++.pipeline-audit-resize-handle span { width: 54px; height: 3px; border-radius: 99px; background: #9eaaa1; }
++.pipeline-audit-header { padding: 8px 10px; border-bottom: 1px solid #c8cdc9; }
++.pipeline-audit-size-controls { display: flex; gap: 5px; }
++.pipeline-audit-tabs { display: flex; gap: 4px; padding: 7px 9px 0; border-bottom: 1px solid #c8cdc9; }
++.pipeline-audit-tabs button { border-radius: 4px 4px 0 0; }
++.pipeline-audit-tabs button[aria-selected="true"] { border-color: #37483c; color: #fff; background: #29352d; }
++.pipeline-audit-filters { display: grid; grid-template-columns: auto minmax(150px, 1fr) auto 150px auto 160px auto; align-items: center; gap: 6px; padding: 8px 9px; border-bottom: 1px solid #d5d9d5; background: #f0f0ec; }
++.pipeline-audit-filters label { color: #646b66; font: 800 7px var(--mono); text-transform: uppercase; }
++.pipeline-audit-filters input,
++.pipeline-audit-filters select { min-width: 0; height: 28px; border: 1px solid #bac0bb; border-radius: 4px; padding: 4px 6px; color: #303630; background: #fff; font-size: 8px; }
++.pipeline-audit-problems { display: inline-flex; align-items: center; gap: 4px; }
++.pipeline-audit-problems input { width: 15px; height: 15px; }
++.pipeline-audit-panel { min-height: 0; flex: 1; overflow: auto; }
++.pipeline-audit-events { display: grid; }
++.pipeline-audit-events li { display: grid; grid-template-columns: 145px 110px 110px 70px minmax(300px, 1fr); gap: 8px; padding: 7px 9px; border-bottom: 1px solid #e0e3e0; align-items: start; font-size: 8px; }
++.pipeline-audit-events li:nth-child(even) { background: #f4f5f2; }
++.pipeline-audit-events time,
++.pipeline-audit-events code { color: #69716b; font-size: 7px; }
++.pipeline-audit-events p { line-height: 1.35; }
++#pp-orch-table-changes-succeeded td:first-child,
++#pp-orch-table-changes-succeeded td:nth-child(2) { width: 42%; }
++#pp-orch-table-changes-succeeded td span { display: block; margin-top: 4px; }
++#pp-orch-table-changes-succeeded td small { display: block; margin-top: 4px; color: #6c746e; }
++#pp-orch-table-changes-succeeded tr[data-change-status="succeeded"] { background: var(--pipeline-green-soft); }
++#pp-orch-table-changes-succeeded tr:not([data-change-status="succeeded"]) { background: var(--pipeline-red-soft); }
++
++@media (max-width: 1050px) {
++  .pipeline-console { padding-inline: 12px; }
++  .pipeline-shelves { grid-template-columns: 1fr; }
++  .pipeline-run-shelf + .pipeline-run-shelf { border-top: 2px solid #757d77; border-left: 0; }
++  .pipeline-resource-grid,
++  .pipeline-node-detail dl,
++  .pipeline-delivery-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
++  .pipeline-audit-filters { grid-template-columns: auto 1fr auto 1fr; }
++  .pipeline-audit-events li { grid-template-columns: 120px 90px 90px 1fr; }
++  .pipeline-audit-events p { grid-column: 1 / -1; }
++}
++
++@media (prefers-reduced-motion: reduce) {
++  .pipeline-console *,
++  .pipeline-console *::before,
++  .pipeline-console *::after { scroll-behavior: auto !important; transition: none !important; }
++}
++
++
++/* ---------- delegated right-click actions ---------- */
++
++[data-context-kind], [data-context-surface] { cursor: context-menu; }
++button[data-context-kind="plan"] { cursor: pointer; }
++
++.context-action-hint { display: inline-flex; align-items: center; min-height: 25px; padding: 0 10px; border: 1px dashed #b9b7ad; border-radius: 999px; color: #6c6b64; background: #f7f5ef; font: 700 7px var(--mono); letter-spacing: .55px; text-transform: uppercase; }
++
++.pp-context-menu { position: fixed; z-index: 10000; width: 260px; overflow: hidden; border: 1px solid #6d8e75; border-radius: 7px; color: #e4ebe6; background: #111a14; box-shadow: 0 18px 55px rgba(0, 0, 0, .42), 0 0 0 3px rgba(116, 157, 126, .12); font-family: var(--mono); }
++.pp-context-menu::before { position: absolute; top: 0; right: 0; width: 34px; height: 4px; background: #76a281; content: ""; }
++.pp-context-menu header { display: grid; gap: 4px; padding: 12px 13px 10px; border-bottom: 1px solid #2d3d31; background: #17231b; }
++.pp-context-menu header span { color: #80ad8a; font-size: 7px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
++.pp-context-menu header strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
++.pp-context-menu > button { display: flex; width: 100%; align-items: center; justify-content: space-between; padding: 10px 13px; border: 0; border-bottom: 1px solid #26342a; color: #d9e1db; background: transparent; font: 700 8px var(--mono); text-align: left; cursor: pointer; }
++.pp-context-menu > button:hover,
++.pp-context-menu > button:focus-visible { color: #fff; background: #294432; outline: none; }
++.pp-context-menu > button.danger { color: #ffb2a8; }
++.pp-context-menu > button:disabled { color: #866c68; background: #1a1716; cursor: not-allowed; }
++.pp-context-menu > button small { color: #d38276; font-size: 6px; letter-spacing: .7px; text-transform: uppercase; }
++.pp-context-menu footer { padding: 8px 12px; color: #809087; font-size: 6px; line-height: 1.5; }
++
++/* ---------- bottom-right system truth console ---------- */
++
++.diagnostics-console { position: fixed; right: 12px; bottom: 10px; z-index: 5000; display: flex; width: min(560px, calc(100vw - 28px)); align-items: flex-end; flex-direction: column; pointer-events: none; }
++.diagnostics-console-toggle,
++.diagnostics-console-panel { pointer-events: auto; }
++.diagnostics-console-toggle { min-width: 150px; padding: 9px 12px; border: 1px solid #44634c; border-radius: 6px 6px 0 0; color: #dbe7de; background: #111a14; box-shadow: 0 9px 30px rgba(0, 0, 0, .22); font: 800 7.5px var(--mono); letter-spacing: .8px; cursor: pointer; }
++.diagnostics-console-toggle span { margin-left: 8px; color: #8fb699; }
++.diagnostics-console.open .diagnostics-console-toggle { border-bottom-color: #26392b; }
++.diagnostics-console-panel { width: 100%; max-height: min(480px, 56vh); overflow: auto; border: 1px solid #44634c; border-radius: 7px 0 7px 7px; color: #dce6df; background: #101713; box-shadow: 0 22px 65px rgba(0, 0, 0, .38); }
++.diagnostics-console.maximized { inset: 12px; width: auto; align-items: stretch; }
++.diagnostics-console.maximized .diagnostics-console-panel { max-height: none; height: calc(100vh - 52px); }
++.diagnostics-console-panel > header { display: flex; align-items: center; justify-content: space-between; padding: 11px 13px; border-bottom: 1px solid #2a3b2f; background: #17231b; cursor: ns-resize; }
++.diagnostics-console-panel > header div { display: grid; gap: 3px; }
++.diagnostics-console-panel > header span { color: #75a781; font: 800 6.5px var(--mono); letter-spacing: 1px; }
++.diagnostics-console-panel > header strong { font: 800 11px var(--mono); }
++.diagnostics-console-panel button { border: 1px solid #53675a; border-radius: 4px; color: #d8e1da; background: #1a241d; font: 700 7px var(--mono); cursor: pointer; }
++.diagnostics-console-panel > header button { padding: 6px 8px; }
++.diagnostics-console nav { display: flex; gap: 6px; padding: 8px 10px; border-bottom: 1px solid #29362e; }
++.diagnostics-console nav button { padding: 6px 10px; }
++.diagnostics-console nav button[aria-selected="true"] { border-color: #78a282; color: #fff; background: #2b4733; }
++.diagnostics-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; padding: 10px; }
++.diagnostics-status-grid article { position: relative; display: grid; min-height: 78px; align-content: start; gap: 6px; padding: 10px 11px 10px 15px; border: 1px solid #35463a; border-radius: 5px; background: #151e18; }
++.diagnostics-status-grid article::before { position: absolute; inset: 9px auto 9px 6px; width: 3px; border-radius: 3px; background: #7b867e; content: ""; }
++.diagnostics-status-grid article[data-state="ready"]::before { background: #5aa66d; }
++.diagnostics-status-grid article[data-state="warning"]::before { background: #dd8c73; }
++.diagnostics-status-grid article span { color: #84958a; font: 700 6px var(--mono); letter-spacing: .8px; text-transform: uppercase; }
++.diagnostics-status-grid article strong { overflow-wrap: anywhere; font: 800 8px var(--mono); }
++.diagnostics-status-grid article small { overflow-wrap: anywhere; color: #a4aea7; font: 6.5px/1.45 var(--mono); }
++.diagnostics-log { padding: 10px; }
++.diagnostics-log > button { float: right; padding: 6px 8px; }
++.diagnostics-log article { display: grid; grid-template-columns: 72px 90px 1fr; gap: 7px; padding: 8px 3px; border-bottom: 1px solid #29342d; font: 7px var(--mono); }
++.diagnostics-log article[data-level="error"] { color: #ffaca0; }
++.diagnostics-log article[data-level="warning"] { color: #e7b37c; }
++.diagnostics-log article p { margin: 0; overflow-wrap: anywhere; }
++.diagnostics-gaps { display: grid; gap: 8px; padding: 10px; }
++.diagnostics-guarantee-warning { display: grid; gap: 4px; padding: 9px 10px; border: 1px solid #9a5d4e; border-radius: 5px; color: #ffd0c8; background: #2c1916; font: 7px/1.45 var(--mono); }
++.diagnostics-guarantee-warning strong { letter-spacing: .7px; }
++.diagnostics-guarantee-warning span { color: #e7aaa0; }
++.diagnostics-gaps > header { display: grid; gap: 6px; padding: 3px 2px 7px; border-bottom: 1px solid #2d3c32; }
++.diagnostics-gaps > header div { display: grid; gap: 3px; }
++.diagnostics-gaps > header span,
++.diagnostics-gap-body h3 { color: #7da488; font: 800 6px var(--mono); letter-spacing: .9px; }
++.diagnostics-gaps > header strong { font: 800 9px/1.4 var(--mono); }
++.diagnostics-gaps > header p,
++.diagnostics-gaps-empty p { margin: 0; color: #a5b0a8; font: 6.5px/1.55 var(--mono); }
++.diagnostics-gap-node { border: 1px solid #3a4d40; border-radius: 5px; background: #141d17; }
++.diagnostics-gap-node[open] { border-color: #8d6742; box-shadow: inset 3px 0 #bd7b45; }
++.diagnostics-gap-node summary { display: grid; grid-template-columns: auto minmax(120px, 1fr) auto; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; list-style: none; }
++.diagnostics-gap-node summary::-webkit-details-marker { display: none; }
++.diagnostics-gap-id { padding: 3px 5px; border: 1px solid #69766d; border-radius: 3px; color: #f1ddc5; font: 900 7px var(--mono); }
++.diagnostics-gap-title { font: 800 7.5px/1.4 var(--mono); }
++.diagnostics-gap-progress { color: #e0a96e; font: 700 6.5px var(--mono); white-space: nowrap; }
++.diagnostics-gap-body { display: grid; gap: 10px; padding: 0 11px 12px; border-top: 1px solid #2c3a31; }
++.diagnostics-gap-meta { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 9px; }
++.diagnostics-gap-meta span { padding: 3px 5px; border: 1px solid #46574b; border-radius: 3px; color: #aeb8b1; font: 700 5.8px var(--mono); }
++.diagnostics-gap-body section { display: grid; gap: 6px; }
++.diagnostics-gap-body h3 { margin: 0; }
++.diagnostics-gap-body section > p { margin: 0; color: #c5cec7; font: 6.8px/1.65 var(--mono); }
++.diagnostics-gap-body ol { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
++.diagnostics-gap-body li { display: grid; gap: 5px; padding: 8px; border: 1px solid #314038; border-radius: 4px; background: #101611; }
++.diagnostics-gap-body li p { margin: 0; color: #d5ddd7; font: 6.7px/1.55 var(--mono); }
++.diagnostics-gap-body li > div { display: flex; gap: 5px; }
++.diagnostics-gap-body li span { padding: 2px 5px; border: 1px solid #56625a; border-radius: 3px; font: 800 5.7px var(--mono); }
++.diagnostics-gap-body li span[data-state="ready"] { border-color: #4d7659; color: #83bd90; }
++.diagnostics-gap-body li span[data-state="missing"] { border-color: #825e42; color: #e8a266; }
++.diagnostics-gap-body li code { overflow-wrap: anywhere; color: #84958a; font: 5.8px/1.5 var(--mono); white-space: normal; }
++.diagnostics-gaps-empty { display: grid; gap: 8px; padding: 18px; }
++.diagnostics-gaps-empty strong { color: #d6ded8; font: 800 8px var(--mono); }
++
++.resource-guard-failure { display: grid; gap: 7px; margin: 0; }
++.resource-guard-failure div { display: grid; grid-template-columns: 50px 1fr; gap: 7px; }
++.resource-guard-failure dt { color: #d68d7f; font: 800 6px var(--mono); letter-spacing: .6px; text-transform: uppercase; }
++.resource-guard-failure dd { margin: 0; overflow-wrap: anywhere; font: 7px/1.45 var(--mono); }
++
++.pipeline-console-empty strong,
++.pipeline-console-empty span { display: block; }
++.pipeline-console-empty strong { margin-bottom: 5px; color: #915c4e; }
++.pipeline-console-empty dl { display: grid; gap: 5px; margin: 10px 0 0; }
++.pipeline-console-empty dl div { display: grid; grid-template-columns: 70px 1fr; gap: 8px; }
++.pipeline-console-empty dt { color: #77766f; font: 800 7px var(--mono); text-transform: uppercase; }
++.pipeline-console-empty dd { margin: 0; overflow-wrap: anywhere; }
++
++@media (max-width: 720px) {
++  .diagnostics-status-grid { grid-template-columns: 1fr; }
++  .diagnostics-console { right: 6px; bottom: 6px; width: calc(100vw - 12px); }
++  .diagnostics-log article { grid-template-columns: 62px 70px 1fr; }
++  .context-action-hint { display: none; }
++}
+diff --git a/tests/control_plane_e2e.py b/tests/control_plane_e2e.py
+new file mode 100644
+index 0000000..2e91eb8
+--- /dev/null
++++ b/tests/control_plane_e2e.py
+@@ -0,0 +1,249 @@
++from pathlib import Path
++import os
++from urllib.parse import urlparse
++
++from playwright.sync_api import expect, sync_playwright
++
++
++ROOT = Path(__file__).resolve().parents[1]
++APP_URL = os.environ.get("PP_APP_URL", "http://127.0.0.1:5180/")
++SCREENSHOT = ROOT / "artifacts" / "orchestrator-messaging-after.png"
++
++BOARDS = {
++    5230: {
++        "planPath": r"C:\repos\looplet-worktrees\repo-a-work\.claude\scratch\perfect-plan\a.json",
++        "number": "PP-101",
++        "topic": "Orchestrator messaging",
++        "repoName": "Repository Alpha",
++        "repoRoot": r"C:\repos\repository-alpha",
++        "project": "Repository Alpha",
++        "worktreeName": "repo-a-work",
++        "branch": "feature/orchestrator-messaging",
++        "worker": "s-worker-alpha",
++    },
++    5231: {
++        "planPath": r"C:\repos\looplet-worktrees\repo-b-work\.claude\scratch\perfect-plan\b.json",
++        "number": "PP-101",
++        "topic": "Unrelated repository",
++        "repoName": "Repository Beta",
++        "repoRoot": r"C:\repos\repository-beta",
++        "project": "Repository Beta",
++        "worktreeName": "repo-b-work",
++        "branch": "feature/unrelated",
++        "worker": "s-worker-beta",
++    },
++}
++
++
++def main():
++    SCREENSHOT.parent.mkdir(parents=True, exist_ok=True)
++    with sync_playwright() as playwright:
++        # The user selected Chrome for visual verification. Keep it headless so this proof
++        # never steals focus or consumes a visible desktop window.
++        browser = playwright.chromium.launch(channel="chrome", headless=True)
++        context = browser.new_context(
++            viewport={"width": 1440, "height": 900},
++            device_scale_factor=2,
++        )
++        page = context.new_page()
++        console_errors = []
++        page.on(
++            "console",
++            lambda message: console_errors.append(message.text)
++            if message.type == "error"
++            else None,
++        )
++
++        def mock_probe(route):
++            parsed = urlparse(route.request.url)
++            parts = parsed.path.strip("/").split("/")
++            if len(parts) != 3 or parts[0] != "board-probe":
++                route.fulfill(status=404, json={"ok": False})
++                return
++            board = BOARDS.get(int(parts[1]))
++            if not board:
++                route.fulfill(status=200, json={"ok": False})
++                return
++            endpoint = parts[2]
++            if endpoint == "whoami":
++                route.fulfill(
++                    status=200,
++                    json={
++                        "ok": True,
++                        **{key: value for key, value in board.items() if key != "worker"},
++                        "approved": "yes @ test",
++                        "awaiting": None,
++                        "port": int(parts[1]),
++                        "pid": 9000 + int(parts[1]),
++                    },
++                )
++            elif endpoint == "workers":
++                route.fulfill(
++                    status=200,
++                    json={
++                        "workers": {
++                            "A01": {
++                                "vertebra": "A01",
++                                "session": board["worker"],
++                                "state": "ACTIVE",
++                                "model": "gpt-5",
++                                "user": "test-worker",
++                            }
++                        }
++                    },
++                )
++            elif endpoint == "plan":
++                route.fulfill(
++                    status=200,
++                    json={
++                        "spine": [{"id": "P1", "title": "Control plane"}],
++                        "vertebrae": [
++                            {
++                                "id": "A01",
++                                "spineId": "P1",
++                                "title": "Worker notes",
++                                "files": ["src/control.ts"],
++                                "resources": ["runtime:control-plane"],
++                                "checklist": [],
++                            }
++                        ],
++                    },
++                )
++            else:
++                route.fulfill(status=404, json={"ok": False})
++
++        page.route("**/board-probe/**", mock_probe)
++        for port in BOARDS:
++            page.route(
++                f"http://127.0.0.1:{port}/",
++                lambda route: route.fulfill(body="<html><title>planner board</title></html>"),
++            )
++
++        page.goto(APP_URL)
++        page.wait_for_load_state("networkidle")
++        alpha = page.locator(
++            '.rail-item[data-repository-name="Repository Alpha"][data-board-port="5230"]'
++        )
++        expect(alpha).to_be_visible()
++        alpha.evaluate("element => element.click()")
++
++        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "false")
++        orchestrator_toggle.click()
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
++
++        messenger = page.locator("#pp-region-orchestrator-messenger")
++        expect(messenger).to_be_visible()
++        expect(page.locator("#pp-badge-orchestrator-inbox")).to_contain_text("0")
++        expect(page.locator("#pp-badge-orchestrator-outbox")).to_contain_text("0")
++        worker_button = page.locator("#pp-btn-open-worker-notes-s-worker-alpha")
++        expect(worker_button).to_be_visible()
++        worker_button.evaluate("element => element.click()")
++        panel = page.locator("#pp-panel-worker-notes")
++        expect(panel).to_be_visible()
++        expect(panel).to_have_attribute("data-worker-id", "s-worker-alpha")
++        expect(panel).to_have_attribute("data-node-id", "A01")
++
++        page.locator("#pp-input-worker-note").fill(
++            "Provider access is blocked; the orchestrator must decide whether to use the export fallback."
++        )
++        page.locator("#pp-check-escalate-chat").check()
++        expect(page.locator("#pp-status-chat-route")).to_contain_text("No chat destination")
++        page.locator("#pp-btn-send-worker-note").evaluate("element => element.click()")
++        expect(page.locator("#pp-notice-worker-note")).to_contain_text("Worker note recorded")
++        expect(page.locator("#pp-list-worker-notes article")).to_have_count(2)
++        expect(page.locator('[data-delivery-state="DELIVERED"]')).to_have_count(1)
++        expect(page.locator('[data-delivery-state="UNROUTED"]')).to_have_count(1)
++        expect(page.locator("#pp-badge-orchestrator-unrouted")).to_contain_text("1")
++        assert page.get_by_text("SENT", exact=True).count() == 0, (
++            "the UI claimed a delivery was sent without connector proof"
++        )
++
++        # Simulate a real worker process using the same typed control-plane contract. The local
++        # UI is the consumer: its next poll must claim and deliver the note before ACK appears.
++        incoming_id = page.evaluate(
++            """
++            async () => {
++              const api = await import('/src/services/controlPlane.ts');
++              const stored = Object.keys(localStorage)
++                .filter((key) => key.startsWith('perfect-planner:control-plane:v1:'))
++                .map((key) => JSON.parse(localStorage.getItem(key)))
++                .find((value) => value?.messages?.some((message) => message.scope?.workerId === 's-worker-alpha'));
++              const scope = stored.messages.find((message) => message.scope.workerId === 's-worker-alpha').scope;
++              const message = await api.postControlMessage({
++                idempotencyKey: 'worker-alpha:handoff:1',
++                correlationId: 'worker-alpha:blocker',
++                kind: 'workerNote',
++                scope,
++                authorId: 's-worker-alpha',
++                body: 'Worker note: OAuth consent is required before this node can continue.',
++                destination: {
++                  registrationId: `pp-local-ui:${scope.repositoryId}`,
++                  kind: 'localUi',
++                  label: 'Head orchestrator inbox',
++                  address: 'pp-region-orchestrator-messenger',
++                  enabled: true,
++                  requiresAcknowledgement: true,
++                  maxAttempts: 3,
++                  retryBaseMs: 5000,
++                  registeredAtMs: Date.now(),
++                  metadata: { source: 'external-worker-test' },
++                },
++              });
++              return message.id;
++            }
++            """
++        )
++        expect(page.get_by_text("Worker note: OAuth consent is required", exact=False)).to_be_visible(
++            timeout=8_000
++        )
++        incoming = page.locator(f'[data-message-id="{incoming_id}"]')
++        expect(incoming).to_have_attribute("data-delivery-state", "DELIVERED")
++        incoming.get_by_role("button", name="ACKNOWLEDGE").evaluate(
++            "element => element.click()"
++        )
++        expect(incoming).to_have_attribute("data-delivery-state", "ACKNOWLEDGED")
++
++        # Same PP number in another repository must not reveal Alpha's notes.
++        page.locator("#pp-btn-close-worker-notes").evaluate("element => element.click()")
++        beta = page.locator(
++            '.rail-item[data-repository-name="Repository Beta"][data-board-port="5231"]'
++        )
++        # Selecting a different repository intentionally changes the embedded board iframe.
++        # Dispatch the button's semantic click and assert scoped UI state below instead of
++        # letting Playwright wait on an unrelated frame-navigation heuristic.
++        beta.evaluate("element => element.click()")
++        expect(page.locator("#pp-badge-orchestrator-inbox")).to_contain_text("0")
++        expect(page.locator("#pp-badge-orchestrator-outbox")).to_contain_text("0")
++        page.locator("#pp-btn-open-worker-notes-s-worker-beta").evaluate(
++            "element => element.click()"
++        )
++        expect(page.locator("#pp-list-worker-notes article")).to_have_count(0)
++
++        page.locator("#pp-btn-close-worker-notes").evaluate("element => element.click()")
++        alpha.evaluate("element => element.click()")
++        page.locator("#pp-btn-open-worker-notes-s-worker-alpha").evaluate(
++            "element => element.click()"
++        )
++        expect(page.locator("#pp-list-worker-notes article")).to_have_count(3)
++        page.screenshot(path=str(SCREENSHOT), full_page=True)
++        page.locator("#pp-panel-worker-notes").evaluate(
++            "element => element.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, button: 2 }))"
++        )
++        expect(page.locator("#pp-context-menu")).to_contain_text("Worker notes")
++        page.locator("#pp-context-menu").get_by_role(
++            "menuitem", name="Close modal"
++        ).evaluate("element => element.click()")
++        expect(page.locator("#pp-panel-worker-notes")).to_have_count(0)
++        assert not console_errors, f"browser console errors: {console_errors}"
++
++        context.close()
++        browser.close()
++
++    print("control_plane_e2e: PASS")
++    print("proved: scoped notes, UNROUTED truth, local delivery, worker-originated note, ack, repo isolation")
++    print(f"screenshot: {SCREENSHOT}")
++
++
++if __name__ == "__main__":
++    main()

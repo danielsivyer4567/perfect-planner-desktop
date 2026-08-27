@@ -1,0 +1,15 @@
+# perfect-planning proof artifact
+item: B01:4 — Specify that board approval alone never unlocks work: a registered originating-chat route and durable delivery receipt are mandatory claim inputs
+command: node -e "const fs=require('fs');const s=fs.readFileSync('docs/collision-assessor-guarantee.md','utf8').toLowerCase();if(!s.includes('approval')||!s.includes('delivery receipt')||!s.includes('originating chat'))process.exit(1)"
+cwd: C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935
+exit: 0
+duration_ms: 367
+at: 2026-08-22T16:07:49.273Z
+git: 177208f653bdfe622f6c292b212c02417996346b (feature/tauri-orchestrator-messaging-20260821-223935)
+diff: PP-002-B01-4-1787414867999.diff
+diff_baseline: c007ad05ceff9b4eb3560a84c2c91bdc3acd2414
+
+## stdout
+(empty)
+## stderr
+(empty)

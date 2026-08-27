@@ -1,0 +1,30 @@
+# perfect-planning proof artifact
+item: A03:1 — Keep browser test fallback repository-scoped and idempotent
+command: npm run build
+cwd: C:\repos\perfect-planner-tauri
+exit: 0
+duration_ms: 4552
+at: 2026-08-23T02:00:24.376Z
+git: 77abb60cbbba9f964e04461e68e237b0255a9fd1 (feature/tauri-orchestrator-messaging-20260821-223935, dirty)
+diff: PP-001-A03-1-1787450418996.diff
+diff_baseline: 6b5d52e3ce1cd6157719144fd5506d1cc15d4900
+
+## stdout
+
+> perfect-planner-desktop@1.0.0 build
+> tsc && vite build
+
+vite v8.2.2 building client environment for production...
+transforming...
+✓ 1592 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.47 kB │ gzip:  0.31 kB
+dist/assets/index-B6RMOtQA.css   55.54 kB │ gzip: 12.47 kB
+dist/assets/core-CwxXejkd.js      0.09 kB │ gzip:  0.10 kB
+dist/assets/index-CDuM6lBD.js   289.35 kB │ gzip: 87.63 kB
+
+✓ built in 825ms
+
+## stderr
+(empty)

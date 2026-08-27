@@ -1,0 +1,2638 @@
+# perfect-planning proof artifact
+item: B15:2 — Keep worker admission blocked while approval notification is UNROUTED, QUEUED, CLAIMED, retrying or DEAD LETTER and release it only after a matching delivery receipt
+command: cargo test --manifest-path src-tauri/Cargo.toml approval_bridge::tests::admission_waits_for_matching_delivery_receipt
+cwd: C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935
+exit: 0
+duration_ms: 1108
+at: 2026-08-22T16:08:41.788Z
+git: 177208f653bdfe622f6c292b212c02417996346b (feature/tauri-orchestrator-messaging-20260821-223935)
+before_shot: PP-002-B15-baseline-1787373372060.before.png
+before_shot_note: Untouched PP-002 board is visible at 3x scale with approved state, 49% built/tested, integrity OK, and no visible transactional approval-to-chat route or delivery status in the current top-level view.
+before_shot_check: ok (4320x2700, blankScore 0.6518)
+before_ocr: PP-002-B15-baseline-1787373372060.before.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 82, 2636ms)
+before_ocr_alarms: none
+diff: PP-002-B15-2-1787414919812.diff
+diff_baseline: e0f82c869e5eb62f11f8bb6797bcd297616ad4f0
+
+## stdout
+
+running 1 test
+test approval_bridge::tests::admission_waits_for_matching_delivery_receipt ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 286 filtered out; finished in 0.03s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+
+## stderr
+warning: unused import: `ClaimSnapshotFailure`
+  --> src\collision_assessor\discovery.rs:10:44
+   |
+10 | use super::model::{CanonicalClaimSnapshot, ClaimSnapshotFailure};
+   |                                            ^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `unknown_claim_snapshot`
+  --> src\collision_assessor\discovery.rs:14:5
+   |
+14 |     unknown_claim_snapshot, validate_canonical_claim_snapshot, verify_authority_set_receipt,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `registration`
+    --> src\collision_assessor\registry.rs:1813:18
+     |
+1813 |         let Some(registration) = document
+     |                  ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_registration`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `ANALYZER_SCHEMA_VERSION` is never used
+  --> src\collision_assessor\analyzer.rs:18:7
+   |
+18 | const ANALYZER_SCHEMA_VERSION: u32 = 1;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `MAX_ANALYZER_ROOTS` is never used
+  --> src\collision_assessor\analyzer.rs:19:7
+   |
+19 | const MAX_ANALYZER_ROOTS: usize = 128;
+   |       ^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_ANALYZER_PLANNERS` is never used
+  --> src\collision_assessor\analyzer.rs:20:7
+   |
+20 | const MAX_ANALYZER_PLANNERS: usize = 512;
+   |       ^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_ANALYZER_PARTICIPANTS` is never used
+  --> src\collision_assessor\analyzer.rs:21:7
+   |
+21 | const MAX_ANALYZER_PARTICIPANTS: usize = 65_536;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_ANALYZER_CLAIMS` is never used
+  --> src\collision_assessor\analyzer.rs:22:7
+   |
+22 | const MAX_ANALYZER_CLAIMS: usize = 131_072;
+   |       ^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_DEPENDENCY_EDGES` is never used
+  --> src\collision_assessor\analyzer.rs:23:7
+   |
+23 | const MAX_DEPENDENCY_EDGES: usize = 262_144;
+   |       ^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_ANCESTOR_PROBES` is never used
+  --> src\collision_assessor\analyzer.rs:24:7
+   |
+24 | const MAX_ANCESTOR_PROBES: usize = 1_048_576;
+   |       ^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_PAIR_PROBES` is never used
+  --> src\collision_assessor\analyzer.rs:25:7
+   |
+25 | const MAX_PAIR_PROBES: usize = 1_048_576;
+   |       ^^^^^^^^^^^^^^^
+
+warning: constant `MAX_CONFLICTS` is never used
+  --> src\collision_assessor\analyzer.rs:29:7
+   |
+29 | const MAX_CONFLICTS: usize = 65_536;
+   |       ^^^^^^^^^^^^^
+
+warning: enum `CollisionBasis` is never used
+  --> src\collision_assessor\analyzer.rs:32:17
+   |
+32 | pub(crate) enum CollisionBasis {
+   |                 ^^^^^^^^^^^^^^
+
+warning: enum `AnalysisUnknownReason` is never used
+  --> src\collision_assessor\analyzer.rs:40:17
+   |
+40 | pub(crate) enum AnalysisUnknownReason {
+   |                 ^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `CollisionConflict` is never constructed
+  --> src\collision_assessor\analyzer.rs:56:19
+   |
+56 | pub(crate) struct CollisionConflict {
+   |                   ^^^^^^^^^^^^^^^^^
+
+warning: struct `CollisionOverlap` is never constructed
+  --> src\collision_assessor\analyzer.rs:72:19
+   |
+72 | pub(crate) struct CollisionOverlap {
+   |                   ^^^^^^^^^^^^^^^^
+
+warning: struct `CollisionAnalysis` is never constructed
+  --> src\collision_assessor\analyzer.rs:78:19
+   |
+78 | pub(crate) struct CollisionAnalysis {
+   |                   ^^^^^^^^^^^^^^^^^
+
+warning: associated functions `unknown` and `unknown_with_conflicts` are never used
+  --> src\collision_assessor\analyzer.rs:88:8
+   |
+87 | impl CollisionAnalysis {
+   | ---------------------- associated functions in this implementation
+88 |     fn unknown(reason: AnalysisUnknownReason, generation: Option<u64>) -> Self {
+   |        ^^^^^^^
+...
+92 |     fn unknown_with_conflicts(
+   |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `ClaimRef` is never constructed
+   --> src\collision_assessor\analyzer.rs:110:8
+    |
+110 | struct ClaimRef<'a> {
+    |        ^^^^^^^^
+
+warning: type alias `DispositionIndex` is never used
+   --> src\collision_assessor\analyzer.rs:114:6
+    |
+114 | type DispositionIndex<'a> = BTreeMap<(&'a str, &'a str), ConflictDisposition>;
+    |      ^^^^^^^^^^^^^^^^
+
+warning: struct `PendingConflict` is never constructed
+   --> src\collision_assessor\analyzer.rs:117:8
+    |
+117 | struct PendingConflict {
+    |        ^^^^^^^^^^^^^^^
+
+warning: struct `WorkBudget` is never constructed
+   --> src\collision_assessor\analyzer.rs:124:8
+    |
+124 | struct WorkBudget {
+    |        ^^^^^^^^^^
+
+warning: methods `ancestor_probe` and `pair_probe` are never used
+   --> src\collision_assessor\analyzer.rs:130:8
+    |
+129 | impl WorkBudget {
+    | --------------- methods in this implementation
+130 |     fn ancestor_probe(&mut self) -> Result<(), AnalysisUnknownReason> {
+    |        ^^^^^^^^^^^^^^
+...
+141 |     fn pair_probe(&mut self) -> Result<(), AnalysisUnknownReason> {
+    |        ^^^^^^^^^^
+
+warning: function `analyze_registry_read` is never used
+   --> src\collision_assessor\analyzer.rs:155:15
+    |
+155 | pub(crate) fn analyze_registry_read(read: &RegistryRead, now_ms: u64) -> CollisionAnalysis {
+    |               ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `analyze_document` is never used
+   --> src\collision_assessor\analyzer.rs:167:4
+    |
+167 | fn analyze_document(
+    |    ^^^^^^^^^^^^^^^^
+
+warning: function `validate_census_coverage` is never used
+   --> src\collision_assessor\analyzer.rs:220:4
+    |
+220 | fn validate_census_coverage(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `sorted_unique` is never used
+   --> src\collision_assessor\analyzer.rs:322:4
+    |
+322 | fn sorted_unique<'a>(
+    |    ^^^^^^^^^^^^^
+
+warning: function `collect_claims` is never used
+   --> src\collision_assessor\analyzer.rs:334:4
+    |
+334 | fn collect_claims<'a>(
+    |    ^^^^^^^^^^^^^^
+
+warning: function `dependency_graph_has_cycle` is never used
+   --> src\collision_assessor\analyzer.rs:441:4
+    |
+441 | fn dependency_graph_has_cycle(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `intersect_claims` is never used
+   --> src\collision_assessor\analyzer.rs:504:4
+    |
+504 | fn intersect_claims(
+    |    ^^^^^^^^^^^^^^^^
+
+warning: function `add_bucket_pairs` is never used
+   --> src\collision_assessor\analyzer.rs:600:4
+    |
+600 | fn add_bucket_pairs(
+    |    ^^^^^^^^^^^^^^^^
+
+warning: function `add_pair` is never used
+   --> src\collision_assessor\analyzer.rs:634:4
+    |
+634 | fn add_pair(
+    |    ^^^^^^^^
+
+warning: function `authorize_conflicts` is never used
+   --> src\collision_assessor\analyzer.rs:671:4
+    |
+671 | fn authorize_conflicts(
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `collision_overlap_key` is never used
+   --> src\collision_assessor\analyzer.rs:718:4
+    |
+718 | fn collision_overlap_key(
+    |    ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `disposition_for` is never used
+   --> src\collision_assessor\analyzer.rs:753:4
+    |
+753 | fn disposition_for(
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `aggregate_verdict` is never used
+   --> src\collision_assessor\analyzer.rs:766:4
+    |
+766 | fn aggregate_verdict(
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: function `conflict_id` is never used
+   --> src\collision_assessor\analyzer.rs:788:4
+    |
+788 | fn conflict_id(left: &CanonicalClaim, right: &CanonicalClaim, bases: &[CollisionBasis]) -> String {
+    |    ^^^^^^^^^^^
+
+warning: function `is_sha256` is never used
+   --> src\collision_assessor\analyzer.rs:811:4
+    |
+811 | fn is_sha256(value: &str) -> bool {
+    |    ^^^^^^^^^
+
+warning: struct `DigestEncoder` is never constructed
+   --> src\collision_assessor\analyzer.rs:818:8
+    |
+818 | struct DigestEncoder(Sha256);
+    |        ^^^^^^^^^^^^^
+
+warning: associated items `new`, `u64`, `bytes`, `text`, and `hex` are never used
+   --> src\collision_assessor\analyzer.rs:821:8
+    |
+820 | impl DigestEncoder {
+    | ------------------ associated items in this implementation
+821 |     fn new(domain: &[u8]) -> Self {
+    |        ^^^
+...
+827 |     fn u64(&mut self, value: u64) {
+    |        ^^^
+...
+831 |     fn bytes(&mut self, value: &[u8]) {
+    |        ^^^^^
+...
+836 |     fn text(&mut self, value: &str) {
+    |        ^^^^
+...
+840 |     fn hex(self) -> String {
+    |        ^^^
+
+warning: constant `AUTHORITY_VERSION` is never used
+  --> src\collision_assessor\authority.rs:13:7
+   |
+13 | const AUTHORITY_VERSION: u8 = 1;
+   |       ^^^^^^^^^^^^^^^^^
+
+warning: constant `SIGNATURE_BYTES` is never used
+  --> src\collision_assessor\authority.rs:15:7
+   |
+15 | const SIGNATURE_BYTES: usize = 64;
+   |       ^^^^^^^^^^^^^^^
+
+warning: constant `MAX_RESERVATION_TTL_MS` is never used
+  --> src\collision_assessor\authority.rs:17:7
+   |
+17 | const MAX_RESERVATION_TTL_MS: u64 = 300_000;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `ENTROPY_ATTEMPTS` is never used
+  --> src\collision_assessor\authority.rs:18:7
+   |
+18 | const ENTROPY_ATTEMPTS: usize = 4;
+   |       ^^^^^^^^^^^^^^^^
+
+warning: struct `ReservationBinding` is never constructed
+  --> src\collision_assessor\authority.rs:25:19
+   |
+25 | pub(crate) struct ReservationBinding {
+   |                   ^^^^^^^^^^^^^^^^^^
+
+warning: associated items `from_native_digests` and `digest` are never used
+  --> src\collision_assessor\authority.rs:38:19
+   |
+36 | impl ReservationBinding {
+   | ----------------------- associated items in this implementation
+37 |     #[allow(clippy::too_many_arguments)]
+38 |     pub(crate) fn from_native_digests(
+   |                   ^^^^^^^^^^^^^^^^^^^
+...
+74 |     pub(crate) fn digest(&self) -> [u8; DIGEST_BYTES] {
+   |                   ^^^^^^
+
+warning: struct `AuthorityVerificationMaterial` is never constructed
+  --> src\collision_assessor\authority.rs:91:19
+   |
+91 | pub(crate) struct AuthorityVerificationMaterial {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `verify` is never used
+  --> src\collision_assessor\authority.rs:98:19
+   |
+97 | impl AuthorityVerificationMaterial {
+   | ---------------------------------- method in this implementation
+98 |     pub(crate) fn verify(
+   |                   ^^^^^^
+
+warning: struct `SignedAuthorityEnvelope` is never constructed
+   --> src\collision_assessor\authority.rs:145:19
+    |
+145 | pub(crate) struct SignedAuthorityEnvelope {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `issuer_epoch`, `signing_key`, `active`, and `max_active` are never read
+   --> src\collision_assessor\authority.rs:173:5
+    |
+172 | pub(crate) struct SchedulerAuthorityIssuer {
+    |                   ------------------------ fields in this struct
+173 |     issuer_epoch: u64,
+    |     ^^^^^^^^^^^^
+174 |     signing_key: SigningKey,
+    |     ^^^^^^^^^^^
+175 |     active: BTreeMap<[u8; DIGEST_BYTES], ActiveReservation>,
+    |     ^^^^^^
+176 |     max_active: usize,
+    |     ^^^^^^^^^^
+
+warning: methods `verification_material`, `rotate_process_epoch`, `issue_reservation_authority`, `issue_with_entropy`, and `retire_reservation` are never used
+   --> src\collision_assessor\authority.rs:195:19
+    |
+179 | impl SchedulerAuthorityIssuer {
+    | ----------------------------- methods in this implementation
+...
+195 |     pub(crate) fn verification_material(&self) -> AuthorityVerificationMaterial {
+    |                   ^^^^^^^^^^^^^^^^^^^^^
+...
+206 |     pub(crate) fn rotate_process_epoch(
+    |                   ^^^^^^^^^^^^^^^^^^^^
+...
+225 |     pub(crate) fn issue_reservation_authority(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+235 |     fn issue_with_entropy<F>(
+    |        ^^^^^^^^^^^^^^^^^^
+...
+317 |     pub(crate) fn retire_reservation(
+    |                   ^^^^^^^^^^^^^^^^^^
+
+warning: multiple variants are never constructed
+   --> src\collision_assessor\authority.rs:375:5
+    |
+373 | pub(crate) enum AuthorityError {
+    |                 -------------- variants in this enum
+374 |     InvalidEpoch,
+375 |     InvalidDigest,
+    |     ^^^^^^^^^^^^^
+376 |     InvalidGeneration,
+    |     ^^^^^^^^^^^^^^^^^
+377 |     InvalidLifetime,
+    |     ^^^^^^^^^^^^^^^
+378 |     ExpiryOverflow,
+    |     ^^^^^^^^^^^^^^
+379 |     CapacityExceeded,
+    |     ^^^^^^^^^^^^^^^^
+380 |     DuplicateReservation,
+    |     ^^^^^^^^^^^^^^^^^^^^
+381 |     UnknownReservation,
+    |     ^^^^^^^^^^^^^^^^^^
+382 |     ReservationMismatch,
+    |     ^^^^^^^^^^^^^^^^^^^
+383 |     ReservationExpired,
+    |     ^^^^^^^^^^^^^^^^^^
+384 |     StaleEpoch,
+    |     ^^^^^^^^^^
+385 |     ClockRollback,
+    |     ^^^^^^^^^^^^^
+386 |     EntropyUnavailable,
+387 |     EntropyCollision,
+    |     ^^^^^^^^^^^^^^^^
+388 |     InvalidVerificationMaterial,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+389 |     UnsupportedVersion,
+    |     ^^^^^^^^^^^^^^^^^^
+390 |     SignatureInvalid,
+    |     ^^^^^^^^^^^^^^^^
+    |
+    = note: `AuthorityError` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: function `envelope_digest` is never used
+   --> src\collision_assessor\authority.rs:419:4
+    |
+419 | fn envelope_digest(envelope: &SignedAuthorityEnvelope) -> [u8; DIGEST_BYTES] {
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `authority_signature_message` is never used
+   --> src\collision_assessor\authority.rs:435:4
+    |
+435 | fn authority_signature_message(digest: &[u8; DIGEST_BYTES]) -> [u8; DIGEST_BYTES] {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `reservation_id` is never used
+   --> src\collision_assessor\authority.rs:441:4
+    |
+441 | fn reservation_id(
+    |    ^^^^^^^^^^^^^^
+
+warning: function `fingerprint` is never used
+   --> src\collision_assessor\authority.rs:453:4
+    |
+453 | fn fingerprint(verifying_key: &[u8; DIGEST_BYTES]) -> String {
+    |    ^^^^^^^^^^^
+
+warning: function `hex` is never used
+   --> src\collision_assessor\authority.rs:516:4
+    |
+516 | fn hex(bytes: &[u8]) -> String {
+    |    ^^^
+
+warning: function `decode_fixed_hex` is never used
+   --> src\collision_assessor\authority.rs:526:4
+    |
+526 | fn decode_fixed_hex<const N: usize>(value: &str) -> Result<[u8; N], ()> {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: struct `DigestEncoder` is never constructed
+   --> src\collision_assessor\authority.rs:539:8
+    |
+539 | struct DigestEncoder(Sha256);
+    |        ^^^^^^^^^^^^^
+
+warning: associated items `new`, `u8`, `u64`, `fixed`, `text`, and `finish` are never used
+   --> src\collision_assessor\authority.rs:542:8
+    |
+541 | impl DigestEncoder {
+    | ------------------ associated items in this implementation
+542 |     fn new(domain: &[u8]) -> Self {
+    |        ^^^
+...
+549 |     fn u8(&mut self, value: u8) {
+    |        ^^
+...
+553 |     fn u64(&mut self, value: u64) {
+    |        ^^^
+...
+557 |     fn fixed(&mut self, value: &[u8; DIGEST_BYTES]) {
+    |        ^^^^^
+...
+561 |     fn text(&mut self, value: &str) {
+    |        ^^^^
+...
+566 |     fn finish(self) -> [u8; DIGEST_BYTES] {
+    |        ^^^^^^
+
+warning: constant `TOKEN_PREFIX` is never used
+  --> src\collision_assessor\clearance.rs:22:7
+   |
+22 | const TOKEN_PREFIX: &str = "ppc1";
+   |       ^^^^^^^^^^^^
+
+warning: constant `TOKEN_BYTES` is never used
+  --> src\collision_assessor\clearance.rs:23:7
+   |
+23 | const TOKEN_BYTES: usize = 32;
+   |       ^^^^^^^^^^^
+
+warning: constant `MAX_CLEARANCE_RECORDS` is never used
+  --> src\collision_assessor\clearance.rs:24:7
+   |
+24 | const MAX_CLEARANCE_RECORDS: usize = 65_536;
+   |       ^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `ENTROPY_ATTEMPTS` is never used
+  --> src\collision_assessor\clearance.rs:25:7
+   |
+25 | const ENTROPY_ATTEMPTS: usize = 4;
+   |       ^^^^^^^^^^^^^^^^
+
+warning: struct `TrustedTime` is never constructed
+  --> src\collision_assessor\clearance.rs:28:8
+   |
+28 | struct TrustedTime {
+   |        ^^^^^^^^^^^
+
+warning: trait `NativeClock` is never used
+  --> src\collision_assessor\clearance.rs:33:7
+   |
+33 | trait NativeClock: Send + Sync {
+   |       ^^^^^^^^^^^
+
+warning: struct `NativeClearanceAuthority` is never constructed
+  --> src\collision_assessor\clearance.rs:37:8
+   |
+37 | struct NativeClearanceAuthority {
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `mac` is never used
+  --> src\collision_assessor\clearance.rs:44:8
+   |
+43 | impl NativeClearanceAuthority {
+   | ----------------------------- method in this implementation
+44 |     fn mac(&self, message: &[u8]) -> [u8; TOKEN_BYTES] {
+   |        ^^^
+
+warning: struct `ClearanceReceiptBundle` is never constructed
+  --> src\collision_assessor\clearance.rs:58:19
+   |
+58 | pub(crate) struct ClearanceReceiptBundle {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `ClearanceBinding` is never constructed
+  --> src\collision_assessor\clearance.rs:91:8
+   |
+91 | struct ClearanceBinding {
+   |        ^^^^^^^^^^^^^^^^
+
+warning: method `matches_current` is never used
+   --> src\collision_assessor\clearance.rs:136:8
+    |
+135 | impl ClearanceBinding {
+    | --------------------- method in this implementation
+136 |     fn matches_current(&self, current: &Self) -> bool {
+    |        ^^^^^^^^^^^^^^^
+
+warning: struct `ClearanceToken` is never constructed
+   --> src\collision_assessor\clearance.rs:167:19
+    |
+167 | pub(crate) struct ClearanceToken(String);
+    |                   ^^^^^^^^^^^^^^
+
+warning: method `as_str` is never used
+   --> src\collision_assessor\clearance.rs:170:19
+    |
+169 | impl ClearanceToken {
+    | ------------------- method in this implementation
+170 |     pub(crate) fn as_str(&self) -> &str {
+    |                   ^^^^^^
+
+warning: struct `IssuedClearance` is never constructed
+   --> src\collision_assessor\clearance.rs:187:19
+    |
+187 | pub(crate) struct IssuedClearance {
+    |                   ^^^^^^^^^^^^^^^
+
+warning: struct `ClearancePermit` is never constructed
+   --> src\collision_assessor\clearance.rs:212:19
+    |
+212 | pub(crate) struct ClearancePermit {
+    |                   ^^^^^^^^^^^^^^^
+
+warning: methods `snapshot_hash`, `participant_id`, `node_id`, `fence`, and `expires_at_ms` are never used
+   --> src\collision_assessor\clearance.rs:235:19
+    |
+234 | impl ClearancePermit {
+    | -------------------- methods in this implementation
+235 |     pub(crate) fn snapshot_hash(&self) -> &str {
+    |                   ^^^^^^^^^^^^^
+...
+238 |     pub(crate) fn participant_id(&self) -> &str {
+    |                   ^^^^^^^^^^^^^^
+...
+241 |     pub(crate) fn node_id(&self) -> &str {
+    |                   ^^^^^^^
+...
+244 |     pub(crate) fn fence(&self) -> u64 {
+    |                   ^^^^^
+...
+247 |     pub(crate) fn expires_at_ms(&self) -> u64 {
+    |                   ^^^^^^^^^^^^^
+
+warning: enum `ClearanceLifecycle` is never used
+   --> src\collision_assessor\clearance.rs:253:6
+    |
+253 | enum ClearanceLifecycle {
+    |      ^^^^^^^^^^^^^^^^^^
+
+warning: struct `ClearanceRecord` is never constructed
+   --> src\collision_assessor\clearance.rs:261:8
+    |
+261 | struct ClearanceRecord {
+    |        ^^^^^^^^^^^^^^^
+
+warning: enum `ClearanceError` is never used
+   --> src\collision_assessor\clearance.rs:273:17
+    |
+273 | pub(crate) enum ClearanceError {
+    |                 ^^^^^^^^^^^^^^
+
+warning: struct `ClearanceStore` is never constructed
+   --> src\collision_assessor\clearance.rs:329:19
+    |
+329 | pub(crate) struct ClearanceStore {
+    |                   ^^^^^^^^^^^^^^
+
+warning: multiple associated items are never used
+   --> src\collision_assessor\clearance.rs:338:19
+    |
+337 | impl ClearanceStore {
+    | ------------------- associated items in this implementation
+338 |     pub(crate) fn new_disabled(journal: AssessmentJournal, snapshots: SnapshotStore) -> Self {
+    |                   ^^^^^^^^^^^^
+...
+369 |     pub(crate) fn issue(
+    |                   ^^^^^
+...
+378 |     fn issue_with_entropy<F>(
+    |        ^^^^^^^^^^^^^^^^^^
+...
+491 |     fn begin_with_verified(
+    |        ^^^^^^^^^^^^^^^^^^^
+...
+557 |     pub(crate) fn revoke(&self, token: &str, reason_digest: &str) -> Result<(), ClearanceError> {
+    |                   ^^^^^^
+...
+590 |     fn revoke_record(
+    |        ^^^^^^^^^^^^^
+...
+618 |     fn require_live_or_revoke(
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+...
+638 |     fn authority(&self) -> Result<&NativeClearanceAuthority, ClearanceError> {
+    |        ^^^^^^^^^
+...
+644 |     fn lock_records(
+    |        ^^^^^^^^^^^^
+...
+652 |     fn require_audit(&self) -> Result<(), ClearanceError> {
+    |        ^^^^^^^^^^^^^
+...
+659 |     fn audit_error(&self) -> ClearanceError {
+    |        ^^^^^^^^^^^
+
+warning: function `live_error` is never used
+   --> src\collision_assessor\clearance.rs:665:4
+    |
+665 | fn live_error(record: &ClearanceRecord, now: TrustedTime) -> Option<ClearanceError> {
+    |    ^^^^^^^^^^
+
+warning: function `binding_from_snapshot` is never used
+   --> src\collision_assessor\clearance.rs:683:4
+    |
+683 | fn binding_from_snapshot(
+    |    ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `binding_from_participant` is never used
+   --> src\collision_assessor\clearance.rs:723:4
+    |
+723 | fn binding_from_participant(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `verify_token` is never used
+   --> src\collision_assessor\clearance.rs:759:4
+    |
+759 | fn verify_token(
+    |    ^^^^^^^^^^^^
+
+warning: struct `MacPayload` is never constructed
+   --> src\collision_assessor\clearance.rs:781:8
+    |
+781 | struct MacPayload<'a> {
+    |        ^^^^^^^^^^
+
+warning: function `clearance_mac_message` is never used
+   --> src\collision_assessor\clearance.rs:788:4
+    |
+788 | fn clearance_mac_message(
+    |    ^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `ParsedToken` is never constructed
+   --> src\collision_assessor\clearance.rs:806:8
+    |
+806 | struct ParsedToken {
+    |        ^^^^^^^^^^^
+
+warning: associated function `parse` is never used
+   --> src\collision_assessor\clearance.rs:812:8
+    |
+811 | impl ParsedToken {
+    | ---------------- associated function in this implementation
+812 |     fn parse(token: &str) -> Result<Self, ClearanceError> {
+    |        ^^^^^
+
+warning: function `decode_lower_hex` is never used
+   --> src\collision_assessor\clearance.rs:835:4
+    |
+835 | fn decode_lower_hex<const N: usize>(value: &str) -> Result<[u8; N], ClearanceError> {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: function `hex_nibble` is never used
+   --> src\collision_assessor\clearance.rs:849:4
+    |
+849 | fn hex_nibble(value: u8) -> Result<u8, ClearanceError> {
+    |    ^^^^^^^^^^
+
+warning: function `clearance_identifier_hash` is never used
+   --> src\collision_assessor\clearance.rs:856:4
+    |
+856 | fn clearance_identifier_hash(value: &[u8; TOKEN_BYTES]) -> String {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `domain_hash` is never used
+   --> src\collision_assessor\clearance.rs:859:4
+    |
+859 | fn domain_hash(domain: &[u8], value: &[u8]) -> String {
+    |    ^^^^^^^^^^^
+
+warning: function `is_lower_sha256` is never used
+   --> src\collision_assessor\clearance.rs:867:4
+    |
+867 | fn is_lower_sha256(value: &str) -> bool {
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `constant_time_equal` is never used
+   --> src\collision_assessor\clearance.rs:873:4
+    |
+873 | fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `hmac_sha256` is never used
+   --> src\collision_assessor\clearance.rs:880:4
+    |
+880 | fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
+    |    ^^^^^^^^^^^
+
+warning: function `hex_encode` is never used
+   --> src\collision_assessor\clearance.rs:906:4
+    |
+906 | fn hex_encode(bytes: &[u8]) -> String {
+    |    ^^^^^^^^^^
+
+warning: function `fill_os_random` is never used
+   --> src\collision_assessor\clearance.rs:917:4
+    |
+917 | fn fill_os_random(bytes: &mut [u8]) -> Result<(), ClearanceError> {
+    |    ^^^^^^^^^^^^^^
+
+warning: function `BCryptGenRandom` is never used
+   --> src\collision_assessor\clearance.rs:922:12
+    |
+922 |         fn BCryptGenRandom(
+    |            ^^^^^^^^^^^^^^^
+
+warning: constant `JOURNAL_SCHEMA_VERSION` is never used
+  --> src\collision_assessor\journal.rs:24:7
+   |
+24 | const JOURNAL_SCHEMA_VERSION: u32 = 5;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `GENESIS_HASH` is never used
+  --> src\collision_assessor\journal.rs:25:7
+   |
+25 | const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+   |       ^^^^^^^^^^^^
+
+warning: constant `MAX_JOURNAL_BYTES` is never used
+  --> src\collision_assessor\journal.rs:26:7
+   |
+26 | const MAX_JOURNAL_BYTES: u64 = 64 * 1024 * 1024;
+   |       ^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_LINE_BYTES` is never used
+  --> src\collision_assessor\journal.rs:27:7
+   |
+27 | const MAX_LINE_BYTES: usize = 1024 * 1024;
+   |       ^^^^^^^^^^^^^^
+
+warning: constant `MAX_TICKET_LINE_BYTES` is never used
+  --> src\collision_assessor\journal.rs:28:7
+   |
+28 | const MAX_TICKET_LINE_BYTES: usize = 16 * 1024;
+   |       ^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_EVENTS` is never used
+  --> src\collision_assessor\journal.rs:29:7
+   |
+29 | const MAX_EVENTS: usize = 200_000;
+   |       ^^^^^^^^^^
+
+warning: constant `DEFAULT_LOCK_TIMEOUT` is never used
+  --> src\collision_assessor\journal.rs:30:7
+   |
+30 | const DEFAULT_LOCK_TIMEOUT: Duration = Duration::from_secs(5);
+   |       ^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `TRUST_LIVE_PROCESS` is never used
+  --> src\collision_assessor\journal.rs:31:7
+   |
+31 | const TRUST_LIVE_PROCESS: u8 = 1;
+   |       ^^^^^^^^^^^^^^^^^^
+
+warning: constant `TRUST_RECOVERED_UNANCHORED` is never used
+  --> src\collision_assessor\journal.rs:32:7
+   |
+32 | const TRUST_RECOVERED_UNANCHORED: u8 = 2;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `JOURNAL_ANCHOR_VERSION` is never used
+  --> src\collision_assessor\journal.rs:33:7
+   |
+33 | const JOURNAL_ANCHOR_VERSION: u32 = 1;
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `JOURNAL_WRITER_LOCK_TIMEOUT` is never used
+  --> src\collision_assessor\journal.rs:34:7
+   |
+34 | const JOURNAL_WRITER_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_ANCHOR_BYTES` is never used
+  --> src\collision_assessor\journal.rs:35:7
+   |
+35 | const MAX_ANCHOR_BYTES: u64 = 4 * 1024;
+   |       ^^^^^^^^^^^^^^^^
+
+warning: struct `JournalAnchor` is never constructed
+  --> src\collision_assessor\journal.rs:39:8
+   |
+39 | struct JournalAnchor {
+   |        ^^^^^^^^^^^^^
+
+warning: struct `NativeJournalWriter` is never constructed
+  --> src\collision_assessor\journal.rs:53:8
+   |
+53 | struct NativeJournalWriter {
+   |        ^^^^^^^^^^^^^^^^^^^
+
+warning: methods `verification_key`, `fingerprint`, and `checkpoint` are never used
+  --> src\collision_assessor\journal.rs:61:8
+   |
+60 | impl NativeJournalWriter {
+   | ------------------------ methods in this implementation
+61 |     fn verification_key(&self) -> [u8; 32] {
+   |        ^^^^^^^^^^^^^^^^
+...
+65 |     fn fingerprint(&self) -> String {
+   |        ^^^^^^^^^^^
+...
+69 |     fn checkpoint(&self, high_water: &HighWater) -> JournalAnchor {
+   |        ^^^^^^^^^^
+
+warning: function `live_writers` is never used
+  --> src\collision_assessor\journal.rs:91:4
+   |
+91 | fn live_writers() -> &'static Mutex<BTreeMap<PathBuf, Weak<NativeJournalWriter>>> {
+   |    ^^^^^^^^^^^^
+
+warning: enum `JournalVerdict` is never used
+  --> src\collision_assessor\journal.rs:98:17
+   |
+98 | pub(crate) enum JournalVerdict {
+   |                 ^^^^^^^^^^^^^^
+
+warning: enum `TicketSignalKind` is never used
+   --> src\collision_assessor\journal.rs:108:17
+    |
+108 | pub(crate) enum TicketSignalKind {
+    |                 ^^^^^^^^^^^^^^^^
+
+warning: enum `JournalPayload` is never used
+   --> src\collision_assessor\journal.rs:118:17
+    |
+118 | pub(crate) enum JournalPayload {
+    |                 ^^^^^^^^^^^^^^
+
+warning: struct `JournalEvent` is never constructed
+   --> src\collision_assessor\journal.rs:197:19
+    |
+197 | pub(crate) struct JournalEvent {
+    |                   ^^^^^^^^^^^^
+
+warning: struct `HighWater` is never constructed
+   --> src\collision_assessor\journal.rs:207:8
+    |
+207 | struct HighWater {
+    |        ^^^^^^^^^
+
+warning: enum `ClearanceJournalState` is never used
+   --> src\collision_assessor\journal.rs:214:6
+    |
+214 | enum ClearanceJournalState {
+    |      ^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `ClearanceJournalRecord` is never constructed
+   --> src\collision_assessor\journal.rs:222:8
+    |
+222 | struct ClearanceJournalRecord {
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `AssessmentJournalRecord` is never constructed
+   --> src\collision_assessor\journal.rs:231:8
+    |
+231 | struct AssessmentJournalRecord {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TicketJournalRecord` is never constructed
+   --> src\collision_assessor\journal.rs:245:8
+    |
+245 | struct TicketJournalRecord {
+    |        ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TicketSignalJournalRecord` is never constructed
+   --> src\collision_assessor\journal.rs:251:8
+    |
+251 | struct TicketSignalJournalRecord {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `ReplayState` is never constructed
+   --> src\collision_assessor\journal.rs:257:8
+    |
+257 | struct ReplayState {
+    |        ^^^^^^^^^^^
+
+warning: methods `apply`, `validate_idempotent_retry`, `transition_clearance`, and `transition_is_live` are never used
+   --> src\collision_assessor\journal.rs:268:8
+    |
+267 | impl ReplayState {
+    | ---------------- methods in this implementation
+268 |     fn apply(&mut self, payload: &JournalPayload, recorded_at_ms: u64) -> Result<(), JournalError> {
+    |        ^^^^^
+...
+579 |     fn validate_idempotent_retry(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+643 |     fn transition_clearance(
+    |        ^^^^^^^^^^^^^^^^^^^^
+...
+666 |     fn transition_is_live(
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: function `ticket_disposition_matches` is never used
+   --> src\collision_assessor\journal.rs:684:4
+    |
+684 | fn ticket_disposition_matches(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `transition_signal_matches_verdict` is never used
+   --> src\collision_assessor\journal.rs:699:4
+    |
+699 | fn transition_signal_matches_verdict(kind: TicketSignalKind, verdict: JournalVerdict) -> bool {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `conflict_ticket_id` is never used
+   --> src\collision_assessor\journal.rs:709:15
+    |
+709 | pub(crate) fn conflict_ticket_id(
+    |               ^^^^^^^^^^^^^^^^^^
+
+warning: function `conflict_ticket_signal_id` is never used
+   --> src\collision_assessor\journal.rs:720:15
+    |
+720 | pub(crate) fn conflict_ticket_signal_id(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `source_node_digest` is never used
+   --> src\collision_assessor\journal.rs:746:4
+    |
+746 | fn source_node_digest(node_id: &str) -> String {
+    |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `participant_index_edge` is never used
+   --> src\collision_assessor\journal.rs:750:4
+    |
+750 | fn participant_index_edge(
+    |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `decode_sha256_hex` is never used
+   --> src\collision_assessor\journal.rs:764:4
+    |
+764 | fn decode_sha256_hex(value: &str) -> Option<[u8; 32]> {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: function `encode_sha256_hex` is never used
+   --> src\collision_assessor\journal.rs:775:4
+    |
+775 | fn encode_sha256_hex(value: &[u8]) -> String {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: function `pack_participant_node_bindings` is never used
+   --> src\collision_assessor\journal.rs:785:4
+    |
+785 | fn pack_participant_node_bindings(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `unpack_participant_node_bindings` is never used
+   --> src\collision_assessor\journal.rs:805:4
+    |
+805 | fn unpack_participant_node_bindings(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `pack_participant_conflict_edges` is never used
+   --> src\collision_assessor\journal.rs:839:4
+    |
+839 | fn pack_participant_conflict_edges(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `unpack_participant_conflict_edges` is never used
+   --> src\collision_assessor\journal.rs:876:4
+    |
+876 | fn unpack_participant_conflict_edges(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `assessment_payload` is never used
+   --> src\collision_assessor\journal.rs:912:4
+    |
+912 | fn assessment_payload(
+    |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `journal_digest` is never used
+   --> src\collision_assessor\journal.rs:938:4
+    |
+938 | fn journal_digest(domain: &[u8], values: &[&str]) -> String {
+    |    ^^^^^^^^^^^^^^
+
+warning: enum `JournalError` is never used
+   --> src\collision_assessor\journal.rs:949:17
+    |
+949 | pub(crate) enum JournalError {
+    |                 ^^^^^^^^^^^^
+
+warning: struct `AssessmentJournal` is never constructed
+    --> src\collision_assessor\journal.rs:1014:19
+     |
+1014 | pub(crate) struct AssessmentJournal {
+     |                   ^^^^^^^^^^^^^^^^^
+
+warning: multiple associated items are never used
+    --> src\collision_assessor\journal.rs:1035:19
+     |
+1032 | impl AssessmentJournal {
+     | ---------------------- associated items in this implementation
+...
+1035 |     pub(crate) fn new(path: impl Into<PathBuf>) -> Self {
+     |                   ^^^
+...
+1048 |     pub(crate) fn open_native_writer(
+     |                   ^^^^^^^^^^^^^^^^^^
+...
+1076 |     fn open_native_writer_with<F>(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^
+...
+1174 |     fn append(
+     |        ^^^^^^
+...
+1182 |     fn append_idempotent(
+     |        ^^^^^^^^^^^^^^^^^
+...
+1190 |     fn append_internal(
+     |        ^^^^^^^^^^^^^^^
+...
+1304 |     pub(crate) fn read_verified(&self) -> Result<Vec<JournalEvent>, JournalError> {
+     |                   ^^^^^^^^^^^^^
+...
+1329 |     pub(crate) fn clearance_authority_ready(&self) -> bool {
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1333 |     pub(crate) fn record_assessment(
+     |                   ^^^^^^^^^^^^^^^^^
+...
+1342 |     pub(crate) fn assessment_is_live(
+     |                   ^^^^^^^^^^^^^^^^^^
+...
+1364 |     pub(crate) fn assessment_was_recorded(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^
+...
+1379 |     pub(super) fn conflict_ticket_was_recorded(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1414 |     pub(super) fn record_conflict_ticket(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^
+...
+1457 |     pub(super) fn record_conflict_ticket_signal(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1488 |     pub(super) fn record_conflict_ticket_acknowledgement(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1507 |     pub(crate) fn record_clearance_issued(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^
+...
+1542 |     pub(crate) fn record_revocation(
+     |                   ^^^^^^^^^^^^^^^^^
+...
+1557 |     pub(crate) fn record_clearance_consuming(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1579 |     pub(crate) fn record_clearance_consumed(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1603 |     pub(crate) fn record_clearance_revoked(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1624 |     fn enforce_high_water(
+     |        ^^^^^^^^^^^^^^^^^^
+...
+1653 |     fn set_high_water(&self, event: &JournalEvent, file_len: u64) -> Result<(), JournalError> {
+     |        ^^^^^^^^^^^^^^
+
+warning: function `load_chain` is never used
+    --> src\collision_assessor\journal.rs:1667:4
+     |
+1667 | fn load_chain(
+     |    ^^^^^^^^^^
+
+warning: function `parse_complete_lines` is never used
+    --> src\collision_assessor\journal.rs:1712:4
+     |
+1712 | fn parse_complete_lines(bytes: &[u8]) -> Result<Vec<JournalEvent>, JournalError> {
+     |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `replay_events` is never used
+    --> src\collision_assessor\journal.rs:1737:4
+     |
+1737 | fn replay_events(events: &[JournalEvent]) -> Result<ReplayState, JournalError> {
+     |    ^^^^^^^^^^^^^
+
+warning: function `find_idempotent_event` is never used
+    --> src\collision_assessor\journal.rs:1745:4
+     |
+1745 | fn find_idempotent_event<'a>(
+     |    ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `validate_event` is never used
+    --> src\collision_assessor\journal.rs:1792:4
+     |
+1792 | fn validate_event(
+     |    ^^^^^^^^^^^^^^
+
+warning: function `validate_payload` is never used
+    --> src\collision_assessor\journal.rs:1812:4
+     |
+1812 | fn validate_payload(payload: &JournalPayload) -> Result<(), JournalError> {
+     |    ^^^^^^^^^^^^^^^^
+
+warning: function `event_hash` is never used
+    --> src\collision_assessor\journal.rs:1982:4
+     |
+1982 | fn event_hash(event: &JournalEvent) -> Result<String, JournalError> {
+     |    ^^^^^^^^^^
+
+warning: function `is_sha256` is never used
+    --> src\collision_assessor\journal.rs:2006:4
+     |
+2006 | fn is_sha256(value: &str) -> bool {
+     |    ^^^^^^^^^
+
+warning: function `is_bounded_id` is never used
+    --> src\collision_assessor\journal.rs:2013:4
+     |
+2013 | fn is_bounded_id(value: &str) -> bool {
+     |    ^^^^^^^^^^^^^
+
+warning: function `high_water_from` is never used
+    --> src\collision_assessor\journal.rs:2022:4
+     |
+2022 | fn high_water_from(last: Option<&JournalEvent>, file_len: u64) -> HighWater {
+     |    ^^^^^^^^^^^^^^^
+
+warning: function `anchor_path` is never used
+    --> src\collision_assessor\journal.rs:2033:4
+     |
+2033 | fn anchor_path(path: &Path) -> PathBuf {
+     |    ^^^^^^^^^^^
+
+warning: function `writer_lock_path` is never used
+    --> src\collision_assessor\journal.rs:2041:4
+     |
+2041 | fn writer_lock_path(path: &Path) -> PathBuf {
+     |    ^^^^^^^^^^^^^^^^
+
+warning: function `canonical_writer_key` is never used
+    --> src\collision_assessor\journal.rs:2049:4
+     |
+2049 | fn canonical_writer_key(path: &Path) -> Result<PathBuf, JournalError> {
+     |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `load_anchor` is never used
+    --> src\collision_assessor\journal.rs:2058:4
+     |
+2058 | fn load_anchor(path: &Path) -> Result<JournalAnchor, JournalError> {
+     |    ^^^^^^^^^^^
+
+warning: function `verify_anchor` is never used
+    --> src\collision_assessor\journal.rs:2077:4
+     |
+2077 | fn verify_anchor(anchor: &JournalAnchor) -> Result<(), JournalError> {
+     |    ^^^^^^^^^^^^^
+
+warning: function `verify_writer_anchor` is never used
+    --> src\collision_assessor\journal.rs:2104:4
+     |
+2104 | fn verify_writer_anchor(
+     |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `anchor_matches` is never used
+    --> src\collision_assessor\journal.rs:2118:4
+     |
+2118 | fn anchor_matches(anchor: &JournalAnchor, current: &HighWater) -> Result<(), JournalError> {
+     |    ^^^^^^^^^^^^^^
+
+warning: function `journal_anchor_message` is never used
+    --> src\collision_assessor\journal.rs:2128:4
+     |
+2128 | fn journal_anchor_message(anchor: &JournalAnchor) -> [u8; 32] {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `journal_key_fingerprint` is never used
+    --> src\collision_assessor\journal.rs:2144:4
+     |
+2144 | fn journal_key_fingerprint(verifying_key: &[u8; 32]) -> String {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `encode_hex` is never used
+    --> src\collision_assessor\journal.rs:2151:4
+     |
+2151 | fn encode_hex(bytes: &[u8]) -> String {
+     |    ^^^^^^^^^^
+
+warning: function `decode_journal_hex` is never used
+    --> src\collision_assessor\journal.rs:2161:4
+     |
+2161 | fn decode_journal_hex<const N: usize>(value: &str) -> Result<[u8; N], JournalError> {
+     |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `persist_anchor` is never used
+    --> src\collision_assessor\journal.rs:2178:4
+     |
+2178 | fn persist_anchor(path: &Path, anchor: &JournalAnchor) -> Result<(), JournalError> {
+     |    ^^^^^^^^^^^^^^
+
+warning: function `replace_anchor` is never used
+    --> src\collision_assessor\journal.rs:2202:4
+     |
+2202 | fn replace_anchor(source: &Path, destination: &Path) -> Result<(), JournalError> {
+     |    ^^^^^^^^^^^^^^
+
+warning: function `fill_os_random` is never used
+    --> src\collision_assessor\journal.rs:2244:4
+     |
+2244 | fn fill_os_random(bytes: &mut [u8]) -> Result<(), JournalError> {
+     |    ^^^^^^^^^^^^^^
+
+warning: function `lock_path` is never used
+    --> src\collision_assessor\journal.rs:2307:4
+     |
+2307 | fn lock_path(path: &Path) -> PathBuf {
+     |    ^^^^^^^^^
+
+warning: struct `JournalLock` is never constructed
+    --> src\collision_assessor\journal.rs:2316:8
+     |
+2316 | struct JournalLock {
+     |        ^^^^^^^^^^^
+
+warning: associated function `acquire` is never used
+    --> src\collision_assessor\journal.rs:2324:8
+     |
+2323 | impl JournalLock {
+     | ---------------- associated function in this implementation
+2324 |     fn acquire(path: &Path, timeout: Duration) -> Result<Self, JournalError> {
+     |        ^^^^^^^
+
+warning: function `retry_delay` is never used
+    --> src\collision_assessor\journal.rs:2435:4
+     |
+2435 | fn retry_delay(attempt: usize) -> Duration {
+     |    ^^^^^^^^^^^
+
+warning: function `MoveFileExW` is never used
+    --> src\collision_assessor\journal.rs:2206:12
+     |
+2206 |         fn MoveFileExW(existing: *const u16, new_name: *const u16, flags: u32) -> i32;
+     |            ^^^^^^^^^^^
+
+warning: function `BCryptGenRandom` is never used
+    --> src\collision_assessor\journal.rs:2248:12
+     |
+2248 |         fn BCryptGenRandom(
+     |            ^^^^^^^^^^^^^^^
+
+warning: function `CreateFileW` is never used
+    --> src\collision_assessor\journal.rs:2330:16
+     |
+2330 |             fn CreateFileW(
+     |                ^^^^^^^^^^^
+
+warning: function `CloseHandle` is never used
+    --> src\collision_assessor\journal.rs:2388:16
+     |
+2388 |             fn CloseHandle(handle: *mut std::ffi::c_void) -> i32;
+     |                ^^^^^^^^^^^
+
+warning: field `census` is never read
+   --> src\collision_assessor\registry.rs:199:5
+    |
+190 | struct LegacyRegistryDocumentV1 {
+    |        ------------------------ field in this struct
+...
+199 |     census: Option<LegacyDiscoveryCensusV1>,
+    |     ^^^^^^
+    |
+    = note: `LegacyRegistryDocumentV1` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: fields `registry_generation`, `input_digest`, `captured_at_ms`, `expires_at_ms`, `roots`, and `planners` are never read
+   --> src\collision_assessor\registry.rs:205:5
+    |
+204 | struct LegacyDiscoveryCensusV1 {
+    |        ----------------------- fields in this struct
+205 |     registry_generation: u64,
+    |     ^^^^^^^^^^^^^^^^^^^
+206 |     input_digest: String,
+    |     ^^^^^^^^^^^^
+207 |     captured_at_ms: u64,
+    |     ^^^^^^^^^^^^^^
+208 |     expires_at_ms: u64,
+    |     ^^^^^^^^^^^^^
+209 |     #[serde(default)]
+210 |     roots: Vec<DiscoveryRootCensus>,
+    |     ^^^^^
+211 |     planners: Vec<LegacyPlannerCensusMetadataV1>,
+    |     ^^^^^^^^
+    |
+    = note: `LegacyDiscoveryCensusV1` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: multiple fields are never read
+   --> src\collision_assessor\registry.rs:217:5
+    |
+216 | struct LegacyPlannerCensusMetadataV1 {
+    |        ----------------------------- fields in this struct
+217 |     planner_id: String,
+    |     ^^^^^^^^^^
+218 |     repository_id: String,
+    |     ^^^^^^^^^^^^^
+219 |     repository_identity: String,
+    |     ^^^^^^^^^^^^^^^^^^^
+220 |     worktree_identity: String,
+    |     ^^^^^^^^^^^^^^^^^
+221 |     branch: String,
+    |     ^^^^^^
+222 |     plan_id: String,
+    |     ^^^^^^^
+223 |     plan_content_digest: String,
+    |     ^^^^^^^^^^^^^^^^^^^
+224 |     manifest_digest: String,
+    |     ^^^^^^^^^^^^^^^
+225 |     #[serde(default)]
+226 |     files: Vec<String>,
+    |     ^^^^^
+227 |     #[serde(default)]
+228 |     resources: Vec<String>,
+    |     ^^^^^^^^^
+229 |     #[serde(default)]
+230 |     nodes: Vec<PlannerNodeManifest>,
+    |     ^^^^^
+231 |     lease_generation: u64,
+    |     ^^^^^^^^^^^^^^^^
+232 |     registered_at_ms: u64,
+    |     ^^^^^^^^^^^^^^^^
+233 |     updated_at_ms: u64,
+    |     ^^^^^^^^^^^^^
+234 |     heartbeat_at_ms: u64,
+    |     ^^^^^^^^^^^^^^^
+235 |     lease_expires_at_ms: u64,
+    |     ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `LegacyPlannerCensusMetadataV1` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: methods `is_complete` and `issues` are never used
+   --> src\collision_assessor\registry.rs:448:12
+    |
+438 | impl RegistryRead {
+    | ----------------- methods in this implementation
+...
+448 |     pub fn is_complete(&self) -> bool {
+    |            ^^^^^^^^^^^
+...
+452 |     pub fn issues(&self) -> &[RegistryIssue] {
+    |            ^^^^^^
+
+warning: method `inspect` is never used
+   --> src\collision_assessor\registry.rs:608:19
+    |
+516 | impl PlannerRegistryStore {
+    | ------------------------- method in this implementation
+...
+608 |     pub(crate) fn inspect(&self, now_ms: u64) -> RegistryRead {
+    |                   ^^^^^^^
+
+warning: function `sign_authority_set_receipt` is never used
+    --> src\collision_assessor\registry.rs:2817:4
+     |
+2817 | fn sign_authority_set_receipt(receipt: &mut MachineAuthoritySetReceipt, signer: &SigningKey) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `sign_machine_claim_authority` is never used
+    --> src\collision_assessor\registry.rs:3022:4
+     |
+3022 | fn sign_machine_claim_authority(authority: &mut MachineClaimAuthority, signer: &SigningKey) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `contract_string` is never used
+    --> src\collision_assessor\registry.rs:3472:4
+     |
+3472 | fn contract_string<'a>(
+     |    ^^^^^^^^^^^^^^^
+
+warning: function `contract_u64` is never used
+    --> src\collision_assessor\registry.rs:3486:4
+     |
+3486 | fn contract_u64(
+     |    ^^^^^^^^^^^^
+
+warning: function `contract_digest` is never used
+    --> src\collision_assessor\registry.rs:3496:4
+     |
+3496 | fn contract_digest(
+     |    ^^^^^^^^^^^^^^^
+
+warning: function `validate_machine_claim_authority` is never used
+    --> src\collision_assessor\registry.rs:4051:4
+     |
+4051 | fn validate_machine_claim_authority(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `SNAPSHOT_SCHEMA_VERSION` is never used
+  --> src\collision_assessor\snapshot.rs:19:18
+   |
+19 | pub(crate) const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_SNAPSHOT_TTL_MS` is never used
+  --> src\collision_assessor\snapshot.rs:20:7
+   |
+20 | const MAX_SNAPSHOT_TTL_MS: u64 = 10 * 60 * 1_000;
+   |       ^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_SNAPSHOT_BYTES` is never used
+  --> src\collision_assessor\snapshot.rs:21:7
+   |
+21 | const MAX_SNAPSHOT_BYTES: u64 = 64 * 1024 * 1024;
+   |       ^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_PARTICIPANTS` is never used
+  --> src\collision_assessor\snapshot.rs:22:7
+   |
+22 | const MAX_PARTICIPANTS: usize = 4_096;
+   |       ^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_CONFLICTS` is never used
+  --> src\collision_assessor\snapshot.rs:23:7
+   |
+23 | const MAX_CONFLICTS: usize = 8_192;
+   |       ^^^^^^^^^^^^^
+
+warning: constant `MAX_DEPENDENCY_EDGES` is never used
+  --> src\collision_assessor\snapshot.rs:24:7
+   |
+24 | const MAX_DEPENDENCY_EDGES: usize = 65_536;
+   |       ^^^^^^^^^^^^^^^^^^^^
+
+warning: static `TEMP_SEQUENCE` is never used
+  --> src\collision_assessor\snapshot.rs:25:8
+   |
+25 | static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+   |        ^^^^^^^^^^^^^
+
+warning: enum `AssessmentVerdict` is never used
+  --> src\collision_assessor\snapshot.rs:29:17
+   |
+29 | pub(crate) enum AssessmentVerdict {
+   |                 ^^^^^^^^^^^^^^^^^
+
+warning: enum `SnapshotUnknownReason` is never used
+  --> src\collision_assessor\snapshot.rs:39:17
+   |
+39 | pub(crate) enum SnapshotUnknownReason {
+   |                 ^^^^^^^^^^^^^^^^^^^^^
+
+warning: enum `SnapshotClaimState` is never used
+  --> src\collision_assessor\snapshot.rs:75:17
+   |
+75 | pub(crate) enum SnapshotClaimState {
+   |                 ^^^^^^^^^^^^^^^^^^
+
+warning: struct `SnapshotParticipant` is never constructed
+  --> src\collision_assessor\snapshot.rs:99:19
+   |
+99 | pub(crate) struct SnapshotParticipant {
+   |                   ^^^^^^^^^^^^^^^^^^^
+
+warning: enum `SnapshotConflictBasis` is never used
+   --> src\collision_assessor\snapshot.rs:139:17
+    |
+139 | pub(crate) enum SnapshotConflictBasis {
+    |                 ^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `SnapshotConflictOverlap` is never constructed
+   --> src\collision_assessor\snapshot.rs:159:19
+    |
+159 | pub(crate) struct SnapshotConflictOverlap {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `SnapshotConflict` is never constructed
+   --> src\collision_assessor\snapshot.rs:168:19
+    |
+168 | pub(crate) struct SnapshotConflict {
+    |                   ^^^^^^^^^^^^^^^^
+
+warning: struct `ConflictProofStep` is never constructed
+   --> src\collision_assessor\snapshot.rs:186:19
+    |
+186 | pub(crate) struct ConflictProofStep {
+    |                   ^^^^^^^^^^^^^^^^^
+
+warning: struct `VerifiedConflictProof` is never constructed
+   --> src\collision_assessor\snapshot.rs:193:19
+    |
+193 | pub(crate) struct VerifiedConflictProof {
+    |                   ^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `conflict`, `leaf_index`, `leaf_count`, `steps`, and `commitment_root` are never used
+   --> src\collision_assessor\snapshot.rs:202:19
+    |
+201 | impl VerifiedConflictProof {
+    | -------------------------- methods in this implementation
+202 |     pub(crate) fn conflict(&self) -> &SnapshotConflict {
+    |                   ^^^^^^^^
+...
+206 |     pub(crate) fn leaf_index(&self) -> u32 {
+    |                   ^^^^^^^^^^
+...
+210 |     pub(crate) fn leaf_count(&self) -> u32 {
+    |                   ^^^^^^^^^^
+...
+214 |     pub(crate) fn steps(&self) -> &[ConflictProofStep] {
+    |                   ^^^^^
+...
+218 |     pub(crate) fn commitment_root(&self) -> &str {
+    |                   ^^^^^^^^^^^^^^^
+
+warning: struct `AssessmentSnapshot` is never constructed
+   --> src\collision_assessor\snapshot.rs:225:8
+    |
+225 | struct AssessmentSnapshot {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: struct `VerifiedAssessmentSnapshot` is never constructed
+   --> src\collision_assessor\snapshot.rs:241:19
+    |
+241 | pub(crate) struct VerifiedAssessmentSnapshot(AssessmentSnapshot);
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: multiple methods are never used
+   --> src\collision_assessor\snapshot.rs:257:19
+    |
+256 | impl VerifiedAssessmentSnapshot {
+    | ------------------------------- methods in this implementation
+257 |     pub(crate) fn snapshot_hash(&self) -> &str {
+    |                   ^^^^^^^^^^^^^
+...
+261 |     pub(crate) fn registry_generation(&self) -> u64 {
+    |                   ^^^^^^^^^^^^^^^^^^^
+...
+265 |     pub(crate) fn census_input_digest(&self) -> &str {
+    |                   ^^^^^^^^^^^^^^^^^^^
+...
+269 |     pub(crate) fn verdict(&self) -> AssessmentVerdict {
+    |                   ^^^^^^^
+...
+273 |     pub(crate) fn unknown_reason(&self) -> Option<SnapshotUnknownReason> {
+    |                   ^^^^^^^^^^^^^^
+...
+277 |     pub(crate) fn participants(&self) -> &[SnapshotParticipant] {
+    |                   ^^^^^^^^^^^^
+...
+281 |     pub(crate) fn conflicts(&self) -> &[SnapshotConflict] {
+    |                   ^^^^^^^^^
+...
+285 |     pub(crate) fn captured_at_ms(&self) -> u64 {
+    |                   ^^^^^^^^^^^^^^
+...
+289 |     pub(crate) fn expires_at_ms(&self) -> u64 {
+    |                   ^^^^^^^^^^^^^
+...
+293 |     pub(crate) fn conflict_commitment_root(&self) -> String {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+297 |     pub(crate) fn conflict_proof(&self, conflict_id: &str) -> Option<VerifiedConflictProof> {
+    |                   ^^^^^^^^^^^^^^
+
+warning: struct `StoredSnapshotReceipt` is never constructed
+   --> src\collision_assessor\snapshot.rs:325:19
+    |
+325 | pub(crate) struct StoredSnapshotReceipt {
+    |                   ^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `snapshot_hash`, `encoded_bytes`, `store_binding`, and `matches` are never used
+   --> src\collision_assessor\snapshot.rs:343:19
+    |
+342 | impl StoredSnapshotReceipt {
+    | -------------------------- methods in this implementation
+343 |     pub(crate) fn snapshot_hash(&self) -> &str {
+    |                   ^^^^^^^^^^^^^
+...
+347 |     pub(crate) fn encoded_bytes(&self) -> u64 {
+    |                   ^^^^^^^^^^^^^
+...
+351 |     pub(crate) fn store_binding(&self) -> &str {
+    |                   ^^^^^^^^^^^^^
+...
+355 |     pub(crate) fn matches(&self, snapshot: &VerifiedAssessmentSnapshot) -> bool {
+    |                   ^^^^^^^
+
+warning: enum `SnapshotError` is never used
+   --> src\collision_assessor\snapshot.rs:360:17
+    |
+360 | pub(crate) enum SnapshotError {
+    |                 ^^^^^^^^^^^^^
+
+warning: function `prepare_assessment_snapshot` is never used
+   --> src\collision_assessor\snapshot.rs:423:4
+    |
+423 | fn prepare_assessment_snapshot(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `prepare_assessment_snapshot_inner` is never used
+   --> src\collision_assessor\snapshot.rs:432:4
+    |
+432 | fn prepare_assessment_snapshot_inner(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `validate_assessment_snapshot` is never used
+   --> src\collision_assessor\snapshot.rs:600:4
+    |
+600 | fn validate_assessment_snapshot(snapshot: &AssessmentSnapshot) -> Result<(), SnapshotError> {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `assessment_snapshot_hash` is never used
+   --> src\collision_assessor\snapshot.rs:761:4
+    |
+761 | fn assessment_snapshot_hash(snapshot: &AssessmentSnapshot) -> Result<String, SnapshotError> {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `conflict_leaf_hash` is never used
+   --> src\collision_assessor\snapshot.rs:793:4
+    |
+793 | fn conflict_leaf_hash(conflict: &SnapshotConflict) -> String {
+    |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `merkle_node_hash` is never used
+   --> src\collision_assessor\snapshot.rs:801:4
+    |
+801 | fn merkle_node_hash(left: &str, right: &str) -> String {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: function `empty_conflict_root` is never used
+   --> src\collision_assessor\snapshot.rs:808:4
+    |
+808 | fn empty_conflict_root() -> String {
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `merkle_top` is never used
+   --> src\collision_assessor\snapshot.rs:812:4
+    |
+812 | fn merkle_top(leaves: &[String]) -> String {
+    |    ^^^^^^^^^^
+
+warning: function `merkle_levels` is never used
+   --> src\collision_assessor\snapshot.rs:817:4
+    |
+817 | fn merkle_levels(leaves: &[String]) -> Vec<Vec<String>> {
+    |    ^^^^^^^^^^^^^
+
+warning: function `merkle_root_from_levels` is never used
+   --> src\collision_assessor\snapshot.rs:834:4
+    |
+834 | fn merkle_root_from_levels(levels: &[Vec<String>]) -> String {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `wrap_conflict_root` is never used
+   --> src\collision_assessor\snapshot.rs:842:4
+    |
+842 | fn wrap_conflict_root(top: &str, leaf_count: usize) -> String {
+    |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `conflict_commitment_root` is never used
+   --> src\collision_assessor\snapshot.rs:849:4
+    |
+849 | fn conflict_commitment_root(conflicts: &[SnapshotConflict]) -> String {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `merkle_proof_from_levels` is never used
+   --> src\collision_assessor\snapshot.rs:854:4
+    |
+854 | fn merkle_proof_from_levels(levels: &[Vec<String>], mut index: usize) -> Vec<ConflictProofStep> {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `verify_conflict_proof` is never used
+   --> src\collision_assessor\snapshot.rs:871:15
+    |
+871 | pub(crate) fn verify_conflict_proof(
+    |               ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `digest_parts` is never used
+   --> src\collision_assessor\snapshot.rs:910:4
+    |
+910 | fn digest_parts(domain: &[u8], parts: &[&[u8]]) -> String {
+    |    ^^^^^^^^^^^^
+
+warning: struct `PhysicalFileIdentity` is never constructed
+   --> src\collision_assessor\snapshot.rs:922:8
+    |
+922 | struct PhysicalFileIdentity {
+    |        ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `OpenFileIdentity` is never constructed
+   --> src\collision_assessor\snapshot.rs:928:8
+    |
+928 | struct OpenFileIdentity {
+    |        ^^^^^^^^^^^^^^^^
+
+warning: struct `DirectoryAnchor` is never constructed
+   --> src\collision_assessor\snapshot.rs:936:8
+    |
+936 | struct DirectoryAnchor {
+    |        ^^^^^^^^^^^^^^^
+
+warning: associated items `open`, `verify_path`, `binding`, and `sync_after_publish` are never used
+   --> src\collision_assessor\snapshot.rs:942:8
+    |
+941 | impl DirectoryAnchor {
+    | -------------------- associated items in this implementation
+942 |     fn open(directory: &Path) -> Result<Self, SnapshotError> {
+    |        ^^^^
+...
+958 |     fn verify_path(&self, directory: &Path) -> Result<(), SnapshotError> {
+    |        ^^^^^^^^^^^
+...
+972 |     fn binding(&self) -> String {
+    |        ^^^^^^^
+...
+982 |     fn sync_after_publish(&self) -> Result<(), SnapshotError> {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: struct `SnapshotStore` is never constructed
+   --> src\collision_assessor\snapshot.rs:997:19
+    |
+997 | pub(crate) struct SnapshotStore {
+    |                   ^^^^^^^^^^^^^
+
+warning: multiple methods are never used
+    --> src\collision_assessor\snapshot.rs:1040:19
+     |
+1013 | impl SnapshotStore {
+     | ------------------ methods in this implementation
+...
+1040 |     pub(crate) fn persist(
+     |                   ^^^^^^^
+...
+1101 |     fn verify_directory(&self) -> Result<(), SnapshotError> {
+     |        ^^^^^^^^^^^^^^^^
+...
+1105 |     fn read_unrecorded(
+     |        ^^^^^^^^^^^^^^^
+...
+1140 |     pub(crate) fn read_recorded(
+     |                   ^^^^^^^^^^^^^
+...
+1155 |     pub(crate) fn read_for_ticket_recovery(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1167 |     pub(crate) fn verify_receipt(
+     |                   ^^^^^^^^^^^^^^
+...
+1186 |     fn path_for_hash(&self, snapshot_hash: &str) -> Result<PathBuf, SnapshotError> {
+     |        ^^^^^^^^^^^^^
+...
+1193 |     fn relative_path(&self, name: &str) -> Result<PathBuf, SnapshotError> {
+     |        ^^^^^^^^^^^^^
+...
+1208 |     fn verify_existing(&self, path: &Path, expected: &[u8]) -> Result<(), SnapshotError> {
+     |        ^^^^^^^^^^^^^^^
+...
+1212 |     fn verify_existing_identity(
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1243 |     fn receipt(&self, snapshot: &AssessmentSnapshot, encoded_bytes: u64) -> StoredSnapshotReceipt {
+     |        ^^^^^^^
+
+warning: function `dependency_graph_has_cycle` is never used
+    --> src\collision_assessor\snapshot.rs:1258:4
+     |
+1258 | fn dependency_graph_has_cycle(participants: &[SnapshotParticipant]) -> bool {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `contains_relative_components` is never used
+    --> src\collision_assessor\snapshot.rs:1299:4
+     |
+1299 | fn contains_relative_components(path: &Path) -> bool {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `path_entry_exists` is never used
+    --> src\collision_assessor\snapshot.rs:1308:4
+     |
+1308 | fn path_entry_exists(path: &Path) -> io::Result<bool> {
+     |    ^^^^^^^^^^^^^^^^^
+
+warning: function `validate_open_snapshot_file` is never used
+    --> src\collision_assessor\snapshot.rs:1316:4
+     |
+1316 | fn validate_open_snapshot_file(
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `remove_owned_temp` is never used
+    --> src\collision_assessor\snapshot.rs:1339:4
+     |
+1339 | fn remove_owned_temp(
+     |    ^^^^^^^^^^^^^^^^^
+
+warning: function `reject_reparse_components` is never used
+    --> src\collision_assessor\snapshot.rs:1354:4
+     |
+1354 | fn reject_reparse_components(path: &Path) -> Result<(), SnapshotError> {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `open_directory_no_follow` is never used
+    --> src\collision_assessor\snapshot.rs:1391:4
+     |
+1391 | fn open_directory_no_follow(path: &Path) -> io::Result<File> {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `open_snapshot_create` is never used
+    --> src\collision_assessor\snapshot.rs:1410:4
+     |
+1410 | fn open_snapshot_create(path: &Path) -> io::Result<File> {
+     |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `atomic_publish` is never used
+    --> src\collision_assessor\snapshot.rs:1427:4
+     |
+1427 | fn atomic_publish(source: &Path, destination: &Path) -> io::Result<()> {
+     |    ^^^^^^^^^^^^^^
+
+warning: function `open_file_identity` is never used
+    --> src\collision_assessor\snapshot.rs:1475:4
+     |
+1475 | fn open_file_identity(file: &File) -> io::Result<OpenFileIdentity> {
+     |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `metadata_identity` is never used
+    --> src\collision_assessor\snapshot.rs:1547:4
+     |
+1547 | fn metadata_identity(metadata: &fs::Metadata) -> io::Result<OpenFileIdentity> {
+     |    ^^^^^^^^^^^^^^^^^
+
+warning: function `open_snapshot_read` is never used
+    --> src\collision_assessor\snapshot.rs:1578:4
+     |
+1578 | fn open_snapshot_read(path: &Path) -> io::Result<File> {
+     |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `is_sha256` is never used
+    --> src\collision_assessor\snapshot.rs:1594:4
+     |
+1594 | fn is_sha256(value: &str) -> bool {
+     |    ^^^^^^^^^
+
+warning: function `is_bounded_id` is never used
+    --> src\collision_assessor\snapshot.rs:1601:4
+     |
+1601 | fn is_bounded_id(value: &str) -> bool {
+     |    ^^^^^^^^^^^^^
+
+warning: function `participant_binding` is never used
+    --> src\collision_assessor\snapshot.rs:1610:4
+     |
+1610 | fn participant_binding(
+     |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `manifest_list_digest` is never used
+    --> src\collision_assessor\snapshot.rs:1622:4
+     |
+1622 | fn manifest_list_digest(domain: &[u8], values: &[String]) -> String {
+     |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `opaque_parts` is never used
+    --> src\collision_assessor\snapshot.rs:1627:4
+     |
+1627 | fn opaque_parts(domain: &[u8], parts: &[&str]) -> String {
+     |    ^^^^^^^^^^^^
+
+warning: function `MoveFileExW` is never used
+    --> src\collision_assessor\snapshot.rs:1433:12
+     |
+1433 |         fn MoveFileExW(
+     |            ^^^^^^^^^^^
+
+warning: function `GetFileInformationByHandle` is never used
+    --> src\collision_assessor\snapshot.rs:1504:12
+     |
+1504 |         fn GetFileInformationByHandle(
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_PAGE_SIZE` is never used
+  --> src\collision_assessor\tickets.rs:24:7
+   |
+24 | const MAX_PAGE_SIZE: usize = 100;
+   |       ^^^^^^^^^^^^^
+
+warning: constant `MAX_TICKET_INDEXES` is never used
+  --> src\collision_assessor\tickets.rs:25:7
+   |
+25 | const MAX_TICKET_INDEXES: usize = 4;
+   |       ^^^^^^^^^^^^^^^^^^
+
+warning: static `BROKER_EPOCH` is never used
+  --> src\collision_assessor\tickets.rs:26:8
+   |
+26 | static BROKER_EPOCH: AtomicU64 = AtomicU64::new(1);
+   |        ^^^^^^^^^^^^
+
+warning: static `CLAIMED_TICKET_AUTHORITY_EPOCHS` is never used
+  --> src\collision_assessor\tickets.rs:27:8
+   |
+27 | static CLAIMED_TICKET_AUTHORITY_EPOCHS: OnceLock<Mutex<BTreeSet<u64>>> = OnceLock::new();
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TicketEndpointView` is never constructed
+  --> src\collision_assessor\tickets.rs:30:19
+   |
+30 | pub(crate) struct TicketEndpointView {
+   |                   ^^^^^^^^^^^^^^^^^^
+
+warning: struct `TicketView` is never constructed
+  --> src\collision_assessor\tickets.rs:38:19
+   |
+38 | pub(crate) struct TicketView {
+   |                   ^^^^^^^^^^
+
+warning: struct `TicketPage` is never constructed
+  --> src\collision_assessor\tickets.rs:50:19
+   |
+50 | pub(crate) struct TicketPage {
+   |                   ^^^^^^^^^^
+
+warning: struct `TicketSignalView` is never constructed
+  --> src\collision_assessor\tickets.rs:56:19
+   |
+56 | pub(crate) struct TicketSignalView {
+   |                   ^^^^^^^^^^^^^^^^
+
+warning: struct `TicketSignalPage` is never constructed
+  --> src\collision_assessor\tickets.rs:67:19
+   |
+67 | pub(crate) struct TicketSignalPage {
+   |                   ^^^^^^^^^^^^^^^^
+
+warning: struct `TicketMailboxCapability` is never constructed
+  --> src\collision_assessor\tickets.rs:76:19
+   |
+76 | pub(crate) struct TicketMailboxCapability {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `MachineMailboxRouteReceipt` is never constructed
+   --> src\collision_assessor\tickets.rs:118:19
+    |
+118 | pub(crate) struct MachineMailboxRouteReceipt {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `MachineTicketSignalReceipt` is never constructed
+   --> src\collision_assessor\tickets.rs:138:19
+    |
+138 | pub(crate) struct MachineTicketSignalReceipt {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `MachineTicketAcknowledgementReceipt` is never constructed
+   --> src\collision_assessor\tickets.rs:153:19
+    |
+153 | pub(crate) struct MachineTicketAcknowledgementReceipt {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: enum `TicketError` is never used
+   --> src\collision_assessor\tickets.rs:166:17
+    |
+166 | pub(crate) enum TicketError {
+    |                 ^^^^^^^^^^^
+
+warning: struct `TicketBrokerAuthority` is never constructed
+   --> src\collision_assessor\tickets.rs:187:19
+    |
+187 | pub(crate) struct TicketBrokerAuthority {
+    |                   ^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `from_native_scheduler` is never used
+   --> src\collision_assessor\tickets.rs:193:19
+    |
+192 | impl TicketBrokerAuthority {
+    | -------------------------- associated function in this implementation
+193 |     pub(crate) fn from_native_scheduler(
+    |                   ^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TicketBroker` is never constructed
+   --> src\collision_assessor\tickets.rs:243:19
+    |
+243 | pub(crate) struct TicketBroker {
+    |                   ^^^^^^^^^^^^
+
+warning: struct `AuthorizedSignalAppend` is never constructed
+   --> src\collision_assessor\tickets.rs:250:8
+    |
+250 | struct AuthorizedSignalAppend {
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `AuthorizedAcknowledgementAppend` is never constructed
+   --> src\collision_assessor\tickets.rs:261:8
+    |
+261 | struct AuthorizedAcknowledgementAppend {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: type alias `ParticipantMailboxIndex` is never used
+   --> src\collision_assessor\tickets.rs:270:6
+    |
+270 | type ParticipantMailboxIndex = (Arc<BTreeSet<String>>, Arc<BTreeMap<String, TicketView>>);
+    |      ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TicketIndex` is never constructed
+   --> src\collision_assessor\tickets.rs:272:8
+    |
+272 | struct TicketIndex {
+    |        ^^^^^^^^^^^
+
+warning: struct `TicketIndexCache` is never constructed
+   --> src\collision_assessor\tickets.rs:281:8
+    |
+281 | struct TicketIndexCache {
+    |        ^^^^^^^^^^^^^^^^
+
+warning: methods `prune_expired`, `get`, `insert`, and `remove` are never used
+   --> src\collision_assessor\tickets.rs:287:8
+    |
+286 | impl TicketIndexCache {
+    | --------------------- methods in this implementation
+287 |     fn prune_expired(&mut self, now_ms: u64) {
+    |        ^^^^^^^^^^^^^
+...
+293 |     fn get(&mut self, key: &str) -> Option<Arc<TicketIndex>> {
+    |        ^^^
+...
+301 |     fn insert(&mut self, key: String, index: Arc<TicketIndex>) {
+    |        ^^^^^^
+...
+313 |     fn remove(&mut self, key: &str) {
+    |        ^^^^^^
+
+warning: multiple associated items are never used
+   --> src\collision_assessor\tickets.rs:323:19
+    |
+320 | impl TicketBroker {
+    | ----------------- associated items in this implementation
+...
+323 |     pub(crate) fn new_disabled(journal: AssessmentJournal) -> Self {
+    |                   ^^^^^^^^^^^^
+...
+332 |     pub(crate) fn from_native_scheduler(
+    |                   ^^^^^^^^^^^^^^^^^^^^^
+...
+352 |     pub(crate) fn materialize_for_participant(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+366 |     pub(crate) fn materialize_for_participants(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+403 |     pub(crate) fn resume_for_participant(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^
+...
+427 |     pub(crate) fn list_own_signals(
+    |                   ^^^^^^^^^^^^^^^^
+...
+509 |     pub(crate) fn list_own(
+    |                   ^^^^^^^^
+...
+543 |     pub(crate) fn publish_signal(
+    |                   ^^^^^^^^^^^^^^
+...
+590 |     pub(crate) fn acknowledge_signal(
+    |                   ^^^^^^^^^^^^^^^^^^
+...
+621 |     fn require_authority(&self) -> Result<&TicketBrokerAuthority, TicketError> {
+    |        ^^^^^^^^^^^^^^^^^
+...
+630 |     fn read_owner_filtered(
+    |        ^^^^^^^^^^^^^^^^^^^
+...
+677 |     fn append_authorized_signal(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+700 |     fn append_authorized_acknowledgement(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+721 |     fn ticket_index(
+    |        ^^^^^^^^^^^^
+...
+791 |     fn evict_ticket_index(
+    |        ^^^^^^^^^^^^^^^^^^
+...
+807 |     fn capability_from_index(
+    |        ^^^^^^^^^^^^^^^^^^^^^
+...
+864 |     fn validate_capability_shape(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+904 |     fn validate_route(
+    |        ^^^^^^^^^^^^^^
+
+warning: function `ticket_view` is never used
+   --> src\collision_assessor\tickets.rs:940:4
+    |
+940 | fn ticket_view(
+    |    ^^^^^^^^^^^
+
+warning: function `snapshot_is_revoked` is never used
+   --> src\collision_assessor\tickets.rs:970:4
+    |
+970 | fn snapshot_is_revoked(events: &[super::journal::JournalEvent], snapshot_hash: &str) -> bool {
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `next_broker_epoch` is never used
+   --> src\collision_assessor\tickets.rs:985:4
+    |
+985 | fn next_broker_epoch() -> u64 {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: function `mailbox_route_binding_digest` is never used
+   --> src\collision_assessor\tickets.rs:989:4
+    |
+989 | fn mailbox_route_binding_digest(route: &MachineMailboxRouteReceipt) -> String {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `mailbox_capability_route_binding_digest` is never used
+    --> src\collision_assessor\tickets.rs:1009:4
+     |
+1009 | fn mailbox_capability_route_binding_digest(capability: &TicketMailboxCapability) -> String {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `route_binding_digest` is never used
+    --> src\collision_assessor\tickets.rs:1030:4
+     |
+1030 | fn route_binding_digest(
+     |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `digest_strings` is never used
+    --> src\collision_assessor\tickets.rs:1075:4
+     |
+1075 | fn digest_strings<'a>(domain: &[u8], values: impl IntoIterator<Item = &'a str>) -> String {
+     |    ^^^^^^^^^^^^^^
+
+warning: function `is_sha256` is never used
+    --> src\collision_assessor\tickets.rs:1086:4
+     |
+1086 | fn is_sha256(value: &str) -> bool {
+     |    ^^^^^^^^^
+
+warning: fields `epoch`, `issuer`, and `projections` are never read
+  --> src\orchestrator\authority_runtime.rs:34:5
+   |
+30 | pub(crate) struct SchedulerAuthorityRuntime {
+   |                   ------------------------- fields in this struct
+...
+34 |     epoch: u64,
+   |     ^^^^^
+35 |     issuer: Mutex<SchedulerAuthorityIssuer>,
+   |     ^^^^^^
+36 |     projections: Mutex<BTreeMap<String, AuthorityProjection>>,
+   |     ^^^^^^^^^^^
+
+warning: struct `AuthorizedLeaseGrant` is never constructed
+  --> src\orchestrator\authority_runtime.rs:41:19
+   |
+41 | pub(crate) struct AuthorizedLeaseGrant {
+   |                   ^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `scope_id`, `authorization`, and `verify` are never used
+  --> src\orchestrator\authority_runtime.rs:49:19
+   |
+48 | impl AuthorizedLeaseGrant {
+   | ------------------------- methods in this implementation
+49 |     pub(crate) fn scope_id(&self) -> &str {
+   |                   ^^^^^^^^
+...
+53 |     pub(crate) fn authorization(&self) -> &ClaimAuthorization {
+   |                   ^^^^^^^^^^^^^
+...
+57 |     pub(crate) fn verify(&self, now_ms: u64) -> Result<(), String> {
+   |                   ^^^^^^
+
+warning: multiple methods are never used
+   --> src\orchestrator\authority_runtime.rs:96:19
+    |
+ 71 | impl SchedulerAuthorityRuntime {
+    | ------------------------------ methods in this implementation
+...
+ 96 |     pub(crate) fn epoch(&self) -> u64 {
+    |                   ^^^^^
+...
+100 |     pub(crate) fn verification_material(&self) -> Result<AuthorityVerificationMaterial, String> {
+    |                   ^^^^^^^^^^^^^^^^^^^^^
+...
+107 |     pub(crate) fn issue_reservation_authority(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+121 |     pub(crate) fn reserve(
+    |                   ^^^^^^^
+...
+133 |     pub(crate) fn publish_authority(
+    |                   ^^^^^^^^^^^^^^^^^
+...
+145 |     pub(crate) fn accept_clear_census(
+    |                   ^^^^^^^^^^^^^^^^^^^
+...
+157 |     pub(crate) fn consume_clearance(
+    |                   ^^^^^^^^^^^^^^^^^
+...
+172 |     pub(crate) fn consume_and_sign_clearance(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+204 |     pub(crate) fn invalidate(&self, scope_id: &str) -> Result<(), String> {
+    |                   ^^^^^^^^^^
+...
+212 |     fn mutate_projection<T>(
+    |        ^^^^^^^^^^^^^^^^^
+
+warning: constant `DOCUMENT_VERSION` is never used
+  --> src\orchestrator\preclaim_store.rs:13:7
+   |
+13 | const DOCUMENT_VERSION: u32 = 1;
+   |       ^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_ACTIVE_RESERVATIONS` is never used
+  --> src\orchestrator\preclaim_store.rs:14:7
+   |
+14 | const MAX_ACTIVE_RESERVATIONS: usize = 4_096;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `LOCK_TIMEOUT` is never used
+  --> src\orchestrator\preclaim_store.rs:15:7
+   |
+15 | const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
+   |       ^^^^^^^^^^^^
+
+warning: static `TEMP_SEQUENCE` is never used
+  --> src\orchestrator\preclaim_store.rs:16:8
+   |
+16 | static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+   |        ^^^^^^^^^^^^^
+
+warning: struct `PreclaimRecord` is never constructed
+  --> src\orchestrator\preclaim_store.rs:20:19
+   |
+20 | pub(crate) struct PreclaimRecord {
+   |                   ^^^^^^^^^^^^^^
+
+warning: struct `PreclaimDocument` is never constructed
+  --> src\orchestrator\preclaim_store.rs:37:19
+   |
+37 | pub(crate) struct PreclaimDocument {
+   |                   ^^^^^^^^^^^^^^^^
+
+warning: struct `CasExpectation` is never constructed
+  --> src\orchestrator\preclaim_store.rs:46:19
+   |
+46 | pub(crate) struct CasExpectation {
+   |                   ^^^^^^^^^^^^^^
+
+warning: struct `PreclaimStore` is never constructed
+  --> src\orchestrator\preclaim_store.rs:52:19
+   |
+52 | pub(crate) struct PreclaimStore {
+   |                   ^^^^^^^^^^^^^
+
+warning: associated items `open`, `read`, `reserve`, and `consume` are never used
+   --> src\orchestrator\preclaim_store.rs:58:19
+    |
+ 57 | impl PreclaimStore {
+    | ------------------ associated items in this implementation
+ 58 |     pub(crate) fn open(state_path: PathBuf) -> Result<Self, String> {
+    |                   ^^^^
+...
+ 77 |     pub(crate) fn read(&self) -> Result<PreclaimDocument, String> {
+    |                   ^^^^
+...
+ 88 |     pub(crate) fn reserve(
+    |                   ^^^^^^^
+...
+117 |     pub(crate) fn consume(
+    |                   ^^^^^^^
+
+warning: function `empty_document` is never used
+   --> src\orchestrator\preclaim_store.rs:148:4
+    |
+148 | fn empty_document() -> PreclaimDocument {
+    |    ^^^^^^^^^^^^^^
+
+warning: function `publish_next` is never used
+   --> src\orchestrator\preclaim_store.rs:160:4
+    |
+160 | fn publish_next(path: &Path, document: &mut PreclaimDocument) -> Result<CasExpectation, String> {
+    |    ^^^^^^^^^^^^
+
+warning: function `require_cas` is never used
+   --> src\orchestrator\preclaim_store.rs:174:4
+    |
+174 | fn require_cas(document: &PreclaimDocument, expected: &CasExpectation) -> Result<(), String> {
+    |    ^^^^^^^^^^^
+
+warning: function `validate_document` is never used
+   --> src\orchestrator\preclaim_store.rs:181:4
+    |
+181 | fn validate_document(document: &PreclaimDocument) -> Result<(), String> {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: function `validate_record` is never used
+   --> src\orchestrator\preclaim_store.rs:201:4
+    |
+201 | fn validate_record(record: &PreclaimRecord) -> Result<(), String> {
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `document_digest` is never used
+   --> src\orchestrator\preclaim_store.rs:231:4
+    |
+231 | fn document_digest(document: &PreclaimDocument) -> String {
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `is_sha256` is never used
+   --> src\orchestrator\preclaim_store.rs:238:4
+    |
+238 | fn is_sha256(value: &str) -> bool {
+    |    ^^^^^^^^^
+
+warning: function `persist` is never used
+   --> src\orchestrator\preclaim_store.rs:242:4
+    |
+242 | fn persist(path: &Path, document: &PreclaimDocument) -> Result<(), String> {
+    |    ^^^^^^^
+
+warning: struct `StoreLock` is never constructed
+   --> src\orchestrator\preclaim_store.rs:265:8
+    |
+265 | struct StoreLock {
+    |        ^^^^^^^^^
+
+warning: associated function `acquire` is never used
+   --> src\orchestrator\preclaim_store.rs:272:8
+    |
+271 | impl StoreLock {
+    | -------------- associated function in this implementation
+272 |     fn acquire(path: &Path, timeout: Duration) -> Result<Self, String> {
+    |        ^^^^^^^
+
+warning: function `open_lock` is never used
+   --> src\orchestrator\preclaim_store.rs:303:4
+    |
+303 | fn open_lock(path: &Path) -> std::io::Result<File> {
+    |    ^^^^^^^^^
+
+warning: function `is_lock_contention` is never used
+   --> src\orchestrator\preclaim_store.rs:318:4
+    |
+318 | fn is_lock_contention(error: &std::io::Error) -> bool {
+    |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `replace_file` is never used
+   --> src\orchestrator\preclaim_store.rs:443:4
+    |
+443 | fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    |    ^^^^^^^^^^^^
+
+warning: function `MoveFileExW` is never used
+   --> src\orchestrator\preclaim_store.rs:449:12
+    |
+449 |         fn MoveFileExW(source: *const u16, destination: *const u16, flags: u32) -> i32;
+    |            ^^^^^^^^^^^
+
+warning: method `claim_authorized` is never used
+   --> src\orchestrator\scheduler.rs:236:19
+    |
+ 94 | impl SchedulerStore {
+    | ------------------- method in this implementation
+...
+236 |     pub(crate) fn claim_authorized(
+    |                   ^^^^^^^^^^^^^^^^
+
+warning: method `rotate_process_epoch` is never used
+   --> src\collision_assessor\authority.rs:206:19
+    |
+179 | impl SchedulerAuthorityIssuer {
+    | ----------------------------- method in this implementation
+...
+206 |     pub(crate) fn rotate_process_epoch(
+    |                   ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `consuming_wall_ms`, `consuming_monotonic_ms`, and `monotonic_deadline_ms` are never read
+   --> src\collision_assessor\clearance.rs:216:5
+    |
+212 | pub(crate) struct ClearancePermit {
+    |                   --------------- fields in this struct
+...
+216 |     consuming_wall_ms: u64,
+    |     ^^^^^^^^^^^^^^^^^
+217 |     consuming_monotonic_ms: u64,
+    |     ^^^^^^^^^^^^^^^^^^^^^^
+218 |     monotonic_deadline_ms: u64,
+    |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `participant_id`, `node_id`, `fence`, and `expires_at_ms` are never used
+   --> src\collision_assessor\clearance.rs:238:19
+    |
+234 | impl ClearancePermit {
+    | -------------------- methods in this implementation
+...
+238 |     pub(crate) fn participant_id(&self) -> &str {
+    |                   ^^^^^^^^^^^^^^
+...
+241 |     pub(crate) fn node_id(&self) -> &str {
+    |                   ^^^^^^^
+...
+244 |     pub(crate) fn fence(&self) -> u64 {
+    |                   ^^^^^
+...
+247 |     pub(crate) fn expires_at_ms(&self) -> u64 {
+    |                   ^^^^^^^^^^^^^
+
+warning: variant `Consumed` is never constructed
+   --> src\collision_assessor\clearance.rs:256:5
+    |
+253 | enum ClearanceLifecycle {
+    |      ------------------ variant in this enum
+...
+256 |     Consumed,
+    |     ^^^^^^^^
+    |
+    = note: `ClearanceLifecycle` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `0` is never read
+   --> src\collision_assessor\journal.rs:961:8
+    |
+961 |     Io(io::Error),
+    |     -- ^^^^^^^^^
+    |     |
+    |     field in this variant
+    |
+help: consider changing the field to be of unit type to suppress this warning while preserving the field numbering, or remove the field
+    |
+961 -     Io(io::Error),
+961 +     Io(()),
+    |
+
+warning: field `0` is never read
+   --> src\collision_assessor\journal.rs:962:10
+    |
+962 |     Json(serde_json::Error),
+    |     ---- ^^^^^^^^^^^^^^^^^
+    |     |
+    |     field in this variant
+    |
+help: consider changing the field to be of unit type to suppress this warning while preserving the field numbering, or remove the field
+    |
+962 -     Json(serde_json::Error),
+962 +     Json(()),
+    |
+
+warning: methods `conflict_ticket_was_recorded`, `record_conflict_ticket`, and `record_clearance_consumed` are never used
+    --> src\collision_assessor\journal.rs:1379:19
+     |
+1032 | impl AssessmentJournal {
+     | ---------------------- methods in this implementation
+...
+1379 |     pub(super) fn conflict_ticket_was_recorded(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1414 |     pub(super) fn record_conflict_ticket(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^
+...
+1579 |     pub(crate) fn record_clearance_consumed(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `publish_machine_claim_authority_for_test` and `revoke_machine_claim_authority_for_test` are never used
+    --> src\collision_assessor\registry.rs:1067:19
+     |
+ 516 | impl PlannerRegistryStore {
+     | ------------------------- methods in this implementation
+...
+1067 |     pub(crate) fn publish_machine_claim_authority_for_test(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1174 |     pub(crate) fn revoke_machine_claim_authority_for_test(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `snapshot_hash` is never used
+   --> src\collision_assessor\snapshot.rs:343:19
+    |
+342 | impl StoredSnapshotReceipt {
+    | -------------------------- method in this implementation
+343 |     pub(crate) fn snapshot_hash(&self) -> &str {
+    |                   ^^^^^^^^^^^^^
+
+warning: field `0` is never read
+   --> src\collision_assessor\snapshot.rs:370:8
+    |
+370 |     Io(io::Error),
+    |     -- ^^^^^^^^^
+    |     |
+    |     field in this variant
+    |
+help: consider changing the field to be of unit type to suppress this warning while preserving the field numbering, or remove the field
+    |
+370 -     Io(io::Error),
+370 +     Io(()),
+    |
+
+warning: field `0` is never read
+   --> src\collision_assessor\snapshot.rs:371:10
+    |
+371 |     Json(serde_json::Error),
+    |     ---- ^^^^^^^^^^^^^^^^^
+    |     |
+    |     field in this variant
+    |
+help: consider changing the field to be of unit type to suppress this warning while preserving the field numbering, or remove the field
+    |
+371 -     Json(serde_json::Error),
+371 +     Json(()),
+    |
+
+warning: method `read_recorded` is never used
+    --> src\collision_assessor\snapshot.rs:1140:19
+     |
+1013 | impl SnapshotStore {
+     | ------------------ method in this implementation
+...
+1140 |     pub(crate) fn read_recorded(
+     |                   ^^^^^^^^^^^^^
+
+warning: field `0` is never read
+   --> src\collision_assessor\tickets.rs:173:13
+    |
+173 |     Journal(JournalError),
+    |     ------- ^^^^^^^^^^^^
+    |     |
+    |     field in this variant
+    |
+    = note: `TicketError` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+help: consider changing the field to be of unit type to suppress this warning while preserving the field numbering, or remove the field
+    |
+173 -     Journal(JournalError),
+173 +     Journal(()),
+    |
+
+warning: method `invalidate` is never used
+   --> src\orchestrator\authority_runtime.rs:204:19
+    |
+ 71 | impl SchedulerAuthorityRuntime {
+    | ------------------------------ method in this implementation
+...
+204 |     pub(crate) fn invalidate(&self, scope_id: &str) -> Result<(), String> {
+    |                   ^^^^^^^^^^
+
+warning: `perfect-planner-desktop` (lib) generated 310 warnings (run `cargo fix --lib -p perfect-planner-desktop` to apply 3 suggestions)
+warning: `perfect-planner-desktop` (lib test) generated 22 warnings (8 duplicates)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.72s
+     Running unittests src\lib.rs (src-tauri\target\debug\deps\perfect_planner_desktop_lib-90948a683a9c7654.exe)
+     Running unittests src\main.rs (src-tauri\target\debug\deps\perfect_planner_desktop-3a6e468734f61046.exe)
+     Running tests\collision_authority_issuer_contract.rs (src-tauri\target\debug\deps\collision_authority_issuer_contract-da92a5e6a1eb5d94.exe)
+     Running tests\collision_census_contract.rs (src-tauri\target\debug\deps\collision_census_contract-08f24ec6c9a194a4.exe)
+     Running tests\collision_claim_contract.rs (src-tauri\target\debug\deps\collision_claim_contract-113e711619a52e21.exe)

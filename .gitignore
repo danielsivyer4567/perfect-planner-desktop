@@ -10,5 +10,6 @@ src-tauri/gen/
 .claude/scratch/perfect-plan/evidence/B*-before.png
 .claude/scratch/orchestrator/
 *.log
+!.claude/scratch/perfect-plan/evidence/*.log
 .DS_Store
 Thumbs.db

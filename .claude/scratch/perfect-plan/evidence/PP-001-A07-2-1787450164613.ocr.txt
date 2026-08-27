@@ -1,0 +1,41 @@
+perfect planning HEAD ORCH - WORKERS @ RESOURCE GUARD - UNAVAILABLE
+PROBLEM i i i
+boards on 127.0.0.1:5230-5249 The combined workflow is not safe to treat as one automated lifecycle.
+WHERE Perfect Planner Desktop / release lifecycle / $start -» Planner > CL.
+$finish > $cleanup HEAD ORCHESTRATOR : REPOSITORY A - Perfect Planner Desktop — Minimise
+orch-a7fed578
+REPOSITORY A REMEDY Planner may invoke $finish, but $finish remains the authoritative
+release gate; run $cleanup explicitly and last.
+ORCH
+Perfect Planner Desktop 1 recommended action only - delivered commands appear below
+@® ~ feature/head-orchestrator-character |
+IN PROGRESS 1 LEGACY LEASE + REAPER ACTIVE 2 reports 2 active © grace © cleared 1 decisions
+PP-ORCH ° s-actor B22 LIVE s-bridge B15 LIVE DECISION - release-gate
+[ » | PERFECT PLANNER DESKTOP
+_~ feature/head-orchestrator-character
+Physical head orchestrator LOOPLET LIVE ORCHESTRATOR MESSAGES INBOX'© J {(uTBOX © ] GED DELIVERED
+. h d-foab-ab s-actor - B22 B22 LIVE s-bridge - B15 B15 LIVE
+head-orchestrator-character.json - :5232 - .. pp-orchestrator-20298aed-f94b-4 { unroutep @ | ACKNOWLEDGED
+Orchestrator pipeline Create native run Load saved runs
+No run snapshot loaded
+No verified orchestrator run is bound to the selected Perfect Plan.
+MERE C:\repos\perfect-planner-tauri
+RERLOY Create a native run or explicitly select a recorded run. Plan IDs are never guessed as run IDs
+p y : 9 : CONSOLE 2 issues
+- - - Maximize
+Session diagnostics
+BD Perfect Planner Desktop _~ feature/head-orchestrator-character PP-ORCH - Physical
+STATUS PLAN GAPS - © SESSION LOGS - 3
+LOCAL OUTPUT
+LIVE - :5232 UNVERIFIED BOARD CLAIM
+app URL not declared
+C:\fixtures\head-orchestrator-character.json Browser HTTP state is display-only and cannot attest a chat route.
+NO CAPTURED LOCAL SCREEN
+BROWSER ONLY NOT INITIALIZED
+Resource guard is available in the Tauri desktop app A Perfect Plan ID is not automatically an orchestrator run ID.
+No phase visibility data yet.
+alarm - gentle rise armed
+NOT ATTESTED NOT ACTIVE - NO VERIFIED RUN
+sound on test aon) — No MCP handshake receipt is present. Worker access is not assumed. Select or create an exact native run; a plan checkbox is not an
+admission receipt.
+rescan 1 board

@@ -1,0 +1,15 @@
+# perfect-planning proof artifact
+item: A06:0 — Perfect Planner proof logs are explicitly unignored beneath the evidence directory
+command: git check-ignore .claude/scratch/perfect-plan/evidence/proof-retention-test.log >nul 2>&1 & if errorlevel 1 (exit /b 0) else (exit /b 1)
+cwd: C:\repos\perfect-planner-tauri
+exit: 0
+duration_ms: 240
+at: 2026-08-23T01:53:16.680Z
+git: 77abb60cbbba9f964e04461e68e237b0255a9fd1 (feature/tauri-orchestrator-messaging-20260821-223935, dirty)
+diff: PP-001-A06-0-1787449995668.diff
+diff_baseline: 77abb60cbbba9f964e04461e68e237b0255a9fd1
+
+## stdout
+(empty)
+## stderr
+(empty)

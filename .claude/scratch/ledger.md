@@ -103,6 +103,63 @@ task registry + routed activity <---- admit/lease/heartbeat/result/recovery
 - Signature: an always-visible repository scope rail that reads like a physical switchboard and makes
   cross-repository context changes explicit.
 
+## Native supervision and restart recovery — 2026-08-23
+
+Approved: yes (the user said “go” and “finish what you started”)
+Baseline commit: `aa1ae3365304a4778411775b2f85611bd53c6e0b`
+
+### Confirmed root cause
+
+```text
+SupervisorStore::observe succeeds
+        |
+        +-> returns retained SESSION_CLEARED events (bounded audit history)
+                    |
+                    +-> App replays every event after each desktop restart
+                                |
+                                +-> already-completed board returns HTTP 409
+                                            |
+                                            +-> broad catch mislabels supervisor as stopped
+```
+
+The native supervisor snapshot and reconciliation command are healthy. Live read-only comparison
+proved that retained events A08, A12, A05 and A06 now name `done` tasks, while the board endpoint
+correctly accepts recovery only for the matching in-progress holder or the exact existing recovery.
+
+### RR-01 — Recovery replay classification [completed]
+
+- Add a deterministic classification for deliverable, already-applied, superseded, identity-blocked
+  and unverified recovery events using the freshly identity-fenced plan snapshot.
+- Prove completed tasks never receive a recovery write after restart.
+
+### RR-02 — Separate supervision from downstream delivery [completed]
+
+- A successful native reconciliation must clear the supervisor error even when a board refuses a
+  recovery delivery. Delivery failure remains visible and actionable under its own state.
+- Do not retry already-applied or superseded events for the lifetime of the app process.
+
+### RR-03 — Packaged restart proof [completed]
+
+- Build the release application, start from the same durable app-data ledger, prove the supervisor is
+  active after two process starts, and capture scoped UI, console and command evidence.
+- Preserve all pre-existing plan, checklist and evidence changes; no other repository is modified.
+
+### Recovery verification record
+
+- Focused RED: browser contract failed because `classifyRecoveryMirror` did not exist.
+- Focused GREEN: deliverable, already-applied, superseded, identity-blocked and unverified cases pass.
+- Packaged restart 1 and 2: `LEGACY LEASE + REAPER ACTIVE`; truthful `Action required` for PP-002;
+  `live=0`, `grace=0`, `cleared=8`; refreshed WebView console errors `[]`.
+- Durable no-replay proof across restart:
+  - `session-reaper.jsonl` SHA-256 stayed
+    `9491695047D5F2CCAEE20E63B5122E52B2EBD8D08F0CC173D394F2978AF7007C`.
+  - PP-002 plan SHA-256 stayed
+    `B82946943403BE379FC93306DCBFF166D33830AC46FE8A6FB91A8DE07286F7D1`.
+- Existing evidence reconciliation: PP-001 has 48 referenced artifacts, 0 missing and 0 hash
+  mismatches; PP-002 `/integrity` reports `ok`, 0 problems, 0 stale and 0 diverged.
+- Full verification: frontend build, complete browser E2E suite, Rust format, 306 Rust tests plus
+  15 contract tests, Clippy with warnings denied, Tauri release build, MSI and NSIS all pass.
+
 ## Live finish pass — 2026-08-23 (supersedes the completion claim below)
 
 Approved: yes (user-directed execution in this task)

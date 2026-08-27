@@ -42,6 +42,8 @@ import {
 } from "./services/identityRegistry";
 import {
   LeaseDisposition,
+  classifyRecoveryMirror,
+  recoveryMirrorMatchesSelection,
   reconcileSessionLeases,
   recoverClearedSession,
   sessionLeaseKey,
@@ -54,6 +56,12 @@ import { deriveWorkspaceStatus } from "./services/orchestrationWorkspace";
 const SOUND_KEY = "perfect-planner:stall-sound";
 const VOLUME_KEY = "perfect-planner:stall-volume";
 const DISMISSED_BOARDS_KEY = "perfect-planner:dismissed-plans";
+const ACTIVE_BOARD_KEY = "perfect-planner:active-board";
+
+interface ActiveBoardIdentity {
+  repositoryRoot: string;
+  planPath: string;
+}
 
 interface WorkerReport {
   boardPort: number;
@@ -171,6 +179,53 @@ function storedDismissedPlans(): Set<string> {
   }
 }
 
+function normalizedIdentityPath(value: string): string {
+  return value.trim().replace(/\\/g, "/").replace(/\/$/, "").toLocaleLowerCase();
+}
+
+function boardIdentity(board: Board): ActiveBoardIdentity {
+  return {
+    repositoryRoot: board.repoRoot,
+    planPath: board.planPath,
+  };
+}
+
+function boardMatchesIdentity(board: Board, identity: ActiveBoardIdentity): boolean {
+  return normalizedIdentityPath(board.repoRoot) === normalizedIdentityPath(identity.repositoryRoot) &&
+    normalizedIdentityPath(board.planPath) === normalizedIdentityPath(identity.planPath);
+}
+
+function storedActiveBoardIdentity(): ActiveBoardIdentity | null {
+  try {
+    const value = JSON.parse(localStorage.getItem(ACTIVE_BOARD_KEY) || "null");
+    if (
+      !value ||
+      typeof value !== "object" ||
+      typeof value.repositoryRoot !== "string" ||
+      !value.repositoryRoot.trim() ||
+      typeof value.planPath !== "string" ||
+      !value.planPath.trim()
+    ) {
+      return null;
+    }
+    return {
+      repositoryRoot: value.repositoryRoot,
+      planPath: value.planPath,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistActiveBoardIdentity(identity: ActiveBoardIdentity | null): void {
+  try {
+    if (identity) localStorage.setItem(ACTIVE_BOARD_KEY, JSON.stringify(identity));
+    else localStorage.removeItem(ACTIVE_BOARD_KEY);
+  } catch {
+    // Selection remains valid for this process when storage is unavailable.
+  }
+}
+
 function isPlanComplete(plan: PlanSnapshot | undefined): boolean {
   const items = plan?.vertebrae.flatMap((vertebra) => vertebra.checklist || []) || [];
   if (!items.length) return false;
@@ -217,6 +272,7 @@ export const App: React.FC = () => {
   const [orchestratorIds, setOrchestratorIds] = useState<Record<string, string>>({});
   const [supervisor, setSupervisor] = useState<SupervisorSnapshot | null>(null);
   const [supervisorError, setSupervisorError] = useState<string | null>(null);
+  const [recoveryDeliveryErrors, setRecoveryDeliveryErrors] = useState<Record<string, string>>({});
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [planSnapshots, setPlanSnapshots] = useState<Record<string, PlanManifestSnapshot>>({});
   const [selectedPipelineScope, setSelectedPipelineScope] = useState<{
@@ -227,6 +283,7 @@ export const App: React.FC = () => {
   const [pipelineSnapshot, setPipelineSnapshot] = useState<OrchestratorSnapshot | null>(null);
   const [controlPlaneSnapshot, setControlPlaneSnapshot] = useState<ControlPlaneSnapshot | null>(null);
   const [dismissedPlans, setDismissedPlans] = useState<Set<string>>(storedDismissedPlans);
+  const [unavailableSelection, setUnavailableSelection] = useState<ActiveBoardIdentity | null>(null);
   const [orchestratorMinimized, setOrchestratorMinimized] = useState(true);
   const [resourceGuard, setResourceGuard] = useState<ResourceGuardState>({
     status: "checking",
@@ -242,18 +299,26 @@ export const App: React.FC = () => {
   const stallsByPlanRef = useRef(new Map<string, Set<string>>());
   const orchestratorLeasesRef = useRef(new Map<string, IdentityLease>());
   const mirroredRecoveryEventsRef = useRef(new Set<string>());
+  const reportedRecoveryErrorsRef = useRef(new Set<string>());
   const dismissedPlansRef = useRef(dismissedPlans);
   const diagnosticSequenceRef = useRef(0);
   const lastResourceDiagnosticRef = useRef("");
   const activePortRef = useRef<number | null>(null);
   const activePortMissesRef = useRef(0);
+  const activeBoardIdentityRef = useRef<ActiveBoardIdentity | null>(storedActiveBoardIdentity());
+  const recoveryScopeAuthorizedRef = useRef(activeBoardIdentityRef.current !== null);
   const orchestratorToggleRef = useRef<HTMLButtonElement>(null);
   const orchestratorInspectorRef = useRef<HTMLElement>(null);
 
-  const activateBoardPort = useCallback((port: number | null) => {
-    activePortRef.current = port;
+  const activateBoard = useCallback((board: Board | null) => {
+    const identity = board ? boardIdentity(board) : null;
+    activeBoardIdentityRef.current = identity;
+    recoveryScopeAuthorizedRef.current = identity !== null;
+    persistActiveBoardIdentity(identity);
+    setUnavailableSelection(null);
+    activePortRef.current = board?.port ?? null;
     activePortMissesRef.current = 0;
-    setActivePort(port);
+    setActivePort(board?.port ?? null);
   }, []);
 
   const recordDiagnostic = useCallback((entry: Omit<DiagnosticEntry, "id" | "at">) => {
@@ -289,17 +354,38 @@ export const App: React.FC = () => {
       const found = await discoverBoards();
       const visible = found.filter((board) => !dismissedPlansRef.current.has(board.planPath));
       const currentPort = activePortRef.current;
+      const savedIdentity = activeBoardIdentityRef.current;
+      const currentBoard = currentPort === null
+        ? null
+        : visible.find((board) => board.port === currentPort) || null;
+      const currentBoardMatchesSelection = currentBoard !== null && (
+        savedIdentity === null || boardMatchesIdentity(currentBoard, savedIdentity)
+      );
       let nextPort = currentPort;
-      if (currentPort !== null && visible.some((board) => board.port === currentPort)) {
+      if (currentPort !== null && currentBoardMatchesSelection) {
         activePortMissesRef.current = 0;
-      } else if (currentPort !== null && activePortMissesRef.current < 3) {
+        setUnavailableSelection(null);
+      } else if (currentPort !== null && currentBoard === null && activePortMissesRef.current < 3) {
         // Board discovery is a network census and one endpoint can miss a single poll while
         // its sibling boards remain visible. Do not silently switch plans during that gap:
         // retain the explicit user selection and its last trusted metadata for three scans.
         activePortMissesRef.current += 1;
       } else {
         activePortMissesRef.current = 0;
-        nextPort = visible.length ? visible[0].port : null;
+        const restored = savedIdentity
+          ? visible.find((board) => boardMatchesIdentity(board, savedIdentity)) || null
+          : visible[0] || null;
+        nextPort = restored?.port ?? null;
+        if (restored) {
+          if (savedIdentity) {
+            const identity = boardIdentity(restored);
+            activeBoardIdentityRef.current = identity;
+            persistActiveBoardIdentity(identity);
+          }
+          setUnavailableSelection(null);
+        } else {
+          setUnavailableSelection(savedIdentity);
+        }
       }
       activePortRef.current = nextPort;
       setActivePort(nextPort);
@@ -393,23 +479,68 @@ export const App: React.FC = () => {
         );
         setSupervisor(nextSupervisor);
         setSupervisorError(null);
-
-        // A reaper tombstone that exists only in app memory leaves the board in split-brain:
-        // the shell says CLEARED while `/workers` keeps deriving STALE from the untouched
-        // plan. Mirror each durable event into its identity-fenced board exactly once per app
-        // run; the endpoint is also idempotent, so restarts are safe.
-        const boardsByPlan = new Map(found.map((board) => [board.planPath, board]));
-        for (const event of nextSupervisor.events) {
-          if (event.kind !== "SESSION_CLEARED" || mirroredRecoveryEventsRef.current.has(event.id)) continue;
-          const board = boardsByPlan.get(event.planPath);
-          if (!board) continue;
-          const recovered = await recoverClearedSession(board.port, event);
-          if (recovered.ok) mirroredRecoveryEventsRef.current.add(event.id);
-        }
       } catch (error) {
         setSupervisorError(
           error instanceof Error ? error.message : "session supervisor unavailable"
         );
+      }
+      const recoveryErrors: Array<{ planPath: string; message: string }> = [];
+      if (nextSupervisor) {
+        // The ledger retains events for audit. Only a freshly-read, still-in-progress task held
+        // by the exact cleared session may receive the recovery transition. Completed or already
+        // recovered tasks are settled locally so a restart cannot replay an obsolete write.
+        const boardsByPlan = new Map(found.map((board) => [board.planPath, board]));
+        const manifestsByPlan = new Map(
+          found.flatMap((board, index) => manifests[index] ? [[board.planPath, manifests[index]]] : [])
+        );
+        for (const event of nextSupervisor.events) {
+          if (event.kind !== "SESSION_CLEARED" || mirroredRecoveryEventsRef.current.has(event.id)) continue;
+          const board = boardsByPlan.get(event.planPath);
+          if (!board) continue;
+          const selectedIdentity = recoveryScopeAuthorizedRef.current
+            ? activeBoardIdentityRef.current
+            : null;
+          if (
+            board.port !== nextPort ||
+            !recoveryMirrorMatchesSelection(event, board.repoRoot, selectedIdentity)
+          ) {
+            continue;
+          }
+          const disposition = classifyRecoveryMirror(event, manifestsByPlan.get(event.planPath)?.plan);
+          if (disposition === "ALREADY_APPLIED" || disposition === "SUPERSEDED") {
+            mirroredRecoveryEventsRef.current.add(event.id);
+            continue;
+          }
+          if (disposition !== "DELIVER") {
+            recoveryErrors.push({
+              planPath: event.planPath,
+              message: `${event.vertebra}: ${disposition.toLocaleLowerCase().replace("_", " ")}`,
+            });
+            continue;
+          }
+          try {
+            const recovered = await recoverClearedSession(board.port, event);
+            if (recovered.ok) mirroredRecoveryEventsRef.current.add(event.id);
+          } catch (error) {
+            recoveryErrors.push({
+              planPath: event.planPath,
+              message: `${event.vertebra}: ${error instanceof Error ? error.message : "recovery delivery failed"}`,
+            });
+          }
+        }
+      }
+      setRecoveryDeliveryErrors(Object.fromEntries(
+        recoveryErrors.map((error) => [error.planPath, error.message])
+      ));
+      for (const error of recoveryErrors) {
+        const diagnosticKey = `${error.planPath}\u0000${error.message}`;
+        if (reportedRecoveryErrorsRef.current.has(diagnosticKey)) continue;
+        reportedRecoveryErrorsRef.current.add(diagnosticKey);
+        recordDiagnostic({
+          level: "error",
+          source: "recovery",
+          message: `${error.planPath} / ${error.message}`,
+        });
       }
       const leasesByKey = new Map(
         (nextSupervisor?.leases || []).map((lease) => [lease.key, lease])
@@ -477,7 +608,7 @@ export const App: React.FC = () => {
       setScanGeneration((generation) => generation + 1);
       scanRunningRef.current = false;
     }
-  }, [ring]);
+  }, [recordDiagnostic, ring]);
 
   useEffect(() => {
     scan();
@@ -500,6 +631,9 @@ export const App: React.FC = () => {
   );
   const hiddenBoardCount = boards.length - visibleBoards.length;
   const active = visibleBoards.find((b) => b.port === activePort) || null;
+  const recoveryDeliveryError = active
+    ? recoveryDeliveryErrors[active.planPath] || null
+    : null;
   const isNativeTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   const activePlan = active ? planSnapshots[active.planPath]?.plan || null : null;
   const repositoryGroups = useMemo(() => {
@@ -518,17 +652,16 @@ export const App: React.FC = () => {
     ? orchestratorIds[activeRepository.id] || null
     : null;
   const firstStalledBoard = visibleBoards.find((board) => (stalledByPlan[board.planPath] || 0) > 0);
-  const decisionBoards = visibleBoards
+  const decisionBoards = activeRepository ? visibleBoards
     .map((board) => ({ board, decision: decisionRequest(board) }))
     .filter(
       (entry) =>
         entry.decision !== null &&
-        (!activeRepository ||
-          repositoryForBoard(entry.board).id === activeRepository.id)
-    );
-  const scopedWorkerReports = workerReports.filter(
-    (report) => !activeRepository || report.organization.id === activeRepository.id
-  );
+        repositoryForBoard(entry.board).id === activeRepository.id
+    ) : [];
+  const scopedWorkerReports = activeRepository
+    ? workerReports.filter((report) => report.organization.id === activeRepository.id)
+    : [];
   const visibleWorkerReports = scopedWorkerReports.filter(
     (report) => report.disposition !== "CLEARED"
   );
@@ -577,7 +710,7 @@ export const App: React.FC = () => {
         : "standby"
     : identityError || supervisorError
       ? "stopped"
-      : decisionBoards.length || scopedStalled
+      : recoveryDeliveryError || decisionBoards.length || scopedStalled
         ? "holding"
         : activeWorkers
           ? "working"
@@ -647,6 +780,13 @@ export const App: React.FC = () => {
         problem: "Worker supervision could not be loaded; legacy board claim state is untrusted.",
         where: `${selectedScope} / board lease supervisor`,
         remedy: "Keep legacy board claims blocked, restore the supervisor, inspect its log, and rescan before retrying.",
+      };
+    }
+    if (recoveryDeliveryError) {
+      return {
+        problem: "A durable recovery event could not be delivered to its exact task identity.",
+        where: `${selectedScope} / recovery delivery`,
+        remedy: "Keep the affected task blocked, inspect the recovery diagnostic, and verify its plan, task, and session identity before retrying.",
       };
     }
     if (firstDecisionEntry && firstDecision) {
@@ -791,6 +931,7 @@ export const App: React.FC = () => {
     decisionCount: decisionBoards.length,
     identityError,
     supervisorError,
+    recoveryDeliveryError,
   }), [
     active,
     boundPipelineSnapshot,
@@ -798,6 +939,7 @@ export const App: React.FC = () => {
     decisionBoards.length,
     identityError,
     supervisorError,
+    recoveryDeliveryError,
     visibleWorkerReports,
   ]);
 
@@ -896,10 +1038,10 @@ export const App: React.FC = () => {
       // Dismissal remains reversible for this session when storage is unavailable.
     }
     const replacement = boards.find((board) => !next.has(board.planPath));
-    activateBoardPort(replacement?.port ?? null);
+    activateBoard(replacement || null);
     recordDiagnostic({ level: "info", source: "plan", message: `Removed ${planPath} from the live rail; the plan file was not changed.` });
     void scan();
-  }, [activateBoardPort, boards, recordDiagnostic, scan]);
+  }, [activateBoard, boards, recordDiagnostic, scan]);
 
   const restoreDismissedPlans = () => {
     const next = new Set<string>();
@@ -910,7 +1052,7 @@ export const App: React.FC = () => {
     } catch {
       // The in-memory restore still takes effect.
     }
-    activateBoardPort(boards[0]?.port ?? null);
+    activateBoard(boards[0] || null);
     void scan();
   };
 
@@ -924,10 +1066,10 @@ export const App: React.FC = () => {
       recordDiagnostic({ level: "warning", source: "context-menu", message: `Plan action refused because ${planPath} is no longer in the current board census.` });
       return;
     }
-    if (action === "select") activateBoardPort(board.port);
+    if (action === "select") activateBoard(board);
     if (action === "remove") dismissPlan(planPath);
     if (action === "open") window.open(board.url, "_blank", "noopener,noreferrer");
-  }, [activateBoardPort, boards, dismissPlan, recordDiagnostic]);
+  }, [activateBoard, boards, dismissPlan, recordDiagnostic]);
 
   const recordContextAction = useCallback((entry: ContextActionLog) => {
     recordDiagnostic({ level: entry.level, source: entry.source, message: entry.message });
@@ -1034,7 +1176,7 @@ export const App: React.FC = () => {
                               data-context-label={`${b.number || "Unnumbered plan"} · ${b.topic || "untitled plan"}`}
                               data-plan-path={b.planPath}
                               className={`rail-item${b.port === activePort ? " on" : ""}${boardStalls ? " stalled" : ""}${isComplete ? " complete" : ""}`}
-                              onClick={() => activateBoardPort(b.port)}
+                              onClick={() => activateBoard(b)}
                               title={`Repository ${repository.callSign} · ${repository.scope.label}${hasDistinctProject ? ` · Project ${projectLabel}` : ""} · ${branch.name}\n${b.planPath}`}
                               aria-label={`${b.number || "Unnumbered plan"} Repository ${repository.callSign} ${repository.scope.label}${hasDistinctProject ? ` Project ${projectLabel}` : ""} ${branch.name} ${b.topic || "untitled plan"}`}
                               aria-pressed={b.port === activePort}
@@ -1126,7 +1268,7 @@ export const App: React.FC = () => {
                   id="pp-btn-show-stalled"
                   type="button"
                   className="alarm-jump"
-                  onClick={() => activateBoardPort(firstStalledBoard.port)}
+                  onClick={() => activateBoard(firstStalledBoard)}
                   title="Show the first stalled board"
                 >
                   {stalledCount} stalled
@@ -1291,7 +1433,7 @@ export const App: React.FC = () => {
                 type="button"
                 className={selected ? "selected" : ""}
                 aria-current={selected ? "page" : undefined}
-                onClick={() => activateBoardPort(repositoryBoards[0]?.port ?? null)}
+                onClick={() => activateBoard(repositoryBoards[0] || null)}
                 title={`Show ${repository.scope.label} only`}
               >
                 <span>{repository.callSign}</span>
@@ -1380,7 +1522,7 @@ export const App: React.FC = () => {
                   data-entity-id={assignmentId}
                   data-worker-id={report.worker.session}
                   data-fence={report.fence}
-                  onClick={() => activateBoardPort(report.boardPort)}
+                  onClick={() => activateBoard(visibleBoards.find((board) => board.port === report.boardPort) || null)}
                   title={`${report.boardLabel} · ${report.worker.session} · fence ${report.fence}`}
                 >
                   <span className="worker-id">{report.worker.session}</span>
@@ -1407,7 +1549,7 @@ export const App: React.FC = () => {
                   key={decisionId}
                   className="decision-report"
                   data-entity-id={decisionId}
-                  onClick={() => activateBoardPort(board.port)}
+                  onClick={() => activateBoard(board)}
                   title={`Decision requested by ${boardLabel(board)}`}
                 >
                   DECISION · {decision?.item || decision?.kind}
@@ -1506,11 +1648,19 @@ export const App: React.FC = () => {
         ) : (
           <div className="stage-empty" id="pp-region-empty-stage">
             <div className="stage-empty-inner">
-              <h2>Waiting for a board</h2>
-              <p>
-                This window is a container. It renders the board perfect-planning already
-                serves — it does not draw its own.
-              </p>
+              <h2>{unavailableSelection ? "Saved plan unavailable" : "Waiting for a board"}</h2>
+              {unavailableSelection ? (
+                <p>
+                  The saved repository and plan are not in the current board census. Select an
+                  available plan from the repository rail; Perfect Planner will not switch scope
+                  automatically. Saved scope: {unavailableSelection.repositoryRoot} · {unavailableSelection.planPath}
+                </p>
+              ) : (
+                <p>
+                  This window is a container. It renders the board perfect-planning already
+                  serves — it does not draw its own.
+                </p>
+              )}
             </div>
           </div>
         )}

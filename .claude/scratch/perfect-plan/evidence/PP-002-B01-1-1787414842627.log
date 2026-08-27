@@ -1,0 +1,15 @@
+# perfect-planning proof artifact
+item: B01:1 — Define the three separate authorities: assessor observes, head orchestrator decides, worker executes
+command: node -e "const fs=require('fs');const s=fs.readFileSync('docs/collision-assessor-guarantee.md','utf8');if(!s.includes('assessor')||!s.includes('orchestrator')||!s.includes('worker'))process.exit(1)"
+cwd: C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935
+exit: 0
+duration_ms: 239
+at: 2026-08-22T16:07:23.524Z
+git: 177208f653bdfe622f6c292b212c02417996346b (feature/tauri-orchestrator-messaging-20260821-223935)
+diff: PP-002-B01-1-1787414842627.diff
+diff_baseline: c007ad05ceff9b4eb3560a84c2c91bdc3acd2414
+
+## stdout
+(empty)
+## stderr
+(empty)

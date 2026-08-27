@@ -1,0 +1,121 @@
+# perfect-planning proof artifact
+item: B01:0 — Specify the invariant: no managed worker claim exists without a fresh assessor clearance bound to the exact run, node, repository, branch, files and resources
+command: rustc --edition 2021 --test src-tauri/src/collision_assessor/model.rs -o "%TEMP%\pp-b01-proof.exe" && "%TEMP%\pp-b01-proof.exe" --nocapture
+cwd: C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935
+exit: 1
+duration_ms: 551
+at: 2026-08-22T16:07:21.462Z
+git: 177208f653bdfe622f6c292b212c02417996346b (feature/tauri-orchestrator-messaging-20260821-223935)
+diff: PP-002-B01-0-1787414840140.diff
+diff_baseline: c007ad05ceff9b4eb3560a84c2c91bdc3acd2414
+
+## stdout
+(empty)
+## stderr
+error[E0432]: unresolved import `serde`
+ --> src-tauri/src/collision_assessor/model.rs:6:5
+  |
+6 | use serde::{Deserialize, Serialize};
+  |     ^^^^^ use of unresolved module or unlinked crate `serde`
+  |
+  = help: you might be missing a crate named `serde`
+
+error: cannot find attribute `serde` in this scope
+  --> src-tauri/src/collision_assessor/model.rs:12:3
+   |
+12 | #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+   |   ^^^^^
+
+error: cannot find attribute `serde` in this scope
+  --> src-tauri/src/collision_assessor/model.rs:20:3
+   |
+20 | #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+   |   ^^^^^
+
+error: cannot find attribute `serde` in this scope
+  --> src-tauri/src/collision_assessor/model.rs:27:3
+   |
+27 | #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+   |   ^^^^^
+
+error: cannot find attribute `serde` in this scope
+  --> src-tauri/src/collision_assessor/model.rs:39:3
+   |
+39 | #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+   |   ^^^^^
+
+error: cannot find attribute `serde` in this scope
+  --> src-tauri/src/collision_assessor/model.rs:50:3
+   |
+50 | #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+   |   ^^^^^
+
+error: cannot find attribute `serde` in this scope
+  --> src-tauri/src/collision_assessor/model.rs:58:3
+   |
+58 | #[serde(rename_all = "camelCase", deny_unknown_fields)]
+   |   ^^^^^
+
+error: cannot find attribute `serde` in this scope
+  --> src-tauri/src/collision_assessor/model.rs:64:7
+   |
+64 |     #[serde(default)]
+   |       ^^^^^
+
+error: cannot find attribute `serde` in this scope
+  --> src-tauri/src/collision_assessor/model.rs:66:7
+   |
+66 |     #[serde(default, skip_serializing_if = "Option::is_none")]
+   |       ^^^^^
+
+error: cannot find attribute `serde` in this scope
+  --> src-tauri/src/collision_assessor/model.rs:71:3
+   |
+71 | #[serde(rename_all = "camelCase", deny_unknown_fields)]
+   |   ^^^^^
+
+error: cannot find attribute `serde` in this scope
+  --> src-tauri/src/collision_assessor/model.rs:78:3
+   |
+78 | #[serde(rename_all = "camelCase", deny_unknown_fields)]
+   |   ^^^^^
+
+error: cannot find attribute `serde` in this scope
+  --> src-tauri/src/collision_assessor/model.rs:86:7
+   |
+86 |     #[serde(default)]
+   |       ^^^^^
+
+error: cannot find attribute `serde` in this scope
+  --> src-tauri/src/collision_assessor/model.rs:91:7
+   |
+91 |     #[serde(default)]
+   |       ^^^^^
+
+error: cannot find attribute `serde` in this scope
+  --> src-tauri/src/collision_assessor/model.rs:98:3
+   |
+98 | #[serde(rename_all = "camelCase", deny_unknown_fields)]
+   |   ^^^^^
+
+error: cannot find attribute `serde` in this scope
+   --> src-tauri/src/collision_assessor/model.rs:102:7
+    |
+102 |     #[serde(default, skip_serializing_if = "Option::is_none")]
+    |       ^^^^^
+
+error: cannot find attribute `serde` in this scope
+   --> src-tauri/src/collision_assessor/model.rs:106:7
+    |
+106 |     #[serde(default)]
+    |       ^^^^^
+
+error: cannot find attribute `serde` in this scope
+   --> src-tauri/src/collision_assessor/model.rs:108:7
+    |
+108 |     #[serde(default)]
+    |       ^^^^^
+
+error: aborting due to 17 previous errors
+
+For more information about this error, try `rustc --explain E0432`.

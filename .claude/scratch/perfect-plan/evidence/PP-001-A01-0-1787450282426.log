@@ -1,0 +1,58 @@
+# perfect-planning proof artifact
+item: A01:0 — Persist worker notes and orchestrator messages in an append-only local ledger
+command: cargo test control_plane
+cwd: C:\repos\perfect-planner-tauri\src-tauri
+exit: 0
+duration_ms: 3154
+at: 2026-08-23T01:58:06.149Z
+git: 77abb60cbbba9f964e04461e68e237b0255a9fd1 (feature/tauri-orchestrator-messaging-20260821-223935, dirty)
+
+## stdout
+
+running 15 tests
+test control_plane_api::tests::incomplete_external_routes_are_never_claimable ... ok
+test control_plane_api::tests::scope_round_trip_preserves_repository_plan_and_actor_fences ... ok
+test control_plane::tests::rejects_incomplete_scope_and_null_delimited_ids ... ok
+test collision_assessor::tickets::tests::broker_is_production_disabled_and_has_no_generic_control_plane_dependency ... ok
+test control_plane::tests::persists_messages_and_rebuilds_state_after_restart ... ok
+test control_plane::tests::rejects_results_without_the_exact_live_claim ... ok
+test control_plane::tests::idempotency_is_scope_local_and_conflicting_reuse_is_rejected ... ok
+test control_plane::tests::delivery_and_acknowledgement_require_separate_durable_events ... ok
+test control_plane::tests::filtered_snapshots_keep_repositories_and_workers_isolated ... ok
+test control_plane::tests::unrouted_message_cannot_be_claimed_until_a_route_event_exists ... ok
+test control_plane::tests::claim_next_is_route_scoped_and_oldest_first ... ok
+test control_plane::tests::malformed_complete_lines_fail_but_a_torn_final_append_is_ignored ... ok
+test control_plane::tests::failures_retry_only_when_due_and_dead_letter_at_the_attempt_limit ... ok
+test control_plane::tests::restart_continues_all_id_sequences_without_collisions ... ok
+test control_plane::tests::expired_claims_are_recorded_and_eventually_dead_lettered ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 293 filtered out; finished in 0.06s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+
+## stderr
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.96s
+     Running unittests src\lib.rs (target\debug\deps\perfect_planner_desktop_lib-9380c9ed0f80aed0.exe)
+     Running unittests src\main.rs (target\debug\deps\perfect_planner_desktop-75840d64cef30871.exe)
+     Running tests\collision_authority_issuer_contract.rs (target\debug\deps\collision_authority_issuer_contract-2d4f3a60486f1287.exe)
+     Running tests\collision_census_contract.rs (target\debug\deps\collision_census_contract-08f036a2eace6383.exe)
+     Running tests\collision_claim_contract.rs (target\debug\deps\collision_claim_contract-6286e62985f3e4e4.exe)

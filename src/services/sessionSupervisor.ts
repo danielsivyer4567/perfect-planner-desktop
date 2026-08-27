@@ -46,6 +46,67 @@ export interface SupervisorSnapshot {
   clearedCount: number;
 }
 
+export type RecoveryMirrorDisposition =
+  | "DELIVER"
+  | "ALREADY_APPLIED"
+  | "SUPERSEDED"
+  | "IDENTITY_BLOCKED"
+  | "UNVERIFIED";
+
+export interface RecoveryMirrorSelection {
+  repositoryRoot: string;
+  planPath: string;
+}
+
+function normalizedScopePath(value: string): string {
+  return value.trim().replace(/\\/g, "/").replace(/\/$/, "").toLocaleLowerCase();
+}
+
+/** Recovery is a write. It may target only the exact repository and plan the person selected. */
+export function recoveryMirrorMatchesSelection(
+  event: Pick<ReaperEvent, "planPath">,
+  repositoryRoot: string,
+  selection: RecoveryMirrorSelection | null | undefined,
+): boolean {
+  if (!selection?.repositoryRoot?.trim() || !selection.planPath?.trim()) return false;
+  return normalizedScopePath(repositoryRoot) === normalizedScopePath(selection.repositoryRoot) &&
+    normalizedScopePath(event.planPath) === normalizedScopePath(selection.planPath);
+}
+
+interface RecoveryMirrorPlan {
+  vertebrae?: Array<{
+    id?: string;
+    status?: string;
+    owner?: string | null;
+    session?: string | null;
+    startedBy?: { session?: string | null } | null;
+    recovery?: { eventId?: string | null } | null;
+  }>;
+}
+
+/**
+ * Classifies a durable reaper event against the freshly identity-fenced plan snapshot.
+ * Historical events are audit records, not commands: a desktop restart must never replay
+ * them into a task that has already advanced beyond recovery.
+ */
+export function classifyRecoveryMirror(
+  event: ReaperEvent,
+  plan: RecoveryMirrorPlan | null | undefined,
+): RecoveryMirrorDisposition {
+  if (!plan || !Array.isArray(plan.vertebrae)) return "UNVERIFIED";
+  const vertebra = plan.vertebrae.find((candidate) => candidate.id === event.vertebra);
+  if (!vertebra) return "IDENTITY_BLOCKED";
+  if (
+    vertebra.status === "recovery" &&
+    vertebra.recovery?.eventId === event.id
+  ) {
+    return "ALREADY_APPLIED";
+  }
+  if (vertebra.status !== "in-progress") return "SUPERSEDED";
+  const holder = vertebra.owner || vertebra.session || vertebra.startedBy?.session || null;
+  return holder === event.sessionId ? "DELIVER" : "IDENTITY_BLOCKED";
+}
+
 const REAPER_INTERVAL_MS = 5_000;
 const RECOVERY_GRACE_MS = 120_000;
 const fallbackLeases = new Map<string, SessionLease>();

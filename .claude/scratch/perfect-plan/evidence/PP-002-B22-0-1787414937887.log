@@ -1,0 +1,43 @@
+# perfect-planning proof artifact
+item: B22:0 — Place one unmistakable physical head-orchestrator character above the clockwise worker route, separate from the Looplet feed-status spinner and carrying its own stable entity identity
+command: python tests/head_orchestrator_character_e2e.py
+cwd: C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935
+exit: 1
+duration_ms: 3911
+at: 2026-08-22T16:09:02.466Z
+git: 177208f653bdfe622f6c292b212c02417996346b (feature/tauri-orchestrator-messaging-20260821-223935)
+before_shot: PP-002-B22-baseline-1787377644364.before.png
+before_shot_note: Viewed at 3x: the current top strip shows only a small circular target mark, no physical ORCH character and no speech cloud; worker reports sit in a disconnected row below.
+before_shot_check: ok (4320x2700, blankScore 0.2538)
+before_ocr: PP-002-B22-baseline-1787377644364.before.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 82, 4100ms)
+before_ocr_alarms: none
+diff: PP-002-B22-0-1787414937887.diff
+diff_baseline: 72da40811263969cce1ecd230d36e81c454eaeb6
+
+## stdout
+(empty)
+## stderr
+Traceback (most recent call last):
+  File "C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935\tests\head_orchestrator_character_e2e.py", line 165, in <module>
+    main()
+  File "C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935\tests\head_orchestrator_character_e2e.py", line 88, in main
+    page.goto(APP_URL)
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\sync_api\_generated.py", line 9875, in goto
+    self._sync(
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_sync_base.py", line 115, in _sync
+    return task.result()
+           ^^^^^^^^^^^^^
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_page.py", line 560, in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_frame.py", line 156, in goto
+    await self._channel.send(
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_connection.py", line 76, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_connection.py", line 632, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.Error: Page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:5180/
+Call log:
+  - navigating to "http://127.0.0.1:5180/", waiting until "load"
+

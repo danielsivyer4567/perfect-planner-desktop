@@ -1,0 +1,14 @@
+# perfect-planning proof artifact
+item: A02:1 — Grant only the named control-plane commands to the main window
+command: cargo check
+cwd: C:\repos\perfect-planner-tauri\src-tauri
+exit: 0
+duration_ms: 20385
+at: 2026-08-23T01:59:54.584Z
+git: 77abb60cbbba9f964e04461e68e237b0255a9fd1 (feature/tauri-orchestrator-messaging-20260821-223935, dirty)
+
+## stdout
+(empty)
+## stderr
+   Compiling perfect-planner-desktop v1.0.0 (C:\repos\perfect-planner-tauri\src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 19.91s

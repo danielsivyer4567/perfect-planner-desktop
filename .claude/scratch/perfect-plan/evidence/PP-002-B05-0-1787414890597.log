@@ -1,0 +1,57 @@
+# perfect-planning proof artifact
+item: B05:0 — Normalize Windows case, separators, dot segments, UNC paths, symlinks and junctions without permitting path escape
+command: rustc --edition 2021 -D warnings --test src-tauri/src/collision_assessor/identity.rs -o "%TEMP%\pp-b05-identity-proof.exe" && "%TEMP%\pp-b05-identity-proof.exe" --nocapture
+cwd: C:\repos\looplet-worktrees\perfect-planner-desktop-orchestrator-messaging-20260821-223935
+exit: 1
+duration_ms: 479
+at: 2026-08-22T16:08:11.648Z
+git: 177208f653bdfe622f6c292b212c02417996346b (feature/tauri-orchestrator-messaging-20260821-223935)
+diff: PP-002-B05-0-1787414890597.diff
+diff_baseline: 0fa988027108fdcf205c70340ddf3955b2d5e8e8
+
+## stdout
+(empty)
+## stderr
+error: fields `repository_relative_path`, `kind`, and `physical_alias` are never read
+   --> src-tauri/src/collision_assessor/identity.rs:153:16
+    |
+152 | pub(crate) struct NativeClaimPath {
+    |                   --------------- fields in this struct
+153 |     pub(crate) repository_relative_path: String,
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+154 |     pub(crate) kind: NativeClaimPathKind,
+    |                ^^^^
+155 |     pub(crate) physical_alias: Option<PhysicalPathIdentity>,
+    |                ^^^^^^^^^^^^^^
+    |
+    = note: `-D dead-code` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[expect(dead_code)]` or `#[allow(dead_code)]`
+
+error: struct `NativeClaimAuthorityBundle` is never constructed
+   --> src-tauri/src/collision_assessor/identity.rs:164:19
+    |
+164 | pub(crate) struct NativeClaimAuthorityBundle {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: method `revalidate` is never used
+   --> src-tauri/src/collision_assessor/identity.rs:179:19
+    |
+178 | impl NativeClaimAuthorityBundle {
+    | ------------------------------- method in this implementation
+179 |     pub(crate) fn revalidate(&self) -> Result<(), IdentityError> {
+    |                   ^^^^^^^^^^
+
+error: function `canonical_declared_path` is never used
+   --> src-tauri/src/collision_assessor/identity.rs:973:15
+    |
+973 | pub(crate) fn canonical_declared_path(raw: &str) -> Result<String, IdentityError> {
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+error: function `canonical_manifest_declaration` is never used
+   --> src-tauri/src/collision_assessor/identity.rs:981:15
+    |
+981 | pub(crate) fn canonical_manifest_declaration(raw: &str) -> Result<String, IdentityError> {
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: aborting due to 5 previous errors
+

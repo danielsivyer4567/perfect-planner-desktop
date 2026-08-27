@@ -1,0 +1,15 @@
+s-worker-alpha - A01 Lose
+Worker s-worker-alpha - node A@1 - LIVE
+WORKER NOTE
+Worker note: OAuth consent is required before this node can continue.
+s-worker-alpha 8/23/2026, 12:01:17 PM
+Provider access is blocked; the orchestrator must decide whether to use the export
+fallback.
+pp-orchestrator-8608ca34b-3923-469d-bb23-603df8cadas6 8/23/2026, 12:01:17 PM
+WORKER NOTE
+Provider access is blocked; the orchestrator must decide whether to use the export
+fallback.
+pp-orchestrator-8608ca34b-3923-469d-bb23-603df8cadas6 8/23/2026, 12:01:17 PM
+LEAVE A WORKER NOTE
+This records an immutable, worker-and-node-scoped note. It does not claim a chat notification was sent.
+(3 Also create an unverified browser chat-delivery record

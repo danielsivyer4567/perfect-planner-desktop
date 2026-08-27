@@ -20,6 +20,7 @@ def main() -> None:
             async () => {
               const workspace = await import('/src/services/orchestrationWorkspace.ts');
               const pipelineApi = await import('/src/services/orchestratorPipeline.ts');
+              const supervisorApi = await import('/src/services/sessionSupervisor.ts');
               const board = {
                 port: 5233, url: 'http://127.0.0.1:5233/',
                 planPath: 'C:/repos/perfect/.claude/scratch/perfect-plan/plan.json',
@@ -56,6 +57,7 @@ def main() -> None:
               });
               const running = derive({ pipeline: pipeline('running') });
               const interrupted = derive({ workers: [{ state: 'GONE' }] });
+              const recoveryBlocked = derive({ recoveryDeliveryError: 'A01: identity blocked' });
               const incomplete = derive({ pipeline: pipeline('completed') });
               const ready = derive({ pipeline: pipeline('completed', { passed: true }) });
               const deadLetter = derive({ controlPlane: messages(board.repoRoot, board.planPath, 'deadLetter') });
@@ -65,13 +67,46 @@ def main() -> None:
               let malformedPortRejected = false;
               try { pipelineApi.declaredRequiredPorts({ allowedResources: ['port:unknown'] }); }
               catch { malformedPortRejected = true; }
-              return { running, interrupted, incomplete, ready, deadLetter, foreignMessage, routed, ports, malformedPortRejected };
+              const event = { id: 'pp-reaper-1', kind: 'SESSION_CLEARED', atMs: 1,
+                organizationId: 'org', planPath: board.planPath, vertebra: 'A01',
+                sessionId: 'worker-a', fence: 2, reason: 'stale', files: [], resources: [] };
+              const recoveryCases = {
+                deliver: supervisorApi.classifyRecoveryMirror(event, { vertebrae: [{
+                  id: 'A01', status: 'in-progress', startedBy: { session: 'worker-a' }
+                }] }),
+                alreadyApplied: supervisorApi.classifyRecoveryMirror(event, { vertebrae: [{
+                  id: 'A01', status: 'recovery', recovery: { eventId: 'pp-reaper-1' }
+                }] }),
+                superseded: supervisorApi.classifyRecoveryMirror(event, { vertebrae: [{
+                  id: 'A01', status: 'done', recovery: { eventId: 'pp-reaper-1' }
+                }] }),
+                blocked: supervisorApi.classifyRecoveryMirror(event, { vertebrae: [{
+                  id: 'A01', status: 'in-progress', startedBy: { session: 'worker-b' }
+                }] }),
+                unverified: supervisorApi.classifyRecoveryMirror(event, null),
+                selectedScope: supervisorApi.recoveryMirrorMatchesSelection(
+                  event, board.repoRoot, { repositoryRoot: board.repoRoot, planPath: board.planPath }
+                ),
+                foreignRepository: supervisorApi.recoveryMirrorMatchesSelection(
+                  event, 'C:/repos/foreign', { repositoryRoot: board.repoRoot, planPath: board.planPath }
+                ),
+                foreignPlan: supervisorApi.recoveryMirrorMatchesSelection(
+                  event, board.repoRoot, { repositoryRoot: board.repoRoot, planPath: 'C:/repos/perfect/other.json' }
+                ),
+                noSelection: supervisorApi.recoveryMirrorMatchesSelection(
+                  event, board.repoRoot, null
+                ),
+              };
+              return { running, interrupted, recoveryBlocked, incomplete, ready, deadLetter, foreignMessage, routed,
+                ports, malformedPortRejected, recoveryCases };
             }
             """
         )
         assert result["running"]["tone"] == "active"
         assert result["interrupted"]["tone"] == "blocked"
         assert "interrupted" in result["interrupted"]["nextAction"]
+        assert result["recoveryBlocked"]["healthLabel"] == "Recovery delivery blocked"
+        assert "Perfect Planner / PP-001" in result["recoveryBlocked"]["nextAction"]
         assert result["incomplete"]["ciLabel"] == "CI not ready"
         assert result["ready"]["ciLabel"] == "Ready for CI"
         assert result["deadLetter"]["tone"] == "blocked"
@@ -80,10 +115,21 @@ def main() -> None:
         assert result["routed"]["latestActivity"] == "worker-a: Tests passed."
         assert result["ports"] == [5233, 8770]
         assert result["malformedPortRejected"] is True
+        assert result["recoveryCases"] == {
+            "deliver": "DELIVER",
+            "alreadyApplied": "ALREADY_APPLIED",
+            "superseded": "SUPERSEDED",
+            "blocked": "IDENTITY_BLOCKED",
+            "unverified": "UNVERIFIED",
+            "selectedScope": True,
+            "foreignRepository": False,
+            "foreignPlan": False,
+            "noSelection": False,
+        }
         browser.close()
 
     print("orchestration_workspace_e2e: PASS")
-    print("proved: repository fence, interrupted state, routing/dead-letter action, lifecycle and CI readiness")
+    print("proved: repository fence, interrupted state, routing/dead-letter action, lifecycle, CI readiness and restart recovery classification")
 
 
 if __name__ == "__main__":

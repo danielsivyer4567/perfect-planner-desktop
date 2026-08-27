@@ -1,0 +1,275 @@
+diff --git a/src/App.tsx b/src/App.tsx
+index 40f3379..3babfc1 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -52,6 +52,7 @@ import { ControlPlaneScope } from "./services/controlPlane";
+ const SOUND_KEY = "perfect-planner:stall-sound";
+ const VOLUME_KEY = "perfect-planner:stall-volume";
+ const DISMISSED_BOARDS_KEY = "perfect-planner:dismissed-plans";
++const ORCHESTRATOR_MINIMIZED_KEY = "perfect-planner:orchestrator-minimized";
+ 
+ interface WorkerReport {
+   boardPort: number;
+@@ -169,6 +170,14 @@ function storedDismissedPlans(): Set<string> {
+   }
+ }
+ 
++function storedOrchestratorMinimized(): boolean {
++  try {
++    return localStorage.getItem(ORCHESTRATOR_MINIMIZED_KEY) !== "expanded";
++  } catch {
++    return true;
++  }
++}
++
+ function isPlanComplete(plan: PlanSnapshot | undefined): boolean {
+   const items = plan?.vertebrae.flatMap((vertebra) => vertebra.checklist || []) || [];
+   if (!items.length) return false;
+@@ -224,6 +233,9 @@ export const App: React.FC = () => {
+   } | null>(null);
+   const [pipelineSnapshot, setPipelineSnapshot] = useState<OrchestratorSnapshot | null>(null);
+   const [dismissedPlans, setDismissedPlans] = useState<Set<string>>(storedDismissedPlans);
++  const [orchestratorMinimized, setOrchestratorMinimized] = useState(
++    storedOrchestratorMinimized
++  );
+   const [resourceGuard, setResourceGuard] = useState<ResourceGuardState>({
+     status: "checking",
+     result: null,
+@@ -873,6 +885,18 @@ export const App: React.FC = () => {
+     void scan();
+   };
+ 
++  const toggleOrchestratorMinimized = () => {
++    setOrchestratorMinimized((current) => {
++      const next = !current;
++      try {
++        localStorage.setItem(ORCHESTRATOR_MINIMIZED_KEY, next ? "minimized" : "expanded");
++      } catch {
++        // The compact state still works for this session when storage is unavailable.
++      }
++      return next;
++    });
++  };
++
+   const handleContextPlanAction = useCallback((action: "select" | "remove" | "open", planPath: string) => {
+     const board = boards.find((candidate) => candidate.planPath === planPath);
+     if (!board) {
+@@ -1160,7 +1184,8 @@ export const App: React.FC = () => {
+           data-repository-call-sign={activeRepositoryCallSign}
+           data-project-name={pipelineProjectLabel}
+           data-branch-name={pipelineBranchLabel}
+-          className={`orchestrator${decisionBoards.length ? " decision" : ""}${!boundPipelineSnapshot && (identityError || supervisorError) ? " identity-error" : ""}`}
++          className={`orchestrator${orchestratorMinimized ? " minimized" : ""}${decisionBoards.length ? " decision" : ""}${!boundPipelineSnapshot && (identityError || supervisorError) ? " identity-error" : ""}`}
++          data-minimized={orchestratorMinimized}
+           aria-label="Head orchestrator"
+         >
+           <div className="orchestrator-head">
+@@ -1205,8 +1230,26 @@ export const App: React.FC = () => {
+             <span className="head-stat" id="pp-stat-completed"><b>{scopedCleared}</b> {boundPipelineSnapshot ? "done" : "cleared"}</span>
+             <span className={`head-stat${decisionBoards.length ? " needs" : ""}`}><b>{decisionBoards.length}</b> decisions</span>
+             <ResourceGuard state={resourceGuard} onRefresh={refreshResourceGuard} />
++            <button
++              id="pp-btn-toggle-orchestrator"
++              type="button"
++              className="orchestrator-toggle"
++              aria-expanded={!orchestratorMinimized}
++              aria-controls="pp-panel-orchestrator-details pp-panel-orchestrator-pipeline"
++              aria-label={`${orchestratorMinimized ? "Expand" : "Minimise"} orchestrator header`}
++              title={`${orchestratorMinimized ? "Expand" : "Minimise"} orchestrator header`}
++              onClick={toggleOrchestratorMinimized}
++            >
++              <span aria-hidden="true">{orchestratorMinimized ? "+" : "−"}</span>
++              {orchestratorMinimized ? "Expand" : "Minimise"}
++            </button>
+           </div>
+ 
++          <div
++            id="pp-panel-orchestrator-details"
++            className="orchestrator-details"
++            hidden={orchestratorMinimized}
++          >
+           <div className="worker-wire" id="pp-list-worker-reports" role="list" aria-label="Worker reports">
+             {boundPipelineSnapshot ? pipelineNodes.length ? pipelineNodes.map((node) => {
+               const completion = boundPipelineSnapshot.scheduler.completions?.[node.id];
+@@ -1292,18 +1335,21 @@ export const App: React.FC = () => {
+             orchestratorId={orchestratorId}
+             workers={controlPlaneWorkers}
+           />
++          </div>
+         </section>
+ 
+-        <PipelineConsole
+-          runId={pipelineScope?.runId}
+-          repositoryRoot={pipelineScope?.repositoryRoot || active?.repoRoot}
+-          planPath={active?.planPath}
+-          snapshotSeed={pipelineSnapshotSeed}
+-          onSelectRun={selectPipelineRun}
+-          onRunCreated={selectCreatedPipelineRun}
+-          onSnapshotChange={setPipelineSnapshot}
+-          onDiagnostic={recordPipelineDiagnostic}
+-        />
++        <div id="pp-panel-orchestrator-pipeline" hidden={orchestratorMinimized}>
++          <PipelineConsole
++            runId={pipelineScope?.runId}
++            repositoryRoot={pipelineScope?.repositoryRoot || active?.repoRoot}
++            planPath={active?.planPath}
++            snapshotSeed={pipelineSnapshotSeed}
++            onSelectRun={selectPipelineRun}
++            onRunCreated={selectCreatedPipelineRun}
++            onSnapshotChange={setPipelineSnapshot}
++            onDiagnostic={recordPipelineDiagnostic}
++          />
++        </div>
+ 
+         {active ? (
+           <>
+diff --git a/src/index.css b/src/index.css
+index d7b6db6..13cf0a5 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -625,6 +625,36 @@ body {
+   border-bottom-color: var(--danger);
+ }
+ 
++.orchestrator.minimized .orchestrator-head {
++  min-height: 50px;
++  flex-wrap: nowrap;
++  gap: 10px;
++  padding: 7px 128px 7px 14px;
++}
++
++.orchestrator.minimized .head-orchestrator-command-post,
++.orchestrator.minimized .head-stat,
++.orchestrator.minimized .resource-guard {
++  display: none;
++}
++
++.orchestrator.minimized .head-copy {
++  min-width: 0;
++  flex: 1;
++}
++
++.orchestrator.minimized .head-eyebrow,
++.orchestrator.minimized .head-copy strong {
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.orchestrator.minimized .head-lease {
++  margin-right: 0;
++  white-space: nowrap;
++}
++
+ .orchestrator-head {
+   position: relative;
+   min-height: 136px;
+@@ -635,6 +665,41 @@ body {
+   padding: 9px 230px 7px 14px;
+ }
+ 
++.orchestrator-toggle {
++  position: absolute;
++  top: 45px;
++  right: 14px;
++  display: inline-flex;
++  min-width: 102px;
++  min-height: 30px;
++  align-items: center;
++  justify-content: center;
++  gap: 7px;
++  padding: 5px 9px;
++  border: 1px solid #78907d;
++  border-radius: 4px;
++  color: #eef4ef;
++  background: #1e2822;
++  font: 800 8.5px var(--mono);
++  letter-spacing: 0.55px;
++  cursor: pointer;
++}
++
++.orchestrator-toggle:hover {
++  border-color: #a7c1ac;
++  background: #334039;
++}
++
++.orchestrator-toggle > span {
++  color: #b9d1be;
++  font-size: 14px;
++  line-height: 1;
++}
++
++.orchestrator.minimized .orchestrator-toggle {
++  top: 10px;
++}
++
+ .head-orchestrator-command-post {
+   position: relative;
+   display: grid;
+diff --git a/tests/head_orchestrator_character_e2e.py b/tests/head_orchestrator_character_e2e.py
+index 632bce2..9ccacbc 100644
+--- a/tests/head_orchestrator_character_e2e.py
++++ b/tests/head_orchestrator_character_e2e.py
+@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
+ APP_URL = "http://127.0.0.1:5180/"
+ PLAN_PATH = r"C:\fixtures\head-orchestrator-character.json"
+ SCREENSHOT = ROOT / "artifacts" / "head-orchestrator-character-3x.png"
++MINIMIZED_SCREENSHOT = ROOT / "artifacts" / "head-orchestrator-minimized-3x.png"
+ 
+ 
+ def main() -> None:
+@@ -93,8 +94,46 @@ def main() -> None:
+         speech = page.locator("#pp-status-head-orchestrator-speech")
+         worker_route = page.locator("#pp-list-worker-reports")
+         spinner = page.locator("#pp-status-looplet-live-feed")
++        minimize_toggle = page.locator("#pp-btn-toggle-orchestrator")
++        orchestrator_details = page.locator("#pp-panel-orchestrator-details")
++        pipeline_details = page.locator("#pp-panel-orchestrator-pipeline")
++        board_frame = page.locator("#pp-frame-active-board")
+ 
+         expect(head).to_be_visible()
++        expect(minimize_toggle).to_be_visible()
++        expect(minimize_toggle).to_have_attribute("aria-expanded", "false")
++        expect(minimize_toggle).to_have_accessible_name("Expand orchestrator header")
++        expect(head).to_have_attribute("data-minimized", "true")
++        expect(orchestrator_details).to_be_hidden()
++        expect(pipeline_details).to_be_hidden()
++        expect(board_frame).to_be_visible()
++        minimized_frame_box = board_frame.bounding_box()
++        assert minimized_frame_box, "the minimized planner frame has no layout box"
++
++        minimize_toggle.click()
++        expect(minimize_toggle).to_have_attribute("aria-expanded", "true")
++        expect(minimize_toggle).to_have_accessible_name("Minimise orchestrator header")
++        expect(head).to_have_attribute("data-minimized", "false")
++        expect(orchestrator_details).to_be_visible()
++        expect(pipeline_details).to_be_visible()
++        expanded_frame_box = board_frame.bounding_box()
++        assert expanded_frame_box, "the expanded planner frame has no layout box"
++        assert expanded_frame_box["y"] - minimized_frame_box["y"] >= 140, (
++            "minimising the orchestrator did not move the planner viewport and right scrollbar high enough"
++        )
++
++        minimize_toggle.click()
++        page.reload()
++        page.wait_for_load_state("networkidle")
++        expect(minimize_toggle).to_have_attribute("aria-expanded", "false")
++        expect(head).to_have_attribute("data-minimized", "true")
++        page.screenshot(path=str(MINIMIZED_SCREENSHOT), full_page=False)
++        minimized_image_size = MINIMIZED_SCREENSHOT.stat().st_size
++        assert minimized_image_size > 100_000, (
++            f"minimized 3x screenshot is unexpectedly small: {minimized_image_size} bytes"
++        )
++        minimize_toggle.click()
++
+         expect(actor).to_be_visible()
+         expect(actor).to_have_attribute("data-role", "head-orchestrator-character")
+         expect(actor).to_have_attribute("data-orchestrator-id", head.get_attribute("data-entity-id"))
+@@ -159,6 +198,7 @@ def main() -> None:
+ 
+     print("head orchestrator character e2e: 1 scenario passed")
+     print(f"screenshot: {SCREENSHOT}")
++    print(f"minimized screenshot: {MINIMIZED_SCREENSHOT}")
+ 
+ 
+ if __name__ == "__main__":
