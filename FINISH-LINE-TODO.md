@@ -92,7 +92,7 @@ signed Windows installer has been installed and exercised successfully.
 ## Release decision
 
 - [x] No known P0 product or isolation defects remain.
-- [ ] All verification commands pass on the exact release commit.
+- [x] All local verification commands pass on the exact handoff commit.
 - [ ] Required screenshots, console output, native logs, and manual interaction notes are attached.
 - [ ] CI passes on the exact release commit.
 - [x] The working tree is clean and every intended file is committed.
