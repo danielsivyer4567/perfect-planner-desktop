@@ -1,6 +1,6 @@
 # Perfect Planner architecture and lifecycle audit
 
-Date: 2026-08-27  
+Date: 2026-08-27
 Scope: `C:\repos\perfect-planner-tauri` only
 
 ## System boundary

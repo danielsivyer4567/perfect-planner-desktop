@@ -1,7 +1,7 @@
 # Perfect Planner finish-line report
 
-Date: 2026-08-27  
-Repository: `C:\repos\perfect-planner-tauri`  
+Date: 2026-08-27
+Repository: `C:\repos\perfect-planner-tauri`
 Branch: `feature/tauri-orchestrator-messaging-20260821-223935`
 
 ## Outcome
@@ -91,7 +91,9 @@ The exact final committed inventory is available with `git show --name-status --
   orphan app processes passed.
 - MSI: install, installed-app native smoke, reconfigure, uninstall, retained app data, and zero
   orphan app processes passed. Verbose Windows Installer logs record status 0.
-- `git diff --check`: passed; tracked-diff secret-shape scan found no matches.
+- `git diff --check` passed for product source, tests, workflows, and documentation; the retained
+  historical `.log` evidence contains original CRLF/trailing-space command output and is not
+  rewritten. The tracked-diff secret-shape scan found no matches.
 
 ## Screenshot and local evidence
 

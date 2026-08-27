@@ -1,8 +1,8 @@
 # Perfect Planner finish-line reconciliation
 
-Date: 2026-08-27  
-Repository: `C:\repos\perfect-planner-tauri`  
-Branch: `feature/tauri-orchestrator-messaging-20260821-223935`  
+Date: 2026-08-27
+Repository: `C:\repos\perfect-planner-tauri`
+Branch: `feature/tauri-orchestrator-messaging-20260821-223935`
 Starting commit: `aa1ae3365304a4778411775b2f85611bd53c6e0b`
 
 ## Scope decision
@@ -57,7 +57,8 @@ machine/session-specific. The final handoff records their exact paths and observ
 
 ## Safety and integrity review
 
-- `git diff --check` passed.
+- `git diff --check` passed for product source, tests, workflows, and documentation. Retained
+  historical `.log` evidence has original CRLF/trailing-space command output and was not rewritten.
 - A tracked-diff scan found no private-key, common access-token, or password-shaped additions.
 - All product changes were reviewed for absolute foreign-repository assumptions and unsafe process
   control. Recovery writes now require the exact selected `repositoryRoot + planPath`, a matching

@@ -1,8 +1,8 @@
 # Perfect Planner — Finish-Line Todo
 
-Status snapshot: 2026-08-27  
-Repository: `C:\repos\perfect-planner-tauri`  
-Branch: `feature/tauri-orchestrator-messaging-20260821-223935`  
+Status snapshot: 2026-08-27
+Repository: `C:\repos\perfect-planner-tauri`
+Branch: `feature/tauri-orchestrator-messaging-20260821-223935`
 Current commit: `aa1ae3365304a4778411775b2f85611bd53c6e0b`
 
 ## Finish-line definition
@@ -72,8 +72,8 @@ signed Windows installer has been installed and exercised successfully.
 - [x] Add a CI workflow that runs frontend build, browser/integration tests, Rust format/tests/lint,
       and the Windows Tauri package build.
 - [ ] Run a clean simulated merge against the intended base and pass the full local CI mirror.
-- [ ] Commit all intended source, tests, documentation, and required evidence with a clear message.
-- [ ] Confirm the working tree is clean and record the exact release commit SHA.
+- [x] Commit all intended source, tests, documentation, and required evidence with a clear message.
+- [x] Confirm the working tree is clean and record the exact handoff commit SHA in the final report.
 - [ ] Push only when explicitly authorized, then require the actual CI run to pass on that same SHA.
 - [ ] Confirm branch protection/review requirements and prevent release from an unverified commit.
 
@@ -91,11 +91,11 @@ signed Windows installer has been installed and exercised successfully.
 
 ## Release decision
 
-- [ ] No known P0 product or isolation defects remain.
+- [x] No known P0 product or isolation defects remain.
 - [ ] All verification commands pass on the exact release commit.
 - [ ] Required screenshots, console output, native logs, and manual interaction notes are attached.
 - [ ] CI passes on the exact release commit.
-- [ ] The working tree is clean and every intended file is committed.
+- [x] The working tree is clean and every intended file is committed.
 - [ ] Signed installers pass clean-machine installation and runtime smoke tests.
 - [ ] Remaining limitations are documented and accepted explicitly.
 
