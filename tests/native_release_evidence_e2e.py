@@ -201,10 +201,9 @@ def collect_windows_display_scale(process_id: int, page) -> dict:
     }
 
 
-def close_native_window() -> None:
+def close_native_window(process_id: int) -> None:
     user32 = ctypes.windll.user32
-    window = user32.FindWindowW(None, WINDOW_TITLE)
-    assert window, "packaged Perfect Planner window was not found for graceful close"
+    window = find_window_for_process(process_id)
     assert user32.PostMessageW(window, 0x0010, 0, 0), "WM_CLOSE could not be posted"
 
 
@@ -392,7 +391,7 @@ def main() -> None:
             assert result["snapshotState"] == "acknowledged"
             assert result["acknowledgement"]["acknowledgedBy"] == "finish-line-orchestrator"
             page.screenshot(path=str(screenshot), full_page=True)
-        close_native_window()
+        close_native_window(process.pid)
         exit_code = wait_for_exit(process)
         assert exit_code == 0, f"packaged app exited with code {exit_code}"
     finally:
