@@ -146,9 +146,20 @@ def main():
         expect(page.locator('[data-proof-method="chrome-mcp"]')).to_contain_text("preferred")
         expect(page.locator('[data-proof-method="playwright-script"]')).to_contain_text("ready")
         expect(page.locator('[data-proof-method="last-run"]')).to_contain_text("unknown")
-        expect(page.locator('.ui-map-phase[data-spine-id="P1"]')).to_be_visible()
-        expect(page.locator('.ui-map-phase[data-spine-id="P2"]')).to_be_visible()
-        expect(page.locator('.ui-map-phase[data-spine-id="unmapped"]')).to_contain_text("Nodes outside the spine")
+        p1 = page.locator('.ui-map-spine-row[data-spine-id="P1"]')
+        p2 = page.locator('.ui-map-spine-row[data-spine-id="P2"]')
+        orphan_row = page.locator('.ui-map-spine-row[data-spine-id="unmapped"]')
+        expect(p1).to_be_visible()
+        expect(p2).to_be_visible()
+        expect(orphan_row).to_contain_text("Outside the spine")
+        expect(page.locator(".ui-map-spine-axis")).to_be_visible()
+
+        left_toggle = page.locator("#pp-btn-ui-map-P1-left")
+        right_toggle = page.locator("#pp-btn-ui-map-P1-right")
+        expect(left_toggle).to_have_attribute("aria-expanded", "true")
+        expect(right_toggle).to_have_attribute("aria-expanded", "true")
+        expect(left_toggle).to_have_accessible_name("Collapse 1 left pages for P1")
+        expect(right_toggle).to_have_accessible_name("Collapse 1 right pages for P1")
 
         zoom_out = page.locator("#pp-btn-ui-map-zoom-out")
         zoom_in = page.locator("#pp-btn-ui-map-zoom-in")
@@ -156,16 +167,18 @@ def main():
         actual = page.locator("#pp-btn-ui-map-actual")
         expect(zoom_out).to_have_accessible_name("Zoom out")
         expect(zoom_in).to_have_accessible_name("Zoom in")
+        expect(ui_map).to_have_attribute("data-layout-ready", "true")
+        expect(zoom_in).to_be_enabled()
         zoom_in.focus()
         expect(zoom_in).to_be_focused()
         initial_zoom = int(ui_map.get_attribute("data-zoom"))
-        zoom_in.click()
+        zoom_in.evaluate("element => element.click()")
         expect(ui_map).not_to_have_attribute("data-zoom", str(initial_zoom))
-        actual.click()
+        actual.evaluate("element => element.click()")
         expect(ui_map).to_have_attribute("data-zoom", "100")
-        zoom_out.click()
+        zoom_out.evaluate("element => element.click()")
         expect(ui_map).to_have_attribute("data-zoom", "90")
-        fit.click()
+        fit.evaluate("element => element.click()")
         assert int(ui_map.get_attribute("data-zoom")) < 100
 
         left_page = page.locator("#pp-ui-page-A01")
@@ -195,13 +208,43 @@ def main():
         expect(ui_map).to_have_attribute("data-focus-side", "R")
         expect(support_page).to_contain_text("No screenshot yet")
 
-        p1 = page.locator('.ui-map-phase[data-spine-id="P1"]')
-        p2 = page.locator('.ui-map-phase[data-spine-id="P2"]')
+        spine_segment = p1.locator(".ui-map-spine-segment")
+        left_box = left_page.bounding_box()
+        spine_box = spine_segment.bounding_box()
+        right_box = support_page.bounding_box()
+        assert left_box and spine_box and right_box
+        assert left_box["x"] + left_box["width"] < spine_box["x"], (
+            f"left artboard did not branch left of the spine: page={left_box}, spine={spine_box}"
+        )
+        assert right_box["x"] > spine_box["x"] + spine_box["width"], (
+            f"right artboard did not branch right of the spine: page={right_box}, spine={spine_box}"
+        )
+
         p1_box = p1.bounding_box()
         p2_box = p2.bounding_box()
-        assert p1_box and p2_box and p2_box["x"] > p1_box["x"] + p1_box["width"], (
-            f"phase artboards are not laid out horizontally: P1={p1_box}, P2={p2_box}"
+        assert p1_box and p2_box
+        p1_spine_box = p1.locator(".ui-map-spine-segment").bounding_box()
+        p2_spine_box = p2.locator(".ui-map-spine-segment").bounding_box()
+        axis_box = page.locator(".ui-map-spine-axis").bounding_box()
+        assert p1_spine_box and p2_spine_box and axis_box
+        assert abs((p1_spine_box["x"] + p1_spine_box["width"] / 2) - (p2_spine_box["x"] + p2_spine_box["width"] / 2)) < 2, (
+            f"spine segments are not vertically aligned: P1={p1_spine_box}, P2={p2_spine_box}"
         )
+        assert abs((p1_spine_box["x"] + p1_spine_box["width"] / 2) - (axis_box["x"] + axis_box["width"] / 2)) < 2, (
+            f"silver rail does not pass through the spine segments: rail={axis_box}, P1={p1_spine_box}"
+        )
+        assert p2_box["y"] > p1_box["y"] + p1_box["height"], (
+            f"spine does not progress vertically: P1={p1_box}, P2={p2_box}"
+        )
+
+        left_toggle.evaluate("element => element.click()")
+        expect(left_toggle).to_have_attribute("aria-expanded", "false")
+        expect(left_page).to_be_hidden()
+        left_toggle.evaluate("element => element.click()")
+        expect(left_toggle).to_have_attribute("aria-expanded", "true")
+        expect(left_page).to_be_visible()
+
+        expect(page.locator("#pp-ui-branch-P2-left")).to_contain_text("No left pages")
         expect(page.locator(".ui-map-artboard")).to_have_count(4)
 
         page.screenshot(path=str(SCREENSHOT), full_page=True, animations="disabled")

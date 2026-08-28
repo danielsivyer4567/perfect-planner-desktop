@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { readBoardEvidence, type Board } from "../services/boards";
 import type { ChecklistProof, EvidenceArtifact, PlanSnapshot, SpinePhase, Vertebra } from "../types/plan";
 
+type BranchSide = "L" | "R";
+
 const MIN_ZOOM = 0.18;
 const MAX_ZOOM = 1.4;
 const ZOOM_STEP = 0.1;
@@ -124,6 +126,8 @@ export function UiNavigationMap({
   const panRef = useRef({ active: false, pointerId: 0, x: 0, y: 0, left: 0, top: 0 });
   const [zoom, setZoom] = useState(0.5);
   const [panning, setPanning] = useState(false);
+  const [layoutReady, setLayoutReady] = useState(false);
+  const [openSides, setOpenSides] = useState<Set<string>>(() => new Set());
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [screenshots, setScreenshots] = useState<Map<string, EvidenceArtifact | null>>(() => new Map());
 
@@ -131,7 +135,8 @@ export function UiNavigationMap({
     if (!plan) return [];
     return plan.spine.map((phase) => ({
       phase,
-      nodes: plan.vertebrae.filter((node) => node.spineId === phase.id),
+      left: plan.vertebrae.filter((node) => node.spineId === phase.id && node.side === "L"),
+      right: plan.vertebrae.filter((node) => node.spineId === phase.id && node.side !== "L"),
     }));
   }, [plan]);
   const allNodes = plan?.vertebrae || [];
@@ -139,6 +144,13 @@ export function UiNavigationMap({
   const orphaned = allNodes.filter((node) => !assignedIds.has(node.spineId));
   const uiCount = allNodes.filter(isUiPage).length;
   const selectedNode = allNodes.find((node) => node.id === selectedPageId) || null;
+  const maxBranchSlots = Math.max(
+    1,
+    ...phases.flatMap(({ left, right }) => [left.length, right.length]),
+    orphaned.filter((node) => node.side === "L").length,
+    orphaned.filter((node) => node.side !== "L").length,
+  );
+  const branchWidth = maxBranchSlots * 520 + (maxBranchSlots - 1) * 32;
 
   const changeZoom = useCallback((requested: number) => {
     const next = clampZoom(requested);
@@ -175,9 +187,22 @@ export function UiNavigationMap({
   useEffect(() => {
     setSelectedPageId(null);
     setZoom(0.5);
-    const frame = window.requestAnimationFrame(() => fitToView());
-    return () => window.cancelAnimationFrame(frame);
-  }, [fitToView, plan]);
+    setLayoutReady(false);
+    if (plan) setOpenSides(new Set(plan.spine.flatMap((phase) => [`${phase.id}:L`, `${phase.id}:R`])));
+  }, [plan]);
+
+  useEffect(() => {
+    if (!plan) return;
+    const allBranchesExpanded = plan.spine.every(
+      (phase) => openSides.has(`${phase.id}:L`) && openSides.has(`${phase.id}:R`),
+    );
+    if (!allBranchesExpanded || layoutReady) return;
+    const fitFrame = window.requestAnimationFrame(() => {
+      fitToView();
+      window.requestAnimationFrame(() => setLayoutReady(true));
+    });
+    return () => window.cancelAnimationFrame(fitFrame);
+  }, [fitToView, layoutReady, openSides, plan]);
 
   useEffect(() => {
     let live = true;
@@ -204,6 +229,16 @@ export function UiNavigationMap({
         inline: "center",
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
       });
+    });
+  };
+
+  const toggleSide = (spineId: string, side: BranchSide) => {
+    const key = `${spineId}:${side}`;
+    setOpenSides((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
     });
   };
 
@@ -256,6 +291,7 @@ export function UiNavigationMap({
       data-focus-page={selectedNode?.id || "canvas"}
       data-focus-side={selectedNode?.side === "L" ? "L" : selectedNode ? "R" : "canvas"}
       data-zoom={Math.round(zoom * 100)}
+      data-layout-ready={layoutReady ? "true" : "false"}
     >
       <header className="ui-map-toolbar">
         <div className="ui-map-toolbar-title">
@@ -269,7 +305,7 @@ export function UiNavigationMap({
           <span data-proof-method="last-run"><b>Attached run</b> unknown</span>
         </div>
         <div className="ui-map-zoom-controls" role="group" aria-label="Snapshot canvas zoom">
-          <button id="pp-btn-ui-map-zoom-out" type="button" aria-label="Zoom out" onClick={() => changeZoom(zoom - ZOOM_STEP)}>−</button>
+          <button id="pp-btn-ui-map-zoom-out" type="button" aria-label="Zoom out" disabled={!layoutReady} onClick={() => changeZoom(zoom - ZOOM_STEP)}>−</button>
           <label>
             <span className="sr-only">Canvas zoom percentage</span>
             <input
@@ -279,13 +315,14 @@ export function UiNavigationMap({
               max={MAX_ZOOM * 100}
               step="1"
               value={Math.round(zoom * 100)}
+              disabled={!layoutReady}
               onChange={(event) => changeZoom(Number(event.target.value) / 100)}
             />
           </label>
           <output htmlFor="pp-input-ui-map-zoom">{Math.round(zoom * 100)}%</output>
-          <button id="pp-btn-ui-map-zoom-in" type="button" aria-label="Zoom in" onClick={() => changeZoom(zoom + ZOOM_STEP)}>+</button>
-          <button id="pp-btn-ui-map-fit" type="button" onClick={fitToView}>Fit</button>
-          <button id="pp-btn-ui-map-actual" type="button" onClick={() => changeZoom(1)}>100%</button>
+          <button id="pp-btn-ui-map-zoom-in" type="button" aria-label="Zoom in" disabled={!layoutReady} onClick={() => changeZoom(zoom + ZOOM_STEP)}>+</button>
+          <button id="pp-btn-ui-map-fit" type="button" disabled={!layoutReady} onClick={fitToView}>Fit</button>
+          <button id="pp-btn-ui-map-actual" type="button" disabled={!layoutReady} onClick={() => changeZoom(1)}>100%</button>
         </div>
       </header>
 
@@ -304,46 +341,75 @@ export function UiNavigationMap({
           changeZoom(zoom + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
         }}
       >
-        <div className="ui-map-world" ref={worldRef} style={{ zoom }}>
-          {phases.map(({ phase, nodes }, phaseIndex) => (
-            <section className="ui-map-phase" key={phase.id} data-spine-id={phase.id}>
-              <header>
-                <span>{String(phaseIndex + 1).padStart(2, "0")} · {phase.id}</span>
-                <h3>{phase.title}</h3>
-                <p>{phase.summary || "No phase summary is recorded."}</p>
-              </header>
-              <div className="ui-map-artboards">
-                {nodes.length ? nodes.map((node) => (
-                  <Artboard
-                    key={node.id}
-                    node={node}
-                    phase={phase}
-                    selected={selectedPageId === node.id}
-                    screenshot={screenshots.get(node.id)}
-                    screenshotProof={latestScreenshotProof(node)}
-                    onSelect={focusPage}
-                  />
-                )) : (
-                  <div className="ui-map-empty-phase"><b>No pages recorded</b><span>The phase exists, but it has no page or task nodes.</span></div>
-                )}
-              </div>
-            </section>
-          ))}
+        <div
+          className="ui-map-world"
+          ref={worldRef}
+          style={{ zoom, "--branch-width": `${branchWidth}px` } as React.CSSProperties}
+        >
+          <div className="ui-map-spine-axis" aria-hidden="true" />
+          {phases.map(({ phase, left, right }, phaseIndex) => {
+            const leftOpen = openSides.has(`${phase.id}:L`);
+            const rightOpen = openSides.has(`${phase.id}:R`);
+            const leftRegionId = `pp-ui-branch-${domToken(phase.id)}-left`;
+            const rightRegionId = `pp-ui-branch-${domToken(phase.id)}-right`;
+            return (
+              <section className="ui-map-spine-row" key={phase.id} data-spine-id={phase.id}>
+                <div className={`ui-map-artboards ui-map-artboards-left${leftOpen ? " open" : ""}`} id={leftRegionId}>
+                  {leftOpen ? left.map((node) => (
+                    <Artboard key={node.id} node={node} phase={phase} selected={selectedPageId === node.id} screenshot={screenshots.get(node.id)} screenshotProof={latestScreenshotProof(node)} onSelect={focusPage} />
+                  )) : null}
+                  {leftOpen && !left.length ? <span className="ui-map-empty-branch">No left pages</span> : null}
+                </div>
+
+                <article className="ui-map-spine-segment">
+                  <button
+                    id={`pp-btn-ui-map-${domToken(phase.id)}-left`}
+                    type="button"
+                    className="ui-map-branch-toggle left"
+                    aria-expanded={leftOpen}
+                    aria-controls={leftRegionId}
+                    onClick={() => toggleSide(phase.id, "L")}
+                    aria-label={`${leftOpen ? "Collapse" : "Expand"} ${left.length} left pages for ${phase.id}`}
+                  >
+                    <span aria-hidden="true">←</span><b>{left.length}</b>
+                  </button>
+                  <span>{String(phaseIndex + 1).padStart(2, "0")} · {phase.id}</span>
+                  <h3>{phase.title}</h3>
+                  <p>{phase.summary || "No phase summary is recorded."}</p>
+                  <button
+                    id={`pp-btn-ui-map-${domToken(phase.id)}-right`}
+                    type="button"
+                    className="ui-map-branch-toggle right"
+                    aria-expanded={rightOpen}
+                    aria-controls={rightRegionId}
+                    onClick={() => toggleSide(phase.id, "R")}
+                    aria-label={`${rightOpen ? "Collapse" : "Expand"} ${right.length} right pages for ${phase.id}`}
+                  >
+                    <b>{right.length}</b><span aria-hidden="true">→</span>
+                  </button>
+                </article>
+
+                <div className={`ui-map-artboards ui-map-artboards-right${rightOpen ? " open" : ""}`} id={rightRegionId}>
+                  {rightOpen ? right.map((node) => (
+                    <Artboard key={node.id} node={node} phase={phase} selected={selectedPageId === node.id} screenshot={screenshots.get(node.id)} screenshotProof={latestScreenshotProof(node)} onSelect={focusPage} />
+                  )) : null}
+                  {rightOpen && !right.length ? <span className="ui-map-empty-branch">No right pages</span> : null}
+                </div>
+              </section>
+            );
+          })}
 
           {orphaned.length ? (
-            <section className="ui-map-phase ui-map-orphan-phase" data-spine-id="unmapped">
-              <header><span>UNMAPPED</span><h3>Nodes outside the spine</h3><p>These IDs reference a phase that is not present in the loaded plan.</p></header>
-              <div className="ui-map-artboards">
-                {orphaned.map((node) => (
-                  <Artboard
-                    key={node.id}
-                    node={node}
-                    phase={null}
-                    selected={selectedPageId === node.id}
-                    screenshot={screenshots.get(node.id)}
-                    screenshotProof={latestScreenshotProof(node)}
-                    onSelect={focusPage}
-                  />
+            <section className="ui-map-spine-row ui-map-orphan-row" data-spine-id="unmapped">
+              <div className="ui-map-artboards ui-map-artboards-left open">
+                {orphaned.filter((node) => node.side === "L").map((node) => (
+                  <Artboard key={node.id} node={node} phase={null} selected={selectedPageId === node.id} screenshot={screenshots.get(node.id)} screenshotProof={latestScreenshotProof(node)} onSelect={focusPage} />
+                ))}
+              </div>
+              <article className="ui-map-spine-segment ui-map-orphan-segment"><span>UNMAPPED</span><h3>Outside the spine</h3><p>These nodes reference a phase missing from the loaded plan.</p></article>
+              <div className="ui-map-artboards ui-map-artboards-right open">
+                {orphaned.filter((node) => node.side !== "L").map((node) => (
+                  <Artboard key={node.id} node={node} phase={null} selected={selectedPageId === node.id} screenshot={screenshots.get(node.id)} screenshotProof={latestScreenshotProof(node)} onSelect={focusPage} />
                 ))}
               </div>
             </section>
