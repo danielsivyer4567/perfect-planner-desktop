@@ -24,6 +24,7 @@ import { PipelineConsole } from "./components/PipelineConsole";
 import { ResourceGuard, type ResourceGuardState } from "./components/ResourceGuard";
 import { ActionContextMenu, type ContextActionLog } from "./components/ActionContextMenu";
 import { DiagnosticsConsole, type DiagnosticEntry } from "./components/DiagnosticsConsole";
+import { OperationalTruth } from "./components/OperationalTruth";
 import {
   browserOrchestratorScope,
   OrchestratorSnapshot,
@@ -52,6 +53,7 @@ import {
 import { ControlPlaneScope } from "./services/controlPlane";
 import type { ControlPlaneSnapshot } from "./services/controlPlane";
 import { deriveWorkspaceStatus } from "./services/orchestrationWorkspace";
+import { deriveReleaseVerdict } from "./services/operationalTruth";
 
 const SOUND_KEY = "perfect-planner:stall-sound";
 const VOLUME_KEY = "perfect-planner:stall-volume";
@@ -964,6 +966,10 @@ export const App: React.FC = () => {
     recoveryDeliveryError,
     visibleWorkerReports,
   ]);
+  const releaseVerdict = useMemo(
+    () => deriveReleaseVerdict(boundPipelineSnapshot, active),
+    [active, boundPipelineSnapshot],
+  );
 
   useEffect(() => {
     if (orchestratorMinimized) return;
@@ -1112,10 +1118,24 @@ export const App: React.FC = () => {
   return (
     <div className="shell" id="pp-app-shell" data-orchestrator-id={orchestratorId || "pending"}>
       <ActionContextMenu onPlanAction={handleContextPlanAction} onLog={recordContextAction} />
+      <button
+        id="pp-btn-toggle-repository-rail"
+        type="button"
+        className={`rail-edge-toggle${railCollapsed ? " collapsed" : ""}`}
+        onClick={toggleRailCollapsed}
+        aria-expanded={!railCollapsed}
+        aria-controls="pp-region-board-rail"
+        aria-label={railCollapsed ? "Open repository and plan rail" : "Close repository and plan rail"}
+        title={railCollapsed ? "Open repositories and plans" : "Return the full width to the planner canvas"}
+      >
+        <strong>Plans</strong>
+        <span aria-hidden="true">{railCollapsed ? "›" : "‹"}</span>
+      </button>
       <aside
         className={`rail${railCollapsed ? " collapsed" : ""}`}
         id="pp-region-board-rail"
         aria-label="Repository and plan rail"
+        aria-hidden={railCollapsed}
       >
         <div className="rail-head" id="pp-region-board-rail-heading">
           <div className="rail-head-copy">
@@ -1126,19 +1146,6 @@ export const App: React.FC = () => {
               boards on 127.0.0.1:{PORT_START}–{PORT_END}
             </p>
           </div>
-          <span className="rail-mark" aria-hidden="true">PP</span>
-          <button
-            id="pp-btn-toggle-repository-rail"
-            type="button"
-            className="rail-collapse-toggle"
-            onClick={toggleRailCollapsed}
-            aria-expanded={!railCollapsed}
-            aria-controls="pp-list-boards"
-            aria-label={railCollapsed ? "Expand repository rail" : "Collapse repository rail"}
-            title={railCollapsed ? "Expand repository rail" : "Collapse repository rail"}
-          >
-            <span aria-hidden="true">{railCollapsed ? "→" : "←"}</span>
-          </button>
         </div>
 
         <div className="rail-list" id="pp-list-boards" aria-label="Running boards by repository">
@@ -1448,9 +1455,14 @@ export const App: React.FC = () => {
               <b>{workspaceStatus.healthLabel}</b>
               <small>{workspaceStatus.orchestrationLabel}</small>
             </span>
-            <span className="workspace-status" id="pp-status-workspace-messages">
-              <b>{workspaceStatus.messagingLabel}</b>
-              <small>{workspaceStatus.ciLabel}</small>
+            <span
+              className={`workspace-status release-status release-status-${releaseVerdict.tone}`}
+              id="pp-status-workspace-messages"
+              data-release-verdict={releaseVerdict.label}
+              title={releaseVerdict.blockers.join(" · ") || releaseVerdict.source}
+            >
+              <b>RELEASE · {releaseVerdict.label}</b>
+              <small>{workspaceStatus.messagingLabel} · {workspaceStatus.ciLabel}</small>
             </span>
             <span className="head-stat" id="pp-stat-worker-reports"><b>{workerReportCount}</b> {boundPipelineSnapshot ? "nodes" : "reports"}</span>
             <span className="head-stat" id="pp-stat-active"><b>{activeWorkers}</b> active</span>
@@ -1539,6 +1551,12 @@ export const App: React.FC = () => {
               Close inspector
             </button>
           </header>
+          <OperationalTruth
+            board={active}
+            pipeline={boundPipelineSnapshot}
+            controlPlane={controlPlaneSnapshot}
+            parallelAgents={parallelAgents}
+          />
           <div className="orchestrator-activity" role="status" aria-live="polite">
             <span>Latest meaningful activity</span>
             <p>{workspaceStatus.latestActivity}</p>

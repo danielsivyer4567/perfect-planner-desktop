@@ -35,6 +35,16 @@ export function DiagnosticsConsole({
     () => entries.filter((entry) => entry.level !== "info").length,
     [entries]
   );
+  const diagnosticGroups = useMemo(() => {
+    const counts = { application: 0, messaging: 0, plan: 0 };
+    entries.forEach((entry) => {
+      const source = entry.source.toLocaleLowerCase();
+      if (/(message|control|connector|recovery|delivery)/.test(source)) counts.messaging += 1;
+      else if (/(plan|pipeline|context|board)/.test(source)) counts.plan += 1;
+      else counts.application += 1;
+    });
+    return counts;
+  }, [entries]);
   const incompleteNodes = useMemo(() => {
     if (!activePlan) return [];
     return activePlan.vertebrae
@@ -144,7 +154,7 @@ export function DiagnosticsConsole({
           <nav role="tablist" aria-label="Console views">
             <button id="pp-tab-diagnostics-status" type="button" role="tab" aria-selected={tab === "status"} onClick={() => setTab("status")}>STATUS</button>
             <button id="pp-tab-diagnostics-gaps" type="button" role="tab" aria-selected={tab === "gaps"} onClick={() => setTab("gaps")}>PLAN GAPS · {incompleteNodes.length}</button>
-            <button id="pp-tab-diagnostics-logs" type="button" role="tab" aria-selected={tab === "logs"} onClick={() => setTab("logs")}>SESSION LOGS · {entries.length}</button>
+            <button id="pp-tab-diagnostics-logs" type="button" role="tab" aria-selected={tab === "logs"} onClick={() => setTab("logs")}>DIAGNOSTIC LOGS · {entries.length}</button>
           </nav>
           {tab === "status" ? (
             <div className="diagnostics-status-grid" role="tabpanel">
@@ -159,6 +169,12 @@ export function DiagnosticsConsole({
             <PlanGaps activePlan={activePlan || null} nodes={incompleteNodes} collisionGuarantee={collisionGuarantee} />
           ) : (
             <div className="diagnostics-log" role="tabpanel" aria-live="polite">
+              <div className="diagnostics-source-summary" aria-label="Diagnostic sources">
+                <span>APPLICATION · {diagnosticGroups.application}</span>
+                <span>MESSAGING · {diagnosticGroups.messaging}</span>
+                <span>PLAN / RUN · {diagnosticGroups.plan}</span>
+                <span data-state="unknown">BROWSER CONSOLE · NOT COLLECTED HERE</span>
+              </div>
               <button type="button" id="pp-btn-diagnostics-clear" onClick={onClear}>Clear display</button>
               {entries.length ? entries.slice().reverse().map((entry) => (
                 <article key={entry.id} data-level={entry.level}>

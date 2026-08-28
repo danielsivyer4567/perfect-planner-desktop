@@ -1,0 +1,51 @@
+3 HEAD ORCHESTRATOR - REPOSITORY .. RELEASE - NOT READY .
+perfect planning LEGACY LEASE + REAPER ACTIVE } [)) Pareiicn gyms pl CLLR LL + Inspect
+Plans ¢ orch-27374944 © live - run not selected © routed - CI unknown ON - NEW RUNS x4
+boards on 127.0.0.1:5230-5249
+B Looplet CRM 2 plans B Perfect Planner 1 plan
+REPOSITORY A EE
+Looplet CRM 2 . . .
+Looplet CRM _~ feat/import-a PP-001 . Import rehearsal .mport-a\.claude\scratch\perfect-plan\a.json RIGHT-CLICK PLAN FOR ACTIONS compare UI refresh open in browser
+® ~ feat/browser-b 1
+IN PROGRESS 1
+PP-001 [J
+[ » | LOOPLET CRM
+PROJECT - LOOPLET AI
+_~ feat/browser-b
+Browser companion
+Looplet-browser-b . :5232
+CHAT - UNVERIFIED BOARD CLAIM
+® ~ feat/import-a 1
+IN PROGRESS 1
+PP-001 [J
+[2 | LOOPLET CRM
+_~ feat/import-a
+Import rehearsal
+REPOSITORY B
+Perfect Planner 1
+® ~ main 1
+IN PROGRESS 1
+PP-001 [J
+BD PERFECT PLANNER
+_~ main
+CONSOLE 3
+Desktop shell * issues
+perfect-planner-desktop - :5233
+yA | [Eien
+Session diagnostics
+LOCAL OUTPUT
+STATUS PLAN GAPS - © DIAGNOSTIC LOGS - 6
+app URL not declared
+APPLICATION - 2 MESSAGING - © PLAN / RUN - 4 BROWSER CONSOLE NOT COLLECTED HERE
+AY (PTE Leet SEE 18:22:04 pipeline Cannot run orchestrator_run_catalog outside Tauri: set a frozen Clear display
+window.__ ORCHESTRATOR_PIPELINE__ fixture
+18:22:04 context-menu Remove from rail: PP-@01 - Desktop shell
+No phase visibility data yet. 18:22:04 plan Removed C:\repos\perfect-planner-desktop\.claude\scratch\perfect-plan\c.json from the live
+. rail; the plan file was not changed.
+capture time not recorded
+18:22:04 resource-guard Resource guard is available in the Tauri desktop app
+alarm - gentle rise armed
+18:22:04 pipeline Cannot run orchestrator_run_catalog outside Tauri: set a frozen
+sound on test CO — window. _ ORCHESTRATOR_PIPELINE_ fixture
+18:22:03 resource-guard Select a repository to check system resources
+rescan 3 boards

@@ -3300,6 +3300,1106 @@
         "at": "2026-08-23T01:56:37.446Z",
         "forced": false
       }
+    },
+    {
+      "id": "A08",
+      "spineId": "P2",
+      "side": "R",
+      "title": "Off-canvas rail and operational truth",
+      "notes": "Return the full planner canvas when repository navigation is hidden, leaving one plain-language edge pill. Keep the command header compact while making collision admission, source freshness, evidence completeness, parallel authority, chronological activity, diagnostic provenance, and the release verdict inspectable without manufacturing unknown state.",
+      "status": "done",
+      "dependsOn": [
+        "A04",
+        "A07"
+      ],
+      "est": {
+        "tokens": 40000,
+        "minutes": 90
+      },
+      "files": [
+        "src/App.tsx",
+        "src/index.css",
+        "src/components/DiagnosticsConsole.tsx",
+        "src/components/OperationalTruth.tsx",
+        "src/services/operationalTruth.ts",
+        "tests/repository_rail_e2e.py",
+        "tests/orchestrator_pipeline_e2e.py"
+      ],
+      "resources": [
+        "ui:repository-rail",
+        "ui:orchestration-inspector",
+        "ui:operational-transparency"
+      ],
+      "checklist": [
+        {
+          "text": "The repository rail collapses to zero width and leaves one persistent, keyboard-accessible Plans pill without hiding or displacing the workflow canvas",
+          "built": true,
+          "tested": true,
+          "verify": "python tests\\repository_rail_e2e.py",
+          "ref": "src/App.tsx",
+          "ui": true,
+          "builtBy": {
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-b4b3da34",
+            "at": "2026-08-28T08:21:48.653Z",
+            "git": {
+              "sha": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 7000,
+            "loc": {
+              "baseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "scope": "files",
+              "added": 800,
+              "removed": 208,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "src/App.tsx",
+                  "added": 34,
+                  "removed": 16
+                },
+                {
+                  "file": "src/components/DiagnosticsConsole.tsx",
+                  "added": 17,
+                  "removed": 1
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 188,
+                  "removed": 185
+                },
+                {
+                  "file": "tests/orchestrator_pipeline_e2e.py",
+                  "added": 54,
+                  "removed": 2
+                },
+                {
+                  "file": "tests/repository_rail_e2e.py",
+                  "added": 20,
+                  "removed": 4
+                },
+                {
+                  "file": "src/components/OperationalTruth.tsx",
+                  "added": 150,
+                  "removed": 0,
+                  "untracked": true
+                },
+                {
+                  "file": "src/services/operationalTruth.ts",
+                  "added": 337,
+                  "removed": 0,
+                  "untracked": true
+                }
+              ],
+              "fileCount": 7,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "playwright",
+              "frontend-design",
+              "accessibility"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-28T08:22:05.015Z",
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-b4b3da34",
+            "note": "ran `python tests\\repository_rail_e2e.py` → exit 0 in 5815ms",
+            "log": "PP-001-A08-0-1787905319010.log",
+            "sha256": "a1070c93f69396189c33cccf2c25e2d7b27d3f9e23d7aee502308eb9a88527e2",
+            "exit": 0,
+            "durationMs": 5815,
+            "git": {
+              "sha": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "python tests\\repository_rail_e2e.py",
+            "cwd": "C:\\repos\\perfect-planner-tauri",
+            "env": {
+              "node": "v24.20.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-001-A08-baseline-1787904681414.before.png",
+            "beforeScreenshotSha256": "dc2fdaae8ea5dbfadf5a2353b502620e19affd251f57566aa22c022f5010c73c",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.4017,
+              "uniqueColors": 551,
+              "stddev": {
+                "r": 54.442,
+                "g": 51.103,
+                "b": 52.369
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Viewed the 4320x2700 baseline: the expanded repository rail occupies roughly 308 CSS pixels, the compact 58px collapse still retains plan cards rather than returning the full canvas, and the command header reports health and CI but has no explicit release verdict or provenance/evidence summary.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A08-baseline-1787904681414.before.png",
+              "textArtifact": "PP-001-A08-baseline-1787904681414.before.ocr.txt",
+              "textSha256": "ae9271b7503966088e677c631c3a26d6f920cc0f54d13d36072dcbdd0354dba9",
+              "confidence": 75,
+              "durationMs": 5742,
+              "rssStartBytes": 62472192,
+              "rssEndBytes": 209633280,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A08-0-1787905319010.png",
+              "textArtifact": "PP-001-A08-0-1787905319010.ocr.txt",
+              "textSha256": "807d36f88046a2f57bb95773a20d93b784f48fb6ee4c7f84689294d66eeebf47",
+              "confidence": 86,
+              "durationMs": 1602,
+              "rssStartBytes": 62488576,
+              "rssEndBytes": 199884800,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-001-A08-0-1787905319010.diff",
+            "diffSha256": "e8a4ee18a596a73e29a970023218453cba872ff2354179378dc3355534cd99d3",
+            "diffBaseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/components/DiagnosticsConsole.tsx",
+              "src/index.css",
+              "tests/orchestrator_pipeline_e2e.py",
+              "tests/repository_rail_e2e.py"
+            ],
+            "screenshot": "PP-001-A08-0-1787905319010.png",
+            "screenshotSha256": "9d258d54ad6d3c9480907c90609c9525ef828eddeef20d1d7e70a5d6717283cb",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.8398,
+              "uniqueColors": 194,
+              "stddev": {
+                "r": 49.828,
+                "g": 46.097,
+                "b": 46.564
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed the 4320x2700 capture: the rail is absent, the canvas begins at the left edge, and one compact Plans pill remains midway on the left without covering the command header or scope bar.",
+            "tokensEst": 2500,
+            "loc": {
+              "baseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "scope": "files",
+              "added": 800,
+              "removed": 208,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "src/App.tsx",
+                  "added": 34,
+                  "removed": 16
+                },
+                {
+                  "file": "src/components/DiagnosticsConsole.tsx",
+                  "added": 17,
+                  "removed": 1
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 188,
+                  "removed": 185
+                },
+                {
+                  "file": "tests/orchestrator_pipeline_e2e.py",
+                  "added": 54,
+                  "removed": 2
+                },
+                {
+                  "file": "tests/repository_rail_e2e.py",
+                  "added": 20,
+                  "removed": 4
+                },
+                {
+                  "file": "src/components/OperationalTruth.tsx",
+                  "added": 150,
+                  "removed": 0,
+                  "untracked": true
+                },
+                {
+                  "file": "src/services/operationalTruth.ts",
+                  "added": 337,
+                  "removed": 0,
+                  "untracked": true
+                }
+              ],
+              "fileCount": 7,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
+        },
+        {
+          "text": "The command surface states an explicit release verdict and the inspector explains collision scope, impact, source, freshness, and one safe next action",
+          "built": true,
+          "tested": true,
+          "verify": "python tests\\orchestrator_pipeline_e2e.py",
+          "ref": "src/components/OperationalTruth.tsx",
+          "ui": true,
+          "builtBy": {
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-b4b3da34",
+            "at": "2026-08-28T08:21:49.483Z",
+            "git": {
+              "sha": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 9500,
+            "loc": {
+              "baseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "scope": "files",
+              "added": 800,
+              "removed": 208,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "src/App.tsx",
+                  "added": 34,
+                  "removed": 16
+                },
+                {
+                  "file": "src/components/DiagnosticsConsole.tsx",
+                  "added": 17,
+                  "removed": 1
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 188,
+                  "removed": 185
+                },
+                {
+                  "file": "tests/orchestrator_pipeline_e2e.py",
+                  "added": 54,
+                  "removed": 2
+                },
+                {
+                  "file": "tests/repository_rail_e2e.py",
+                  "added": 20,
+                  "removed": 4
+                },
+                {
+                  "file": "src/components/OperationalTruth.tsx",
+                  "added": 150,
+                  "removed": 0,
+                  "untracked": true
+                },
+                {
+                  "file": "src/services/operationalTruth.ts",
+                  "added": 337,
+                  "removed": 0,
+                  "untracked": true
+                }
+              ],
+              "fileCount": 7,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "playwright",
+              "frontend-design"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-28T08:22:17.197Z",
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-b4b3da34",
+            "note": "ran `python tests\\orchestrator_pipeline_e2e.py` → exit 0 in 3302ms",
+            "log": "PP-001-A08-1-1787905333703.log",
+            "sha256": "bfce7cd804fc2eb9de696640ed211200f5884028775011ce908a14ba14991b65",
+            "exit": 0,
+            "durationMs": 3302,
+            "git": {
+              "sha": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "python tests\\orchestrator_pipeline_e2e.py",
+            "cwd": "C:\\repos\\perfect-planner-tauri",
+            "env": {
+              "node": "v24.20.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-001-A08-baseline-1787904681414.before.png",
+            "beforeScreenshotSha256": "dc2fdaae8ea5dbfadf5a2353b502620e19affd251f57566aa22c022f5010c73c",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.4017,
+              "uniqueColors": 551,
+              "stddev": {
+                "r": 54.442,
+                "g": 51.103,
+                "b": 52.369
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Viewed the 4320x2700 baseline: the expanded repository rail occupies roughly 308 CSS pixels, the compact 58px collapse still retains plan cards rather than returning the full canvas, and the command header reports health and CI but has no explicit release verdict or provenance/evidence summary.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A08-baseline-1787904681414.before.png",
+              "textArtifact": "PP-001-A08-baseline-1787904681414.before.ocr.txt",
+              "textSha256": "ae9271b7503966088e677c631c3a26d6f920cc0f54d13d36072dcbdd0354dba9",
+              "confidence": 75,
+              "durationMs": 5742,
+              "rssStartBytes": 62472192,
+              "rssEndBytes": 209633280,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A08-1-1787905333703.png",
+              "textArtifact": "PP-001-A08-1-1787905333703.ocr.txt",
+              "textSha256": "8fd5a8c27bba434712228cff64d889e134f6d7d45c35a1d379f87de7795d1dd8",
+              "confidence": 88,
+              "durationMs": 8130,
+              "rssStartBytes": 62377984,
+              "rssEndBytes": 273731584,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-001-A08-1-1787905333703.diff",
+            "diffSha256": "e8a4ee18a596a73e29a970023218453cba872ff2354179378dc3355534cd99d3",
+            "diffBaseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/components/DiagnosticsConsole.tsx",
+              "src/index.css",
+              "tests/orchestrator_pipeline_e2e.py",
+              "tests/repository_rail_e2e.py"
+            ],
+            "screenshot": "PP-001-A08-1-1787905333703.png",
+            "screenshotSha256": "420feb9b91271bce92141ade100ad73967d7b64fbd70db059a38786ee8676091",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 5760,
+              "height": 3240,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3134,
+              "uniqueColors": 449,
+              "stddev": {
+                "r": 104.091,
+                "g": 97.741,
+                "b": 97.143
+              },
+              "reason": null,
+              "samples": 41818
+            },
+            "shotNote": "Viewed the 5760x3240 inspector capture: RELEASE NOT READY is explicit; collision approval is blocked with source, checked time, impact and one safe next action; provenance and affected scope are visible.",
+            "tokensEst": 3000,
+            "loc": {
+              "baseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "scope": "files",
+              "added": 800,
+              "removed": 208,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "src/App.tsx",
+                  "added": 34,
+                  "removed": 16
+                },
+                {
+                  "file": "src/components/DiagnosticsConsole.tsx",
+                  "added": 17,
+                  "removed": 1
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 188,
+                  "removed": 185
+                },
+                {
+                  "file": "tests/orchestrator_pipeline_e2e.py",
+                  "added": 54,
+                  "removed": 2
+                },
+                {
+                  "file": "tests/repository_rail_e2e.py",
+                  "added": 20,
+                  "removed": 4
+                },
+                {
+                  "file": "src/components/OperationalTruth.tsx",
+                  "added": 150,
+                  "removed": 0,
+                  "untracked": true
+                },
+                {
+                  "file": "src/services/operationalTruth.ts",
+                  "added": 337,
+                  "removed": 0,
+                  "untracked": true
+                }
+              ],
+              "fileCount": 7,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
+        },
+        {
+          "text": "The inspector shows per-task evidence, current-run versus future-run parallel limits, and one chronological repository-and-plan-scoped activity feed",
+          "built": true,
+          "tested": true,
+          "verify": "python tests\\orchestrator_pipeline_e2e.py",
+          "ref": "src/services/operationalTruth.ts",
+          "ui": true,
+          "builtBy": {
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-b4b3da34",
+            "at": "2026-08-28T08:21:50.305Z",
+            "git": {
+              "sha": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 10000,
+            "loc": {
+              "baseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "scope": "files",
+              "added": 800,
+              "removed": 208,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "src/App.tsx",
+                  "added": 34,
+                  "removed": 16
+                },
+                {
+                  "file": "src/components/DiagnosticsConsole.tsx",
+                  "added": 17,
+                  "removed": 1
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 188,
+                  "removed": 185
+                },
+                {
+                  "file": "tests/orchestrator_pipeline_e2e.py",
+                  "added": 54,
+                  "removed": 2
+                },
+                {
+                  "file": "tests/repository_rail_e2e.py",
+                  "added": 20,
+                  "removed": 4
+                },
+                {
+                  "file": "src/components/OperationalTruth.tsx",
+                  "added": 150,
+                  "removed": 0,
+                  "untracked": true
+                },
+                {
+                  "file": "src/services/operationalTruth.ts",
+                  "added": 337,
+                  "removed": 0,
+                  "untracked": true
+                }
+              ],
+              "fileCount": 7,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "playwright"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-28T08:22:35.854Z",
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-b4b3da34",
+            "note": "ran `python tests\\orchestrator_pipeline_e2e.py` → exit 0 in 3207ms",
+            "log": "PP-001-A08-2-1787905352455.log",
+            "sha256": "17e6be9d59e9007f4040b8362a249f8029dfadab609845cbdf1078ce4bd83e16",
+            "exit": 0,
+            "durationMs": 3207,
+            "git": {
+              "sha": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "python tests\\orchestrator_pipeline_e2e.py",
+            "cwd": "C:\\repos\\perfect-planner-tauri",
+            "env": {
+              "node": "v24.20.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-001-A08-baseline-1787904681414.before.png",
+            "beforeScreenshotSha256": "dc2fdaae8ea5dbfadf5a2353b502620e19affd251f57566aa22c022f5010c73c",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.4017,
+              "uniqueColors": 551,
+              "stddev": {
+                "r": 54.442,
+                "g": 51.103,
+                "b": 52.369
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Viewed the 4320x2700 baseline: the expanded repository rail occupies roughly 308 CSS pixels, the compact 58px collapse still retains plan cards rather than returning the full canvas, and the command header reports health and CI but has no explicit release verdict or provenance/evidence summary.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A08-baseline-1787904681414.before.png",
+              "textArtifact": "PP-001-A08-baseline-1787904681414.before.ocr.txt",
+              "textSha256": "ae9271b7503966088e677c631c3a26d6f920cc0f54d13d36072dcbdd0354dba9",
+              "confidence": 75,
+              "durationMs": 5742,
+              "rssStartBytes": 62472192,
+              "rssEndBytes": 209633280,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A08-2-1787905352455.png",
+              "textArtifact": "PP-001-A08-2-1787905352455.ocr.txt",
+              "textSha256": "8fd5a8c27bba434712228cff64d889e134f6d7d45c35a1d379f87de7795d1dd8",
+              "confidence": 88,
+              "durationMs": 7349,
+              "rssStartBytes": 62496768,
+              "rssEndBytes": 293154816,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-001-A08-2-1787905352455.diff",
+            "diffSha256": "e8a4ee18a596a73e29a970023218453cba872ff2354179378dc3355534cd99d3",
+            "diffBaseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/components/DiagnosticsConsole.tsx",
+              "src/index.css",
+              "tests/orchestrator_pipeline_e2e.py",
+              "tests/repository_rail_e2e.py"
+            ],
+            "screenshot": "PP-001-A08-2-1787905352455.png",
+            "screenshotSha256": "420feb9b91271bce92141ade100ad73967d7b64fbd70db059a38786ee8676091",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 5760,
+              "height": 3240,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3134,
+              "uniqueColors": 449,
+              "stddev": {
+                "r": 104.091,
+                "g": 97.741,
+                "b": 97.143
+              },
+              "reason": null,
+              "samples": 41818
+            },
+            "shotNote": "Viewed the 5760x3240 inspector capture: the current run is visibly capped at two while new runs are four, both task rows show tests/build/runtime/artifact evidence, unresolved risks remain named, and the scoped activity count is present.",
+            "tokensEst": 3000,
+            "loc": {
+              "baseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "scope": "files",
+              "added": 800,
+              "removed": 208,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "src/App.tsx",
+                  "added": 34,
+                  "removed": 16
+                },
+                {
+                  "file": "src/components/DiagnosticsConsole.tsx",
+                  "added": 17,
+                  "removed": 1
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 188,
+                  "removed": 185
+                },
+                {
+                  "file": "tests/orchestrator_pipeline_e2e.py",
+                  "added": 54,
+                  "removed": 2
+                },
+                {
+                  "file": "tests/repository_rail_e2e.py",
+                  "added": 20,
+                  "removed": 4
+                },
+                {
+                  "file": "src/components/OperationalTruth.tsx",
+                  "added": 150,
+                  "removed": 0,
+                  "untracked": true
+                },
+                {
+                  "file": "src/services/operationalTruth.ts",
+                  "added": 337,
+                  "removed": 0,
+                  "untracked": true
+                }
+              ],
+              "fileCount": 7,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
+        },
+        {
+          "text": "Diagnostics separate application, messaging, plan, and browser provenance while unknown state remains explicit and the new controls meet focus, target-size, and reduced-motion requirements",
+          "built": true,
+          "tested": true,
+          "verify": "npm run build",
+          "ref": "src/components/DiagnosticsConsole.tsx",
+          "ui": true,
+          "builtBy": {
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-b4b3da34",
+            "at": "2026-08-28T08:21:51.121Z",
+            "git": {
+              "sha": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 6500,
+            "loc": {
+              "baseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "scope": "files",
+              "added": 800,
+              "removed": 208,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "src/App.tsx",
+                  "added": 34,
+                  "removed": 16
+                },
+                {
+                  "file": "src/components/DiagnosticsConsole.tsx",
+                  "added": 17,
+                  "removed": 1
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 188,
+                  "removed": 185
+                },
+                {
+                  "file": "tests/orchestrator_pipeline_e2e.py",
+                  "added": 54,
+                  "removed": 2
+                },
+                {
+                  "file": "tests/repository_rail_e2e.py",
+                  "added": 20,
+                  "removed": 4
+                },
+                {
+                  "file": "src/components/OperationalTruth.tsx",
+                  "added": 150,
+                  "removed": 0,
+                  "untracked": true
+                },
+                {
+                  "file": "src/services/operationalTruth.ts",
+                  "added": 337,
+                  "removed": 0,
+                  "untracked": true
+                }
+              ],
+              "fileCount": 7,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "playwright",
+              "accessibility"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-28T08:22:53.347Z",
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-b4b3da34",
+            "note": "ran `npm run build` → exit 0 in 3043ms",
+            "log": "PP-001-A08-3-1787905370108.log",
+            "sha256": "d37369f8928084fdfe3945e217511eae59d2aee005acb8a0f824aad11c71051d",
+            "exit": 0,
+            "durationMs": 3043,
+            "git": {
+              "sha": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "npm run build",
+            "cwd": "C:\\repos\\perfect-planner-tauri",
+            "env": {
+              "node": "v24.20.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-001-A08-baseline-1787904681414.before.png",
+            "beforeScreenshotSha256": "dc2fdaae8ea5dbfadf5a2353b502620e19affd251f57566aa22c022f5010c73c",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.4017,
+              "uniqueColors": 551,
+              "stddev": {
+                "r": 54.442,
+                "g": 51.103,
+                "b": 52.369
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Viewed the 4320x2700 baseline: the expanded repository rail occupies roughly 308 CSS pixels, the compact 58px collapse still retains plan cards rather than returning the full canvas, and the command header reports health and CI but has no explicit release verdict or provenance/evidence summary.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A08-baseline-1787904681414.before.png",
+              "textArtifact": "PP-001-A08-baseline-1787904681414.before.ocr.txt",
+              "textSha256": "ae9271b7503966088e677c631c3a26d6f920cc0f54d13d36072dcbdd0354dba9",
+              "confidence": 75,
+              "durationMs": 5742,
+              "rssStartBytes": 62472192,
+              "rssEndBytes": 209633280,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A08-3-1787905370108.png",
+              "textArtifact": "PP-001-A08-3-1787905370108.ocr.txt",
+              "textSha256": "c6797df4af6e4f19a35b65bd938eb90028b5ed1834cd376ab23474b2d156846a",
+              "confidence": 82,
+              "durationMs": 4491,
+              "rssStartBytes": 62550016,
+              "rssEndBytes": 205852672,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-001-A08-3-1787905370108.diff",
+            "diffSha256": "e8a4ee18a596a73e29a970023218453cba872ff2354179378dc3355534cd99d3",
+            "diffBaseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/components/DiagnosticsConsole.tsx",
+              "src/index.css",
+              "tests/orchestrator_pipeline_e2e.py",
+              "tests/repository_rail_e2e.py"
+            ],
+            "screenshot": "PP-001-A08-3-1787905370108.png",
+            "screenshotSha256": "f3e307666fbe2b83884d77f8e9b2c8deefebeb40a6b8249eaece6251a3ca9c07",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.5234,
+              "uniqueColors": 386,
+              "stddev": {
+                "r": 86.961,
+                "g": 82.174,
+                "b": 82.087
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed the 4320x2700 capture: the diagnostics console separates application, messaging, plan/run, and explicitly uncollected browser-console sources; focusable controls and their labels are visible without relying on colour alone.",
+            "tokensEst": 2500,
+            "loc": {
+              "baseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "scope": "files",
+              "added": 800,
+              "removed": 208,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "src/App.tsx",
+                  "added": 34,
+                  "removed": 16
+                },
+                {
+                  "file": "src/components/DiagnosticsConsole.tsx",
+                  "added": 17,
+                  "removed": 1
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 188,
+                  "removed": 185
+                },
+                {
+                  "file": "tests/orchestrator_pipeline_e2e.py",
+                  "added": 54,
+                  "removed": 2
+                },
+                {
+                  "file": "tests/repository_rail_e2e.py",
+                  "added": 20,
+                  "removed": 4
+                },
+                {
+                  "file": "src/components/OperationalTruth.tsx",
+                  "added": 150,
+                  "removed": 0,
+                  "untracked": true
+                },
+                {
+                  "file": "src/services/operationalTruth.ts",
+                  "added": 337,
+                  "removed": 0,
+                  "untracked": true
+                }
+              ],
+              "fileCount": 7,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
+        }
+      ],
+      "visualBaseline": {
+        "beforeScreenshot": "PP-001-A08-baseline-1787904681414.before.png",
+        "beforeScreenshotSha256": "dc2fdaae8ea5dbfadf5a2353b502620e19affd251f57566aa22c022f5010c73c",
+        "beforeScreenshotCheck": {
+          "ok": true,
+          "width": 4320,
+          "height": 2700,
+          "bitDepth": 8,
+          "colorType": 2,
+          "blankScore": 0.4017,
+          "uniqueColors": 551,
+          "stddev": {
+            "r": 54.442,
+            "g": 51.103,
+            "b": 52.369
+          },
+          "reason": null,
+          "samples": 42848
+        },
+        "beforeShotNote": "Viewed the 4320x2700 baseline: the expanded repository rail occupies roughly 308 CSS pixels, the compact 58px collapse still retains plan cards rather than returning the full canvas, and the command header reports health and CI but has no explicit release verdict or provenance/evidence summary.",
+        "registeredAt": "2026-08-28T08:11:21.164Z",
+        "model": "gpt-5.6-sol",
+        "user": "danielsivyer4567",
+        "session": "s-b4b3da34",
+        "git": {
+          "sha": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+          "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+          "dirty": true
+        },
+        "sourceFile": "PP-001-A08-baseline.png",
+        "beforeScreenshotOcr": {
+          "status": "clear",
+          "role": "derived-warning-only",
+          "rawScreenshotAuthoritative": true,
+          "engine": "tesseract.js",
+          "engineVersion": "5.1.1",
+          "language": "eng",
+          "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+          "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+          "oem": 1,
+          "runtime": "one-shot-subprocess",
+          "resident": false,
+          "network": "disabled-local-model-only",
+          "shot": "PP-001-A08-baseline-1787904681414.before.png",
+          "textArtifact": "PP-001-A08-baseline-1787904681414.before.ocr.txt",
+          "textSha256": "ae9271b7503966088e677c631c3a26d6f920cc0f54d13d36072dcbdd0354dba9",
+          "confidence": 75,
+          "durationMs": 5742,
+          "rssStartBytes": 62472192,
+          "rssEndBytes": 209633280,
+          "workerTerminated": true,
+          "expectedText": [],
+          "alarms": []
+        }
+      },
+      "startSha": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+      "startedAt": "2026-08-28T08:11:21.164Z",
+      "startedBy": {
+        "model": "gpt-5.6-sol",
+        "user": "danielsivyer4567",
+        "session": "s-b4b3da34",
+        "at": "2026-08-28T08:11:21.164Z"
+      },
+      "lastStampSha": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+      "doneAt": "2026-08-28T08:23:04.263Z",
+      "doneBy": {
+        "model": "gpt-5.6-sol",
+        "user": "danielsivyer4567",
+        "session": "s-b4b3da34",
+        "at": "2026-08-28T08:23:04.263Z",
+        "forced": false
+      }
     }
   ],
   "ci": {

@@ -35,6 +35,12 @@ SCREENSHOT = (
     / "orchestrator-pipeline"
     / "orchestrator-pipeline-chrome.png"
 )
+TRUTH_SCREENSHOT = (
+    ROOT
+    / "artifacts"
+    / "orchestrator-pipeline"
+    / "operational-truth-inspector.png"
+)
 
 PRIMARY_REPOSITORY = "repo-looplet-crm"
 SECONDARY_REPOSITORY = "repo-looplet-accounting"
@@ -403,12 +409,22 @@ def pipeline_snapshot() -> dict:
             "profile": "ui" if node["nodeId"] == "TO-02" else "headless",
             "evidence": evidence,
             "allowedFiles": node["allowedFiles"],
+            "verificationCommands": [
+                f"test-{node['nodeId']}",
+                f"build-{node['nodeId']}",
+                *([f"browser-smoke-{node['nodeId']}"] if node["nodeId"] == "TO-02" else []),
+            ],
             "verification": [
                 {
-                    "commandId": f"verify-{node['nodeId']}",
+                    "commandId": command_id,
                     "exitCode": 0,
                     "outputArtifact": f"evidence/{node['nodeId']}/test.log",
                 }
+                for command_id in [
+                    f"test-{node['nodeId']}",
+                    f"build-{node['nodeId']}",
+                    *([f"browser-smoke-{node['nodeId']}"] if node["nodeId"] == "TO-02" else []),
+                ]
             ],
         }
 
@@ -478,6 +494,7 @@ def pipeline_snapshot() -> dict:
 
     return {
         "nowMs": 1787355000000,
+        "preflightFresh": True,
         "run": active_summary,
         "stages": [
             {
@@ -518,7 +535,7 @@ def pipeline_snapshot() -> dict:
             "stoppedProcesses": [],
             "reasons": active["preflight"]["reasons"],
         },
-        "scheduler": {"nextFence": 3, "nodes": scheduled_nodes},
+        "scheduler": {"nextFence": 3, "maxParallelWorkers": 2, "nodes": scheduled_nodes},
         "reconciliation": {
             "passed": False,
             **violations,
@@ -685,6 +702,32 @@ def assert_node_evidence_and_persistent_warnings(page: Page) -> None:
     expect(decision).to_have_attribute("data-decision-status", "pending")
 
 
+def assert_operational_truth(page: Page) -> None:
+    truth = page.locator("#pp-panel-operational-truth")
+    expect(truth).to_be_visible()
+    expect(page.locator("#pp-inspector-release-verdict")).to_have_text(
+        "RELEASE · NOT READY"
+    )
+    expect(page.locator("#pp-status-collision-truth")).to_have_text(
+        "BLOCKED · APPROVAL RECEIPT MISSING"
+    )
+    expect(page.locator("#pp-status-parallel-truth")).to_contain_text(
+        "CURRENT RUN · ×2"
+    )
+    expect(page.locator("#pp-list-release-blockers")).to_contain_text(
+        "infrastructure failure"
+    )
+    evidence_rows = page.locator(".truth-evidence-table tbody tr")
+    expect(evidence_rows).to_have_count(2)
+    to_02 = evidence_rows.filter(has_text="TO-02")
+    expect(to_02).to_contain_text("PASSED")
+    expect(to_02.locator("td").nth(3).locator(".truth-evidence-state")).to_have_attribute(
+        "title", "browser-smoke-TO-02"
+    )
+    expect(page.locator("#pp-list-operational-activity li")).to_have_count(5)
+    expect(truth).to_contain_text("source: native run")
+
+
 def assert_audit_drawer(page: Page) -> None:
     drawer = page.locator("#pp-orch-region-audit-drawer")
     handle = page.locator("#pp-orch-control-audit-resize")
@@ -839,6 +882,15 @@ def main() -> None:
 
         assert_repository_and_plan_scope(page)
         assert_node_evidence_and_persistent_warnings(page)
+        assert_operational_truth(page)
+        page.locator("#pp-panel-orchestrator-inspector").evaluate(
+            "element => { element.scrollTop = 0; }"
+        )
+        page.screenshot(
+            path=str(TRUTH_SCREENSHOT),
+            full_page=True,
+            animations="disabled",
+        )
         assert_audit_drawer(page)
         assert_unique_control_ids(page)
 

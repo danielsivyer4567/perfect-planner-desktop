@@ -1,0 +1,6 @@
+HEAD ORCHESTRATOR - REPOSITORY A - Looplet CRM RELEASE - NOT READY Parallel agents RESOURCE GUARD - UNAVAILABLE
+LEGACY LEASE + REAPER ACTIVE Inspect
+orch-4b45f7e3 @ live - run not selected @ routed - CI unknown [J ON - NEW RUNS x4 + p
+B Looplet CRM 2 plans B Perfect Planner 1 plan
+———————————————————
+BD Looplet CRM _~ feat/import-a PP-001 . Import rehearsal .oplet-import-a - C:\repos\looplet-worktrees\Looplet-import-a\.claude\scratch\perfect-plan\a.json RIGHT-CLICK PLAN FOR ACTIONS compare UI refresh open in browser

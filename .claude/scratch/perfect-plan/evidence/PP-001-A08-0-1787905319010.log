@@ -1,0 +1,37 @@
+# perfect-planning proof artifact
+item: A08:0 — The repository rail collapses to zero width and leaves one persistent, keyboard-accessible Plans pill without hiding or displacing the workflow canvas
+command: python tests\repository_rail_e2e.py
+cwd: C:\repos\perfect-planner-tauri
+exit: 0
+duration_ms: 5815
+at: 2026-08-28T08:22:05.015Z
+git: 3a86cc602fc673277f570063deaa69fb53e5a8d5 (feature/tauri-orchestrator-messaging-20260821-223935, dirty)
+shot: PP-001-A08-0-1787905319010.png
+shot_note: Viewed the 4320x2700 capture: the rail is absent, the canvas begins at the left edge, and one compact Plans pill remains midway on the left without covering the command header or scope bar.
+shot_check: ok (4320x2700, blankScore 0.8398)
+before_shot: PP-001-A08-baseline-1787904681414.before.png
+before_shot_note: Viewed the 4320x2700 baseline: the expanded repository rail occupies roughly 308 CSS pixels, the compact 58px collapse still retains plan cards rather than returning the full canvas, and the command header reports health and CI but has no explicit release verdict or provenance/evidence summary.
+before_shot_check: ok (4320x2700, blankScore 0.4017)
+before_ocr: PP-001-A08-baseline-1787904681414.before.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 75, 5742ms)
+before_ocr_alarms: none
+after_ocr: PP-001-A08-0-1787905319010.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 86, 1602ms)
+after_ocr_alarms: none
+diff: PP-001-A08-0-1787905319010.diff
+diff_baseline: 3a86cc602fc673277f570063deaa69fb53e5a8d5
+
+## stdout
+repository rail: loaded
+repository rail: collapse verified
+repository rail: selected planner
+repository rail: reloaded
+repository rail: inspector opened
+repository rail: inspector scoped
+repository rail: guard opened
+repository rail: inspector verified
+repository rail: context actions verified
+repository rail: screenshot captured
+repository_rail_e2e: PASS
+screenshot: C:\repos\perfect-planner-tauri\artifacts\repository-rail.png
+
+## stderr
+(empty)

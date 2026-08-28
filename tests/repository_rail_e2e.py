@@ -8,7 +8,7 @@ from playwright.sync_api import expect, sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 APP_URL = "http://127.0.0.1:5180/"
 SCREENSHOT = ROOT / "artifacts" / "repository-rail.png"
-COLLAPSED_SCREENSHOT = ROOT / "artifacts" / "repository-rail-collapsed.png"
+COLLAPSED_SCREENSHOT = ROOT / "artifacts" / "repository-rail-hidden.png"
 
 
 BOARDS = {
@@ -60,7 +60,7 @@ def main():
     SCREENSHOT.parent.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        page = browser.new_page(viewport={"width": 1440, "height": 900}, device_scale_factor=3)
         page.set_default_timeout(10_000)
         probe_available = {port: True for port in BOARDS}
 
@@ -116,12 +116,17 @@ def main():
         rail_toggle.evaluate("element => element.click()")
         expect(rail_toggle).to_have_attribute("aria-expanded", "false")
         expect(rail).to_have_class(re.compile(r"\bcollapsed\b"))
-        expect(rail).to_have_css("width", "58px")
+        expect(rail).to_have_attribute("aria-hidden", "true")
+        expect(rail).to_have_css("width", "0px")
+        expect(rail_toggle).to_be_visible()
+        expect(rail_toggle).to_contain_text("Plans")
         collapsed_stage_x = stage.bounding_box()["x"]
         assert collapsed_stage_x < expanded_stage_x - 200, (
             f"collapsed rail did not return meaningful canvas width: {expanded_stage_x} -> {collapsed_stage_x}"
         )
-        expect(page.get_by_role("button", name="PP-001 Repository B Perfect Planner main Desktop shell")).to_be_visible()
+        assert collapsed_stage_x <= 1, f"collapsed rail still reserves canvas width: {collapsed_stage_x}"
+        assert rail_toggle.bounding_box()["x"] <= 7, "collapsed Plans pill is not attached to the left edge"
+        expect(page.get_by_role("button", name="PP-001 Repository B Perfect Planner main Desktop shell", include_hidden=True)).to_be_hidden()
         page.screenshot(path=str(COLLAPSED_SCREENSHOT), full_page=True)
         assert page.evaluate(
             "localStorage.getItem('perfect-planner:repository-rail-collapsed')"
@@ -135,6 +140,7 @@ def main():
         rail_toggle.evaluate("element => element.click()")
         expect(rail_toggle).to_have_attribute("aria-expanded", "true")
         expect(rail).to_have_class("rail")
+        expect(rail).to_have_attribute("aria-hidden", "false")
         assert page.evaluate(
             "localStorage.getItem('perfect-planner:repository-rail-collapsed')"
         ) == "false"
@@ -249,6 +255,11 @@ def main():
         inspector = page.locator("#pp-panel-orchestrator-inspector")
         expect(inspector).to_be_visible()
         expect(inspector).to_contain_text("Perfect Planner")
+        expect(page.locator("#pp-inspector-release-verdict")).to_have_text("RELEASE · NOT READY")
+        expect(page.locator("#pp-status-collision-truth")).to_have_text("UNKNOWN · NO VERIFIED RUN")
+        expect(page.locator("#pp-status-parallel-truth")).to_contain_text("CURRENT RUN · UNKNOWN")
+        expect(page.locator("#pp-list-release-blockers")).to_contain_text("No exact native run")
+        expect(page.locator("#pp-panel-operational-truth")).to_contain_text("not checked this session")
         print("repository rail: inspector scoped", flush=True)
         frame_top_after = page.locator("#pp-frame-active-board").bounding_box()["y"]
         assert frame_top_after == frame_top_before, (
@@ -321,6 +332,11 @@ def main():
             console_toggle.evaluate("element => element.click()")
         expect(page.locator("#pp-panel-diagnostics-console")).to_contain_text("MCP runtime")
         expect(page.locator("#pp-panel-diagnostics-console")).to_contain_text("NOT ATTESTED")
+        page.locator("#pp-tab-diagnostics-logs").evaluate("element => element.click()")
+        expect(page.locator(".diagnostics-source-summary")).to_contain_text("APPLICATION")
+        expect(page.locator(".diagnostics-source-summary")).to_contain_text("MESSAGING")
+        expect(page.locator(".diagnostics-source-summary")).to_contain_text("PLAN / RUN")
+        expect(page.locator(".diagnostics-source-summary")).to_contain_text("BROWSER CONSOLE · NOT COLLECTED HERE")
 
         page.screenshot(path=str(SCREENSHOT), full_page=True)
         print("repository rail: screenshot captured", flush=True)

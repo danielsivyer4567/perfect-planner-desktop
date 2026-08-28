@@ -1,0 +1,55 @@
+HEAD ORCHESTRATOR - REPOSITORY ? - repo-looplet-crm No repository selected RELEASE - NOT READY .
+perfect i b Jus p [2 NATIVE LEASE ACTIVE [) Parallel agents RESOURCE GUARD - UNAVAILABLE — Es
+Plans ¢ inspecting existing IDs No plan Messages unknown + CI unknown ON - NEW RUNS x4 - ACTIVE x2
+boards on 127.0.0.1:5230-5249
+SCOPED INSPECTOR - ?
+Close inspector
+repo-looplet-crm - No plan selected
+No board IS running. Select a running plan in a repository.
+Start one from the skill:
+OPERATIONAL TRUTH + No repository or plan selected
+. . . . RELEASE - NOT READY
+node perfect-plan-server.cjs --plan <plan.json> What is proven, blocked, and still unknown
+--port 5230
+. Lo. . COLLISION ADMISSION RELEASE DECISION
+It appears here on its own — a chat joins by serving a
+BLOCKED - APPROVAL RECEIPT MISSING RELEASE - NOT READY
+board, not by wiring anything up.
+The renderer cannot authorize work from a green-looking preflight alone. * CI infrastructure failure - decision required
+SOURCE Native preflight for ORCH-20260822-ACTIVE SOURCE Native release receipt for ORCH-20260822-ACTIVE
+CHECKED 8/22/2026, 9:30:00 AM CHECKED 8/22/2026, 9:30:00 AM
+SAFE NEXT ACTION Review this exact census and record native approval for this exact run.
+PARALLEL AUTHORITY FRESHNESS AND PROVENANCE
+CURRENT RUN - x2 OBSERVED STATE
+New runs begin at x4. Changing the header toggle does not rewrite an active run. native run ORCH-2026@822-ACTIVE - message ledger not loaded
+CURRENT SOURCE Native scheduler receipt LAST CHECKED 8/22/2026, 9:30:00 AM
+FUTURE SOURCE Local new-run preference SCOPE No repository or plan selected
+V Collision scope and affected work - 2
+No repository or plan selected port 5180 - C:\Program Files\nodejs\node.exe
+V Task verification evidence - 2
+H B - TASK STATE TESTS BUILD / TYPECHECK RUNTIME / BROWSER ARTIFACTS UNRESOLVED RISK
+This window is a conta
+se T0-02 RUNNING PASSED PASSED PASSED PASSED Choose whether to stop the exact allowlisted Vite process on port 5180. - CI infrastructure failure - decision required
+Preflight and isolated run scope
+TO-05 BLOCKED PASSED PASSED NOT RECORDED PASSED Choose whether to stop the exact allowlisted Vite process on port 5180. - CI infrastructure failure - decision required
+Exact reconciliation gate
+» Chronological activity - 5
+LATEST MEANINGFUL ACTIVITY
+No scoped activity is available.
+CLOCKWISE WORKERS T ORCH | worker-A-02 T0-02 LIVE worker-A-05 T0-05 LIVE
+LOCAL OUTPUT
+app URL not declared
+giiiiE, LOOPLET LIVE ORCHESTRATOR MESSAGES
+Hall INBOX © | | OUTBOX © || UNROUTED @
+ih THD CONTROL FEED STANDBY ID UNASSIGNED
+NO CAPTURED LOCAL SCREEN
+No messaging destinations are registered in this scope.
+QUEUED UNROUTED CLAIMED
+No phase visibility data yet.
+capture time not recorded
+——
+alarm - gentle rise
+sound on | | test | CHEE) . smaller || Larger || Maximize || Collapse
+Recorded proof and delivery truth
+CONSOLE 1 issue
+rescan @ boards = CHANGES / SUCCEEDED
