@@ -9,7 +9,8 @@ Perfect Planner 1.0.0 provides a repository-isolated Tauri workspace for Perfect
 and a native orchestration lifecycle. The finish pass adds exact repository/plan restoration,
 fail-closed missing selection, same-port foreign-board rejection, stale recovery classification,
 actionable recovery-delivery status, compact canvas-first layout verification, Windows CI, and
-packaged restart/installer regression coverage.
+packaged restart/installer regression coverage. Product-owned process launch/exit evidence,
+packaged routed-message proof, and real Windows Escape/Tab verification are also present.
 
 The critical safety correction prevents a durable recovery event from being written to any board
 other than the explicitly selected repository and plan held by the original worker session.
@@ -60,9 +61,8 @@ then, the app must never download or apply an update automatically.
   no push was authorized. GitHub branch protection/rulesets are unavailable on the current private
   repository account plan.
 - No Windows code-signing identity is installed; current binaries report `NotSigned`.
-- A physical native Escape event was not observed through WebView2 during automation. DOM focus
-  return, browser keyboard navigation, and native narrow-window layout pass, but a human keyboard
-  and 300% Windows display-scale pass remains required.
+- Real Windows Escape/Tab behavior and native narrow-window layout pass. Windows OS-level 300%
+  display scaling remains untested; only WebView device-scale emulation is proven.
 - No clean Windows VM smoke test has been performed.
 - Windows 10 and ARM64 are not verified.
 

@@ -1,6 +1,6 @@
 # Native lifecycle and interaction evidence
 
-Date: 2026-08-27
+Date: 2026-08-28
 Repository: `C:\repos\perfect-planner-tauri`
 Target: installed Perfect Planner 1.0.0, Windows 11 x64, WebView2
 
@@ -26,8 +26,9 @@ geometry.
   repository tab (`pp-btn-repository-tab-pp-repository-tab-1ezujbo`).
 - Console errors, page errors, unexpected request failures, and CSP violations were empty. The
   expected WebView2 IPC `ERR_ABORTED` receipt remained separately classified.
-- Real Windows Escape injection was not observed by the WebView DOM. The DOM Escape behavior and
-  focus return pass, but physical input remains an explicit manual limitation.
+- A later installed-candidate run sent real Windows Escape and Tab events to the foreground Tauri
+  window. Escape closed the inspector and returned focus to `Inspect`; Tab then advanced to a
+  repository button. The external board was not clicked or mutated.
 
 Local artifact hashes:
 
@@ -37,6 +38,34 @@ Local artifact hashes:
 | `artifacts/native-tauri/native-finish-line.png` | `517E380405CEB4FF279989CCB048B1D2D05478C9FA840EB937BA8A706FFFF2D7` |
 | `artifacts/native-tauri/native-narrow-window.png` | `9B0711EF3CDA5BD6C73A69727E7B89DFB125A66351F769E04019D197266FC3BB` |
 | `artifacts/native-tauri/native-three-times-scale.png` | `446F0A1AD89DA00BB555953F18B5C287D2CA63E4814C8AB4C61741EBE9097BF3` |
+
+## Packaged routing, process lifecycle, and physical keyboard proof
+
+`python tests/native_release_evidence_e2e.py` passed against the installed NSIS candidate at
+`C:\Users\danie\AppData\Local\Perfect Planner\perfect-planner-desktop.exe`.
+
+- Installed executable SHA-256:
+  `70BABB6DB337837DA8C5DCF8DF071BD0629138A48D003498CCBFBDE0EE9DC155`.
+- Synthetic proof message `pp-message-1787880851152-4` used the dedicated repository ID
+  `pp-finish-line-native-evidence`; it progressed exactly
+  `queued -> claimed -> delivered -> acknowledged` through the native Tauri IPC boundary.
+- The message was labelled synthetic evidence and did not represent or mutate live project work.
+- Process `20364` recorded correlated session `pp-app-1787880849487-20364` with exactly one
+  `LAUNCH` and one later `EXIT` event in the product-owned append-only lifecycle ledger.
+- The physical keyboard proof observed exactly one Windows Escape event, closed the inspector,
+  restored focus, and advanced focus with Windows Tab to a repository button.
+- Console errors, page errors, and unexpected request failures were all empty.
+
+| Artifact or ledger | SHA-256 |
+|---|---|
+| `artifacts/native-tauri/native-routed-message-lifecycle.json` | `7102B305CF95A375AD4D704349C9090D8E610B306559A6CA0D0372E0D5717A68` |
+| `artifacts/native-tauri/native-routed-message-lifecycle.png` | `3876DE6949D20C519E0F19ECD6032530F85D98AD5258CEC7E923BCA1B769C40B` |
+| `artifacts/native-tauri/native-physical-keyboard.png` | `3876DE6949D20C519E0F19ECD6032530F85D98AD5258CEC7E923BCA1B769C40B` |
+| `%APPDATA%/com.looplet.perfectplanner/app-lifecycle.jsonl` after proof | `3D03AAFB3316677F34A0F1209CFF1B5B017FE41ED0004734C5E1AD1DF2BCC53A` |
+| `%APPDATA%/com.looplet.perfectplanner/control-plane.jsonl` after proof | `3E05125BC90DF9FDE47CA69A74A00263C4C3B4BBB686E1C0DDEE26DEBA3C0A09` |
+
+The screenshot hashes are identical because the routing operation does not invent visible live-work
+state and the second capture retained the same focused, inspector-closed workspace.
 
 ## Native lifecycle event proof
 
@@ -69,8 +98,6 @@ release artifacts.
 
 ## Evidence still missing
 
-- A packaged run with an actual registered messaging destination and a durable routed-message log.
-- An application-native launch/exit event pair. Installer logs and zero-orphan-process checks prove
-  process outcomes, but they are not substitutes for product-native lifecycle events.
-- Physical keyboard Escape/Tab behavior and a Windows OS-level 300% display-scale pass.
+- A Windows OS-level 300% display-scale pass on the target display; WebView 300% emulation is proven
+  but is not a substitute for changing the operating-system setting.
 - A signed candidate installed on a separate clean Windows machine or faithful VM.

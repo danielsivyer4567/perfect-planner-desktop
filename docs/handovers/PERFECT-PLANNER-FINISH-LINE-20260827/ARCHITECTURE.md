@@ -1,6 +1,6 @@
 # Perfect Planner architecture and lifecycle audit
 
-Date: 2026-08-27
+Date: 2026-08-28
 Scope: `C:\repos\perfect-planner-tauri` only
 
 ## System boundary
@@ -17,6 +17,8 @@ The desktop has two related but separate lifecycle surfaces:
 2. **Native orchestration runs** — immutable repository-scoped run manifests, preflight, collision
    assessment, approval, worker admission, leases, evidence-gated completion, reconciliation, and
    release evaluation.
+3. **Native application process evidence** — one append-only, process-correlated launch/exit ledger
+   under the product's app-data directory, independent of renderer state.
 
 Unknown or unavailable state remains unknown. A discovered board, browser approval string, missing
 run, or missing CI result is never converted into invented worker, message, run, or CI state.
@@ -80,6 +82,10 @@ task route, board PID, port, launch nonce, plan, repository, and expiry. Approva
 message; admission remains blocked until delivery is recorded. An unregistered, expired, revoked,
 or identity-mismatched route remains visibly blocked.
 
+`src-tauri/src/app_lifecycle.rs` creates one session identity only after native stores and
+connectors initialize successfully, appends a `LAUNCH` event, and records an idempotent correlated
+`EXIT` from the actual Tauri run loop. The renderer cannot create or edit these events.
+
 ### Stale and interrupted work
 
 For legacy board workers, `src-tauri/src/supervisor.rs` persists lease/reaper events in app data.
@@ -103,9 +109,10 @@ conflicts, missing evidence, reconciliation findings, CI state, push state, and 
 separate gates. CI is therefore a final confirmation of already-recorded evidence, not the first
 place missing prerequisites are discovered.
 
-The repository now contains `.github/workflows/ci.yml`, which runs the frontend build, full browser
+The repository contains `.github/workflows/ci.yml`, which runs the frontend build, full browser
 regression, Rust format/tests/lint, and Windows MSI/NSIS package build on the checked-out commit.
-There is currently no configured Git remote, so no hosted run exists yet.
+The exact GitHub remote and default branch are known, but no push was authorized, so no hosted run
+exists for the local candidate.
 
 ## Current versus required lifecycle
 
@@ -152,15 +159,18 @@ bounded identity census
 
 ### P1 — release blockers outside the completed product changes
 
-1. No Git remote or intended default branch is configured; hosted CI, review, branch protection,
-   and a simulated merge against the true base cannot be proven.
+1. The real feature branch remains one commit behind its upstream with a known `.gitignore`
+   integration conflict; the conflict-resolved candidate passed locally, but hosted CI has not run
+   on an authorized integrated commit.
 2. The application executable, MSI, and NSIS installer are unsigned and no Windows signing identity
    is configured.
-3. MSI/NSIS install, upgrade/reinstall, uninstall, retained-data, orphan-process, and clean-machine
-   smoke tests have not been completed.
-4. Packaged keyboard injection through WebView2/CDP produced no physical Escape event. DOM focus
-   restoration is proven, and browser keyboard paths pass, but a human/native keyboard pass at
-   narrow width and 300% display scaling remains required.
+3. Local MSI/NSIS install, upgrade/reinstall, uninstall, retained-data, and orphan-process tests
+   pass, but a signed clean-machine/VM smoke has not been completed.
+4. Real Windows Escape/Tab behavior now passes in the installed app. Windows OS-level 300% display
+   scaling remains untested; only WebView device-scale emulation is proven.
+5. GitHub branch-protection and ruleset APIs return HTTP 403 for the current private-repository
+   plan, so that hosted policy gate is unavailable until the plan changes or an explicit alternative
+   is accepted.
 
 ### P2 — deliberately deferred production operations
 
@@ -181,3 +191,5 @@ bounded identity census
   `tests/orchestrator_pipeline_e2e.py` plus native Rust unit/integration tests
 - Packaged Tauri selection/restart, recovery durability, geometry, focus, console, and screenshot:
   `tests/native_finish_line_e2e.py`
+- Installed packaged routing, product launch/exit correlation, and real Windows Escape/Tab:
+  `tests/native_release_evidence_e2e.py`

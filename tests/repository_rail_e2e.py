@@ -225,7 +225,9 @@ def main():
             "Resource guard is available in the Tauri desktop app"
         )
         print("repository rail: guard opened", flush=True)
-        page.evaluate("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))")
+        page.locator("#pp-btn-close-orchestrator-inspector").dispatch_event(
+            "keydown", {"key": "Escape"}
+        )
         print("repository rail: inspector verified", flush=True)
         expect(inspector).to_be_hidden()
         expect(orchestrator_toggle).to_be_focused()

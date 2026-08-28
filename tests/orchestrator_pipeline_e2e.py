@@ -671,6 +671,7 @@ def assert_node_evidence_and_persistent_warnings(page: Page) -> None:
     expect(page.locator("#pp-context-menu")).to_contain_text("evidence")
     expect(page.locator("#pp-context-menu")).to_contain_text("Copy evidence identity")
     page.keyboard.press("Escape")
+    expect(page.locator("#pp-context-menu")).to_have_count(0)
 
     release_warning = page.locator("#pp-orch-warning-release-infra-001")
     expect(release_warning).to_be_visible()

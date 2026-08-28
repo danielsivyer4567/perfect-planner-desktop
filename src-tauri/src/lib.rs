@@ -8,6 +8,7 @@ use std::path::Path;
 use std::time::Duration;
 use tauri::Manager;
 
+mod app_lifecycle;
 mod approval_bridge;
 pub mod collision_assessor;
 mod connectors;
@@ -15,6 +16,7 @@ mod control_plane;
 mod control_plane_api;
 pub mod orchestrator;
 mod supervisor;
+use app_lifecycle::AppLifecycleLog;
 use approval_bridge::{ApprovalBridgeStatus, ApprovalBridgeStore, BoardApprovalObservation};
 use collision_assessor::api::{
     collision_assessor_collect_census, collision_assessor_issue_discovery_capability,
@@ -360,7 +362,7 @@ fn recover_board_session(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .setup(|app| {
             let app_data_dir = app
                 .path()
@@ -391,11 +393,13 @@ pub fn run() {
             let connectors = ConnectorSupervisor::open(
                 control_plane.clone(),
                 approval_bridge.clone(),
-                app_data_dir,
+                app_data_dir.clone(),
             )?;
             connectors.spawn()?;
             app.manage(control_plane);
             app.manage(approval_bridge);
+            let lifecycle = AppLifecycleLog::open(&app_data_dir, unix_ms())?;
+            app.manage(lifecycle);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -429,8 +433,17 @@ pub fn run() {
             orchestrator_recover_workers,
             orchestrator_validate_worker
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running perfect planner desktop");
+        .build(tauri::generate_context!())
+        .expect("error while building perfect planner desktop");
+    app.run(|handle, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            if let Some(lifecycle) = handle.try_state::<AppLifecycleLog>() {
+                if let Err(error) = lifecycle.record_exit(unix_ms()) {
+                    eprintln!("cannot persist Perfect Planner exit event: {error}");
+                }
+            }
+        }
+    });
 }
 
 #[cfg(test)]

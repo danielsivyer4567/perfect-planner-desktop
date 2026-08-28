@@ -4,7 +4,7 @@ Status snapshot: 2026-08-28
 Repository: `C:\repos\perfect-planner-tauri`
 Branch: `feature/tauri-orchestrator-messaging-20260821-223935`
 Continuation base commit: `6c0f3000614ae841913805f87efcfb2c89ce2eb3`
-Verified continuation head: `7c1e91c1863d7e31a72eb4dfb08252876f0cf395`
+Continuation starting head: `bbe53bc1e285ae0f09043240dc26af06994b6a12`
 
 ## Finish-line definition
 
@@ -36,7 +36,9 @@ signed Windows installer has been installed and exercised successfully.
       ignore rules without hiding required audit evidence.
 - [x] Run `git diff --check` and review the complete diff for accidental cross-repository paths,
       secrets, unsafe process control, stale assumptions, and generated noise.
-- [ ] Confirm no file outside `C:\repos\perfect-planner-tauri` was changed by this finish pass.
+- [x] Confirm no source repository outside `C:\repos\perfect-planner-tauri` was changed by this
+      finish pass. Expected machine-local changes are limited to the installed Perfect Planner
+      candidate and its append-only `%APPDATA%\com.looplet.perfectplanner` runtime evidence.
 
 ## 3. Run a fresh verification matrix
 
@@ -61,16 +63,17 @@ signed Windows installer has been installed and exercised successfully.
 - [x] Capture restart/recovery screenshots showing the same scoped plan before and after relaunch.
 - [x] Refresh and record the Tauri webview console: zero unexplained errors, failed requests, or
       security-policy violations.
-- [ ] Record native logs for launch, preflight, routing, interruption recovery, completion, and exit.
+- [x] Record native logs for launch, preflight, routing, interruption recovery, completion, and exit.
   - [x] Bind the real native preflight, approval, admission, heartbeat, stale-lease recovery, and
         fenced-completion events to SHA-256 hashes in `NATIVE-EVIDENCE.md`.
   - [x] Preserve installer launch/process-exit evidence and zero-orphan-process results.
-  - [ ] Capture a packaged routed-message lifecycle and product-native launch/exit event pair.
+  - [x] Capture a packaged routed-message lifecycle and product-native launch/exit event pair.
 - [ ] Manually exercise keyboard navigation, visible focus, modal close/return-focus, narrow-window
       layout, and three-times display scaling.
   - [x] Prove DOM keyboard navigation, visible focus return, narrow-window layout, and 300% WebView
         device-scale emulation in the installed app.
-  - [ ] Confirm physical keyboard input and Windows OS-level 300% scaling on the target display.
+  - [x] Confirm physical Windows Escape/Tab input against the installed packaged app.
+  - [ ] Confirm Windows OS-level 300% scaling on the target display.
 - [x] Install both MSI and NSIS candidates on Windows x64; verify launch, upgrade/reinstall,
       uninstall, retained user data, and no orphan background processes.
 
@@ -83,7 +86,8 @@ signed Windows installer has been installed and exercised successfully.
 - [ ] Run a conflict-free integration against the intended base and pass the full local CI mirror.
   - [x] Fetch and verify exact remote heads: `origin/main` and the remote feature branch both point
         to `1f3a183`; tested source head was 15 commits ahead and 1 commit behind its upstream. The
-        final local documentation handoff adds one further commit without changing the candidate.
+        continuation started 16 commits ahead; this verified code/evidence commit makes the local
+        branch 17 commits ahead and 1 behind without changing the simulated integration tree.
   - [x] Identify the only content conflict as `.gitignore`; Rust formatting and PostCSS changes
         merge automatically.
   - [x] Materialize a resolved candidate by retaining the local `.gitignore` superset. Candidate
@@ -116,12 +120,13 @@ signed Windows installer has been installed and exercised successfully.
 
 - [x] No known P0 product or isolation defects remain.
 - [x] All local verification commands pass on resolved remote-main candidate tree
-      `b8a51cc569587af6ad1512602801c3d12b0b51be`; exact feature head
-      `7c1e91c1863d7e31a72eb4dfb08252876f0cf395` remains unmerged.
+      `b8a51cc569587af6ad1512602801c3d12b0b51be`; the exact final feature commit is the commit
+      containing this checklist and remains unmerged.
 - [ ] Required screenshots, console output, native logs, and manual interaction notes are attached.
   - [x] Attach the locally reproducible screenshot, console, geometry, scale-emulation, focus, and
         native event-hash evidence described in `NATIVE-EVIDENCE.md`.
-  - [ ] Attach the still-missing packaged routing/launch/exit and physical-input evidence.
+  - [x] Attach packaged routing, product launch/exit, and physical Windows keyboard evidence.
+  - [ ] Attach a Windows OS-level 300% display-scale pass on the target display.
 - [ ] CI passes on the exact release commit.
 - [x] The working tree is clean and every intended file is committed.
 - [ ] Signed installers pass clean-machine installation and runtime smoke tests.

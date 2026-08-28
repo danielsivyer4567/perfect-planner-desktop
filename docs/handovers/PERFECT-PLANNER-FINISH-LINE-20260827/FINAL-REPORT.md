@@ -11,7 +11,8 @@ the application is **not production-ready**. Product, browser, native package, a
 candidates pass locally, including a resolved simulation against the exact remote `main`. The real
 branch integration still has one known `.gitignore` conflict. Production promotion remains blocked
 by that unresolved integration, an unrun hosted CI build, absent Windows signing identity, untested
-physical keyboard/OS-level 300% Windows scale, and absent clean-VM smoke.
+OS-level 300% Windows scale, and absent clean-VM smoke. Real Windows Escape and Tab behavior now
+passes against the installed candidate.
 
 The Graphify architecture map influenced this review by separating the Session Recovery, Control
 Plane Messaging, Collision Registry/Census, Repository Identity, Verification Evidence, and Release
@@ -46,9 +47,14 @@ never identity.
 
 - `.github/workflows/ci.yml`
 - `.gitignore`
+- `src-tauri/src/app_lifecycle.rs`
+- `src-tauri/src/lib.rs`
 - `src/App.tsx`
+- `src/components/ActionContextMenu.tsx`
 - `src/services/orchestrationWorkspace.ts`
 - `src/services/sessionSupervisor.ts`
+- `tests/native_release_evidence_e2e.py`
+- `tests/orchestrator_pipeline_e2e.py`
 - `tests/orchestration_workspace_e2e.py`
 - `tests/repository_rail_e2e.py`
 - `tests/native_finish_line_e2e.py`
@@ -76,7 +82,7 @@ The exact final committed inventory is available with `git show --name-status --
 - `npm run build`: passed.
 - `npm run test:e2e`: all eight suites passed.
 - `cargo fmt --all -- --check`: passed.
-- `cargo test --all-targets`: 306 unit tests passed, 3 intentionally ignored; all 15 native
+- `cargo test --all-targets`: 307 unit tests passed, 3 intentionally ignored; all 15 native
   collision-authority/census/claim contract tests passed.
 - `cargo clippy --all-targets -- -D warnings`: passed.
 - `npm run tauri build`: passed; x64 MSI and NSIS candidates produced.
@@ -89,13 +95,19 @@ The exact final committed inventory is available with `git show --name-status --
   window has no horizontal document overflow.
 - Native console: zero console errors, page errors, unexpected request failures, or CSP violations.
   The WebView2 IPC transport's expected `ERR_ABORTED` receipt is classified separately.
-- Native focus and scale: inspector close returned focus to `Inspect`; the following Tab moved to a
-  repository tab. A 3456x2058 physical viewport represented at device scale factor 3 produced a
+- Native focus and scale: a real Windows Escape event closed the inspector and returned focus to
+  `Inspect`; a real Windows Tab event moved to a repository button. A 3456x2058 physical viewport
+  represented at device scale factor 3 produced a
   1152x686 CSS viewport without overflowing the Perfect Planner shell; the embedded plan remains
   horizontally pannable. This is WebView emulation, not an OS-setting claim.
 - Native lifecycle records: real run `run-mt4oo7z4` durably records preflight, approval, admission,
   heartbeat, stale-lease recovery, and evidence-gated fenced completion. The record hashes and
   timeline are in `NATIVE-EVIDENCE.md`.
+- Packaged native routing: synthetic evidence message `pp-message-1787880851152-4`, isolated under
+  repository ID `pp-finish-line-native-evidence`, progressed exactly queued, claimed, delivered,
+  acknowledged through Tauri IPC. Product session `pp-app-1787880849487-20364` recorded one
+  correlated launch/exit pair. The packaged WebView console, page-error list, and unexpected failed
+  request list were empty.
 - NSIS: install, installed-app native smoke, reinstall, uninstall, retained app data, and zero
   orphan app processes passed.
 - MSI: install, installed-app native smoke, reconfigure, uninstall, retained app data, and zero
@@ -107,7 +119,7 @@ The exact final committed inventory is available with `git show --name-status --
 ### Exact remote-main integration simulation
 
 - Remote: `https://github.com/danielsivyer4567/perfect-planner-desktop.git`.
-- Local feature head: `7c1e91c1863d7e31a72eb4dfb08252876f0cf395`.
+- Integration-simulation input head: `7c1e91c1863d7e31a72eb4dfb08252876f0cf395`.
 - `origin/main` and the remote feature branch: `1f3a183`; local is 15 ahead and 1 behind.
 - Automatic merge analysis found one content conflict, `.gitignore`. The resolved simulation kept
   the local superset, which already includes the remote transient-output exclusions. Rust formatting
@@ -128,6 +140,9 @@ The exact final committed inventory is available with `git show --name-status --
 - `artifacts/native-tauri/finish-line-selection-before-restart.png`
 - `artifacts/native-tauri/finish-line-selection-after-restart.png`
 - `artifacts/native-tauri/native-finish-line.json`
+- `artifacts/native-tauri/native-routed-message-lifecycle.json`
+- `artifacts/native-tauri/native-routed-message-lifecycle.png`
+- `artifacts/native-tauri/native-physical-keyboard.png`
 - `artifacts/native-tauri/msi-install-per-user.log`
 - `artifacts/native-tauri/msi-reinstall.log`
 - `artifacts/native-tauri/msi-uninstall.log`
@@ -168,9 +183,17 @@ not promotable release artifacts:
 
 `Get-AuthenticodeSignature` reports `NotSigned` for all three.
 
+The latest post-fix unsigned local build produced MSI
+`83DE84AB0C59A0136BA5086846C92C74D2825CCFF7AFC1EA50D4F995027EC924` and NSIS installer
+`580D01FAA0384107E1318E65D8FEBAD5436F8CC0872ABF34D1511DEF6B21EE9D`. The NSIS installer was
+reinstalled and its installed executable
+`70BABB6DB337837DA8C5DCF8DF071BD0629138A48D003498CCBFBDE0EE9DC155` passed the routed-message,
+product launch/exit, physical keyboard, screenshot, and clean-console proof. These remain unsigned
+local candidates, not production release artifacts.
+
 ## Known gaps deliberately left open
 
-1. The final local handoff branch is 16 commits ahead and 1 behind the remote feature branch. The
+1. The final local handoff branch is 17 commits ahead and 1 behind the remote feature branch. The
    resolved simulation used the source/test head before the final documentation-only commit and
    passes, but the real integration still requires an authorized resolution of the `.gitignore`
    conflict and verification on the resulting commit.
@@ -181,9 +204,8 @@ not promotable release artifacts:
 3. No user or machine code-signing certificate is installed. Signing and signed-artifact hashes
    cannot be completed.
 4. No clean Windows VM was available for final signed-installer smoke or artifact promotion.
-5. WebView2 did not surface an actual Windows Escape injection to the DOM. DOM focus return,
-   keyboard navigation, native narrow-window behavior, and 300% WebView device-scale emulation are
-   proven; physical keyboard input and Windows OS-level 300% display scaling require a human pass.
+5. Real Windows Escape and Tab input, native narrow-window behavior, and 300% WebView device-scale
+   emulation are proven. Windows OS-level 300% display scaling still requires a target-display pass.
 6. The current native run `run-mt52331o` is honestly `ready` with no recorded preflight, worker,
    completion, or CI result. Those states were proven in isolated browser/native test fixtures and
    Rust tests, but were not invented in the packaged app.
