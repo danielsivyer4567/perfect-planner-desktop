@@ -21,6 +21,14 @@ their stored limit. The workflow canvas can split into live UI and captured evid
 evidence pane between UI and attached text/code output, and refuses to label captures below
 1280x720 or without dimensions as comparison-grade.
 
+A fresh read-only integration simulation at product/evidence commit `e20673a` confirms the only
+content conflict with `origin/main` is `.gitignore`. Retaining the verified local superset produced
+tree `489f3000dec4b9fd4e46576eaee1f8d6fcfbc3a1`. That tree passed frontend build, all eight browser
+suites, Rust format, 308 active Rust tests, warning-denied Clippy, and MSI/NSIS packaging. One Rust
+test intentionally requires its source root to contain `.git`, so it cannot pass in the Git-less
+export; the test source is unchanged by the integration and passed separately from the real
+repository, for 309 environment-correct active tests in total. This is evidence, not a merge.
+
 The Graphify architecture map influenced this review by separating the Session Recovery, Control
 Plane Messaging, Collision Registry/Census, Repository Identity, Verification Evidence, and Release
 Gate communities. Direct source inspection then verified the authority boundaries and persistence
@@ -214,6 +222,16 @@ not promotable release artifacts:
 
 `Get-AuthenticodeSignature` reports `NotSigned` for all three.
 
+The latest resolved tree `489f3000dec4b9fd4e46576eaee1f8d6fcfbc3a1`, which includes the Parallel
+agents and UI-comparison slice, produced these further **unsigned, simulation-only** fingerprints:
+
+- app EXE: `F94EA2FE5A27485B13F285E5BB19ACF15F575B2348A2C8C87D0DE916BD8E68F8`
+- MSI: `5AF2000FD4958C296E93FEB34C0B2E9F190469DE7FDF8DD5A6105EEB34BA1D5E`
+- NSIS: `F8A31EF4D46B4610E04EA578A398C0889F00B2089FA03D4CC3C8EAF61DA63692`
+
+All three report `NotSigned`. The temporary exported source and generated candidates were removed
+after hashes and verification were recorded.
+
 The latest post-fix unsigned local build produced MSI
 `83DE84AB0C59A0136BA5086846C92C74D2825CCFF7AFC1EA50D4F995027EC924` and NSIS installer
 `580D01FAA0384107E1318E65D8FEBAD5436F8CC0872ABF34D1511DEF6B21EE9D`. The NSIS installer was
@@ -236,11 +254,10 @@ These artifacts remain unsigned and were not tested on a clean VM.
 
 ## Known gaps deliberately left open
 
-1. The final local handoff branch will be 18 commits ahead and 1 behind the remote feature branch
-   after this local evidence commit. The
-   resolved simulation used the source/test head before the final documentation-only commit and
-   passes, but the real integration still requires an authorized resolution of the `.gitignore`
-   conflict and verification on the resulting commit.
+1. Product/evidence head `e20673a` is 18 commits ahead and 1 behind the remote feature branch. Its
+   resolved simulation tree `489f3000dec4b9fd4e46576eaee1f8d6fcfbc3a1` is verified as described above,
+   but the real integration still requires an authorized resolution of the `.gitignore` conflict
+   and hosted verification on the resulting commit.
 2. The exact remote is `https://github.com/danielsivyer4567/perfect-planner-desktop.git` and its
    default branch is `main`. Hosted CI has not run because no push was authorized. GitHub returned
    HTTP 403 for branch-protection and ruleset APIs because this private repository's current account

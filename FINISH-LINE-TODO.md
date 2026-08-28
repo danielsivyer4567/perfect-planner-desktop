@@ -5,6 +5,7 @@ Repository: `C:\repos\perfect-planner-tauri`
 Branch: `feature/tauri-orchestrator-messaging-20260821-223935`
 Continuation base commit: `6c0f3000614ae841913805f87efcfb2c89ce2eb3`
 Continuation starting head: `bbe53bc1e285ae0f09043240dc26af06994b6a12`
+Latest product/evidence commit verified: `e20673a2069ce4da83c0b86628ab68c2180c77e9`
 
 ## Finish-line definition
 
@@ -91,15 +92,15 @@ signed Windows installer has been installed and exercised successfully.
       and the Windows Tauri package build.
 - [ ] Run a conflict-free integration against the intended base and pass the full local CI mirror.
   - [x] Fetch and verify exact remote heads: `origin/main` and the remote feature branch both point
-        to `1f3a183`; tested source head was 15 commits ahead and 1 commit behind its upstream. The
-        continuation started 16 commits ahead; this verified code/evidence commit makes the local
-        branch 17 commits ahead and 1 behind without changing the simulated integration tree.
+        to `1f3a183`; product/evidence head `e20673a` is 18 commits ahead and 1 commit behind.
   - [x] Identify the only content conflict as `.gitignore`; Rust formatting and PostCSS changes
         merge automatically.
-  - [x] Materialize a resolved candidate by retaining the local `.gitignore` superset. Candidate
-        tree `b8a51cc569587af6ad1512602801c3d12b0b51be` passed frontend build, all eight browser suites,
-        Rust format, 306 active unit tests plus 15 contract tests, warning-denied Clippy, and both
-        Windows installer builds.
+  - [x] Materialize the latest resolved candidate by retaining the local `.gitignore` superset.
+        Tree `489f3000dec4b9fd4e46576eaee1f8d6fcfbc3a1` passed frontend build, all eight browser suites,
+        Rust format, 308 active Rust tests, warning-denied Clippy, and both Windows installer
+        builds. The only test that cannot pass in a deliberately Git-less tree export requires a
+        `.git` checkout identity; its source is unchanged in the candidate and the same test passed
+        separately in the real repository, bringing the environment-correct active total to 309.
   - [ ] Resolve the known `.gitignore` conflict in the eventual authorized merge or rebase, then
         rerun hosted CI on that exact integrated commit.
 - [x] Commit all intended source, tests, documentation, and required evidence with a clear message.
@@ -125,9 +126,10 @@ signed Windows installer has been installed and exercised successfully.
 ## Release decision
 
 - [x] No known P0 product or isolation defects remain.
-- [x] All local verification commands pass on resolved remote-main candidate tree
-      `b8a51cc569587af6ad1512602801c3d12b0b51be`; the exact final feature commit is the commit
-      containing this checklist and remains unmerged.
+- [x] Current product/evidence head `e20673a` passes the full local matrix. Its resolved remote-main
+      candidate tree `489f3000dec4b9fd4e46576eaee1f8d6fcfbc3a1` passes the same matrix with the checkout-identity
+      test run from the unchanged real-repository source, as documented above. The branch remains
+      unmerged.
 - [ ] Required screenshots, console output, native logs, and manual interaction notes are attached.
   - [x] Attach the locally reproducible screenshot, console, geometry, scale-emulation, focus, and
         native event-hash evidence described in `NATIVE-EVIDENCE.md`.
