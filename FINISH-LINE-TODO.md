@@ -1,9 +1,10 @@
 # Perfect Planner — Finish-Line Todo
 
-Status snapshot: 2026-08-27
+Status snapshot: 2026-08-28
 Repository: `C:\repos\perfect-planner-tauri`
 Branch: `feature/tauri-orchestrator-messaging-20260821-223935`
 Continuation base commit: `6c0f3000614ae841913805f87efcfb2c89ce2eb3`
+Verified continuation head: `7c1e91c1863d7e31a72eb4dfb08252876f0cf395`
 
 ## Finish-line definition
 
@@ -79,7 +80,18 @@ signed Windows installer has been installed and exercised successfully.
       `danielsivyer4567/perfect-planner-desktop`; its default branch is `main`.
 - [x] Add a CI workflow that runs frontend build, browser/integration tests, Rust format/tests/lint,
       and the Windows Tauri package build.
-- [ ] Run a clean simulated merge against the intended base and pass the full local CI mirror.
+- [ ] Run a conflict-free integration against the intended base and pass the full local CI mirror.
+  - [x] Fetch and verify exact remote heads: `origin/main` and the remote feature branch both point
+        to `1f3a183`; tested source head was 15 commits ahead and 1 commit behind its upstream. The
+        final local documentation handoff adds one further commit without changing the candidate.
+  - [x] Identify the only content conflict as `.gitignore`; Rust formatting and PostCSS changes
+        merge automatically.
+  - [x] Materialize a resolved candidate by retaining the local `.gitignore` superset. Candidate
+        tree `b8a51cc569587af6ad1512602801c3d12b0b51be` passed frontend build, all eight browser suites,
+        Rust format, 306 active unit tests plus 15 contract tests, warning-denied Clippy, and both
+        Windows installer builds.
+  - [ ] Resolve the known `.gitignore` conflict in the eventual authorized merge or rebase, then
+        rerun hosted CI on that exact integrated commit.
 - [x] Commit all intended source, tests, documentation, and required evidence with a clear message.
 - [x] Confirm the working tree is clean and record the exact handoff commit SHA in the final report.
 - [ ] Push only when explicitly authorized, then require the actual CI run to pass on that same SHA.
@@ -103,8 +115,9 @@ signed Windows installer has been installed and exercised successfully.
 ## Release decision
 
 - [x] No known P0 product or isolation defects remain.
-- [x] All local verification commands pass on exact product commit
-      `dff52d20df3fee7a68970368fde3b40b43c948af`; the later handoff commit changes documentation only.
+- [x] All local verification commands pass on resolved remote-main candidate tree
+      `b8a51cc569587af6ad1512602801c3d12b0b51be`; exact feature head
+      `7c1e91c1863d7e31a72eb4dfb08252876f0cf395` remains unmerged.
 - [ ] Required screenshots, console output, native logs, and manual interaction notes are attached.
   - [x] Attach the locally reproducible screenshot, console, geometry, scale-emulation, focus, and
         native event-hash evidence described in `NATIVE-EVIDENCE.md`.

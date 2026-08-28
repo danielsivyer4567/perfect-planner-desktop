@@ -1,6 +1,6 @@
 # Perfect Planner finish-line report
 
-Date: 2026-08-27
+Date: 2026-08-28
 Repository: `C:\repos\perfect-planner-tauri`
 Branch: `feature/tauri-orchestrator-messaging-20260821-223935`
 
@@ -8,9 +8,10 @@ Branch: `feature/tauri-orchestrator-messaging-20260821-223935`
 
 The local Perfect Planner product lifecycle is substantially finished and regression-proven, but
 the application is **not production-ready**. Product, browser, native package, and both installer
-candidates pass locally. The exact private GitHub remote and `main` default branch are now verified.
-Production promotion remains blocked by an unrun hosted CI build, absent Windows signing identity,
-untested physical keyboard/OS-level 300% Windows scale, and absent clean-VM smoke.
+candidates pass locally, including a resolved simulation against the exact remote `main`. The real
+branch integration still has one known `.gitignore` conflict. Production promotion remains blocked
+by that unresolved integration, an unrun hosted CI build, absent Windows signing identity, untested
+physical keyboard/OS-level 300% Windows scale, and absent clean-VM smoke.
 
 The Graphify architecture map influenced this review by separating the Session Recovery, Control
 Plane Messaging, Collision Registry/Census, Repository Identity, Verification Evidence, and Release
@@ -53,6 +54,7 @@ never identity.
 - `tests/native_finish_line_e2e.py`
 - `FINISH-LINE-TODO.md`
 - `docs/handovers/PERFECT-PLANNER-FINISH-LINE-20260827/ARCHITECTURE.md`
+- `docs/handovers/PERFECT-PLANNER-FINISH-LINE-20260827/NATIVE-EVIDENCE.md`
 - `docs/handovers/PERFECT-PLANNER-FINISH-LINE-20260827/RECONCILIATION.md`
 - `docs/handovers/PERFECT-PLANNER-FINISH-LINE-20260827/WINDOWS-DISTRIBUTION.md`
 - `docs/handovers/PERFECT-PLANNER-FINISH-LINE-20260827/FINAL-REPORT.md`
@@ -102,6 +104,22 @@ The exact final committed inventory is available with `git show --name-status --
   historical `.log` evidence contains original CRLF/trailing-space command output and is not
   rewritten. The tracked-diff secret-shape scan found no matches.
 
+### Exact remote-main integration simulation
+
+- Remote: `https://github.com/danielsivyer4567/perfect-planner-desktop.git`.
+- Local feature head: `7c1e91c1863d7e31a72eb4dfb08252876f0cf395`.
+- `origin/main` and the remote feature branch: `1f3a183`; local is 15 ahead and 1 behind.
+- Automatic merge analysis found one content conflict, `.gitignore`. The resolved simulation kept
+  the local superset, which already includes the remote transient-output exclusions. Rust formatting
+  and PostCSS changes merged automatically.
+- The materialized candidate is Git tree `b8a51cc569587af6ad1512602801c3d12b0b51be`.
+- On that tree: frontend production build passed; all eight browser/integration suites passed; Rust
+  formatting passed; 306 active unit tests passed with 3 intentionally ignored; all 15 contract
+  tests passed; warning-denied Clippy passed; MSI and NSIS package creation passed.
+- The first package attempt was terminated during a Windows restart (`0x40010004`). The retry on the
+  restarted system compiled the same dependencies and product successfully without a source change.
+- No merge, rebase, push, or remote mutation was performed.
+
 ## Screenshot and local evidence
 
 - `artifacts/native-tauri/native-finish-line.png`
@@ -140,22 +158,36 @@ those files non-reproducible against the prior package build; their post-matrix 
 The exact-commit rebuild passed package creation but was not reinstalled after this final metadata
 change. Signing must produce the definitive artifacts, hashes, and clean-machine install evidence.
 
+The resolved remote-main candidate tree produced these additional **unsigned, simulation-only**
+fingerprints. They prove package creation after conflict resolution; they were not installed and are
+not promotable release artifacts:
+
+- app EXE: `AE0AF1EA9F8BC13BBFC4D54510AF2D0AEBEB742D311BDF19E3E4BC95C991A50E`
+- MSI: `5EA60ECFEBBDBE0E9B234F7865F7DB5FBAC2810F4238464F18067E7F8F9B3DC8`
+- NSIS: `3DA3EF917FF4DF221F656B1D7474DCBB748DF173FE0E18BAF2B1EDB6B2C43893`
+
+`Get-AuthenticodeSignature` reports `NotSigned` for all three.
+
 ## Known gaps deliberately left open
 
-1. The exact remote is `https://github.com/danielsivyer4567/perfect-planner-desktop.git` and its
+1. The final local handoff branch is 16 commits ahead and 1 behind the remote feature branch. The
+   resolved simulation used the source/test head before the final documentation-only commit and
+   passes, but the real integration still requires an authorized resolution of the `.gitignore`
+   conflict and verification on the resulting commit.
+2. The exact remote is `https://github.com/danielsivyer4567/perfect-planner-desktop.git` and its
    default branch is `main`. Hosted CI has not run because no push was authorized. GitHub returned
    HTTP 403 for branch-protection and ruleset APIs because this private repository's current account
    plan does not provide those controls.
-2. No user or machine code-signing certificate is installed. Signing and signed-artifact hashes
+3. No user or machine code-signing certificate is installed. Signing and signed-artifact hashes
    cannot be completed.
-3. No clean Windows VM was available for final signed-installer smoke or artifact promotion.
-4. WebView2 did not surface an actual Windows Escape injection to the DOM. DOM focus return,
+4. No clean Windows VM was available for final signed-installer smoke or artifact promotion.
+5. WebView2 did not surface an actual Windows Escape injection to the DOM. DOM focus return,
    keyboard navigation, native narrow-window behavior, and 300% WebView device-scale emulation are
    proven; physical keyboard input and Windows OS-level 300% display scaling require a human pass.
-5. The current native run `run-mt52331o` is honestly `ready` with no recorded preflight, worker,
+6. The current native run `run-mt52331o` is honestly `ready` with no recorded preflight, worker,
    completion, or CI result. Those states were proven in isolated browser/native test fixtures and
    Rust tests, but were not invented in the packaged app.
-6. During pre-fix verification, Perfect Planner wrote a recovery marker into one external Looplet
+7. During pre-fix verification, Perfect Planner wrote a recovery marker into one external Looplet
    plan. The app was stopped, Looplet was not edited or reverted here, and the corrected package did
    not advance that external file's timestamp. Details are preserved in `RECONCILIATION.md`.
 
