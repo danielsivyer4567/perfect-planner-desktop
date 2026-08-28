@@ -47,6 +47,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout-ms", type=int, default=15_000)
     parser.add_argument("--click", action="append", default=[], help="Selector to click, in order.")
     parser.add_argument(
+        "--storage",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Set a localStorage string before navigation. Repeat for multiple entries.",
+    )
+    parser.add_argument(
         "--expand-scroll",
         action="append",
         default=[],
@@ -79,6 +86,12 @@ def main() -> int:
     args = parse_args()
     if args.width < 320 or args.height < 240 or not 1 <= args.scale <= 4:
         raise SystemExit("viewport must be at least 320x240 and scale must be between 1 and 4")
+    storage: dict[str, str] = {}
+    for entry in args.storage:
+        key, separator, value = entry.partition("=")
+        if not separator or not key:
+            raise SystemExit("--storage requires a non-empty KEY=VALUE")
+        storage[key] = value
 
     output = Path(args.out).expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -119,6 +132,16 @@ def main() -> int:
                 device_scale_factor=args.scale,
                 reduced_motion="reduce",
             )
+            if storage:
+                serialized_storage = json.dumps(storage, ensure_ascii=False)
+                context.add_init_script(
+                    f"""(() => {{
+                      if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+                      for (const [key, value] of Object.entries({serialized_storage})) {{
+                        localStorage.setItem(key, value);
+                      }}
+                    }})();"""
+                )
             page = context.new_page()
             page.set_default_timeout(args.timeout_ms)
             page.on(
@@ -259,6 +282,7 @@ def main() -> int:
             "url": args.url,
             "viewport": {"width": args.width, "height": args.height, "deviceScaleFactor": args.scale},
             "clicks": args.click,
+            "storageKeys": sorted(storage),
             "expandScroll": args.expand_scroll,
             "expectVisible": args.expect,
         },
