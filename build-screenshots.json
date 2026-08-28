@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "captures": [
+    {
+      "id": "orchestrator-messaging",
+      "label": "Orchestrator messages and destination status",
+      "script": "tests/control_plane_e2e.py",
+      "artifact": "artifacts/orchestrator-messaging-after.png",
+      "planNodes": ["PP-001:A04", "PP-001:A05", "PP-002:B15"]
+    },
+    {
+      "id": "head-orchestrator",
+      "label": "Head orchestrator command header",
+      "script": "tests/head_orchestrator_character_e2e.py",
+      "artifact": "artifacts/head-orchestrator-character-3x.png",
+      "planNodes": ["PP-001:A07", "PP-002:B16", "PP-002:B22", "PP-002:B23"]
+    },
+    {
+      "id": "repository-rail",
+      "label": "Repository rail and operational truth",
+      "script": "tests/repository_rail_e2e.py",
+      "artifact": "artifacts/repository-rail.png",
+      "planNodes": ["PP-001:A08"]
+    },
+    {
+      "id": "snapshot-spine",
+      "label": "Zoomable snapshot spine",
+      "script": "tests/ui_navigation_map_e2e.py",
+      "artifact": "artifacts/ui-navigation-map.png",
+      "planNodes": ["PP-001:A09", "PP-002:B13"]
+    },
+    {
+      "id": "collision-and-release",
+      "label": "Collision, pipeline and release state",
+      "script": "tests/orchestrator_pipeline_e2e.py",
+      "artifact": "artifacts/orchestrator-pipeline/orchestrator-pipeline-chrome.png",
+      "planNodes": ["PP-002:B11"]
+    }
+  ]
+}

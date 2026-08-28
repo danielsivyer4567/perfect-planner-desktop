@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readBoardEvidence, type Board } from "../services/boards";
+import { readBuildScreenshots, type BuildScreenshotCapture } from "../services/buildScreenshots";
 import type { ChecklistProof, EvidenceArtifact, PlanSnapshot, SpinePhase, Vertebra } from "../types/plan";
 
 type BranchSide = "L" | "R";
@@ -44,6 +45,7 @@ function Artboard({
   selected,
   screenshot,
   screenshotProof,
+  buildScreenshot,
   onSelect,
 }: {
   node: Vertebra;
@@ -51,19 +53,26 @@ function Artboard({
   selected: boolean;
   screenshot: EvidenceArtifact | null | undefined;
   screenshotProof: ChecklistProof | null;
+  buildScreenshot: BuildScreenshotCapture | null;
   onSelect: (node: Vertebra) => void;
 }) {
-  const screenshotLoading = Boolean(screenshotProof) && screenshot === undefined;
-  const snapshotState = screenshot?.dataUrl
+  const uiPage = isUiPage(node);
+  const screenshotLoading = uiPage && Boolean(screenshotProof) && screenshot === undefined;
+  const screenshotSource = screenshot?.dataUrl || buildScreenshot?.url;
+  const snapshotState = !uiPage
+    ? "not-applicable"
+    : screenshot?.dataUrl
     ? "attached"
+    : buildScreenshot
+      ? "build-capture"
     : screenshotLoading
       ? "loading"
       : screenshotProof
         ? "unavailable"
         : "missing";
-  const width = screenshotProof?.screenshotCheck?.width || 1440;
-  const height = screenshotProof?.screenshotCheck?.height || 1000;
-  const pageKind = isUiPage(node) ? "ui-capable" : "support-work";
+  const width = screenshotProof?.screenshotCheck?.width || buildScreenshot?.width || 1440;
+  const height = screenshotProof?.screenshotCheck?.height || buildScreenshot?.height || 1000;
+  const pageKind = uiPage ? "ui-capable" : "support-work";
 
   return (
     <article
@@ -75,6 +84,7 @@ function Artboard({
       data-page-kind={pageKind}
       data-selected={selected}
       data-snapshot-state={snapshotState}
+      data-snapshot-source={screenshot?.dataUrl ? "plan-proof" : buildScreenshot ? "build" : "none"}
       style={{ "--artboard-ratio": `${width} / ${height}` } as React.CSSProperties}
     >
       <button
@@ -86,18 +96,25 @@ function Artboard({
       >
         <span className="ui-map-artboard-frame">
           <span className="ui-map-artboard-index">{node.id}</span>
-          {screenshot?.dataUrl ? (
+          {!uiPage ? (
+            <span className="ui-map-support-node">
+              <i aria-hidden="true">⌘</i>
+              <b>Support node</b>
+              <small>Code, service, or evidence work · screenshot not required</small>
+            </span>
+          ) : screenshotSource ? (
             <img
-              src={screenshot.dataUrl}
-              alt={screenshotProof?.shotNote || `Previous UI proof for ${node.id} ${node.title}`}
+              src={screenshotSource}
+              alt={screenshotProof?.shotNote || buildScreenshot?.label || `UI proof for ${node.id} ${node.title}`}
             />
           ) : (
             <span className="ui-map-artboard-empty">
               <i aria-hidden="true">{screenshotLoading ? "···" : "□"}</i>
-              <b>{screenshotLoading ? "Loading capture" : screenshotProof ? "Capture unavailable" : "No screenshot yet"}</b>
-              <small>{screenshotProof?.screenshot || "This node has no visual proof attached."}</small>
+              <b>{screenshotLoading ? "Loading capture" : screenshotProof ? "Capture unavailable" : "Build capture missing"}</b>
+              <small>{screenshotProof?.screenshot || "Run npm run build to capture this UI state."}</small>
             </span>
           )}
+          {uiPage && buildScreenshot && !screenshot?.dataUrl ? <em className="ui-map-build-badge">BUILD CAPTURE</em> : null}
         </span>
         <span className="ui-map-artboard-caption">
           <span>
@@ -130,6 +147,7 @@ export function UiNavigationMap({
   const [openSides, setOpenSides] = useState<Set<string>>(() => new Set());
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [screenshots, setScreenshots] = useState<Map<string, EvidenceArtifact | null>>(() => new Map());
+  const [buildScreenshots, setBuildScreenshots] = useState<Map<string, BuildScreenshotCapture>>(() => new Map());
 
   const phases = useMemo(() => {
     if (!plan) return [];
@@ -144,6 +162,7 @@ export function UiNavigationMap({
   const orphaned = allNodes.filter((node) => !assignedIds.has(node.spineId));
   const uiCount = allNodes.filter(isUiPage).length;
   const selectedNode = allNodes.find((node) => node.id === selectedPageId) || null;
+  const planNumber = plan?.meta?.number || board.number || "unassigned";
   const maxBranchSlots = Math.max(
     1,
     ...phases.flatMap(({ left, right }) => [left.length, right.length]),
@@ -221,6 +240,15 @@ export function UiNavigationMap({
     return () => { live = false; };
   }, [board.planPath, board.port, plan]);
 
+  useEffect(() => {
+    let live = true;
+    setBuildScreenshots(new Map());
+    void readBuildScreenshots(planNumber).then((captures) => {
+      if (live) setBuildScreenshots(captures);
+    });
+    return () => { live = false; };
+  }, [planNumber]);
+
   const focusPage = (node: Vertebra) => {
     setSelectedPageId(node.id);
     window.requestAnimationFrame(() => {
@@ -297,12 +325,12 @@ export function UiNavigationMap({
         <div className="ui-map-toolbar-title">
           <span>SNAPSHOT CANVAS</span>
           <h2 id="pp-heading-ui-navigation-map">{board.repoName}</h2>
-          <p>{plan.meta?.number || board.number || "unnumbered plan"} · {selectedNode ? `${selectedNode.spineId} / ${selectedNode.id} / ${selectedNode.title}` : `${plan.spine.length} phases · ${allNodes.length} pages`}</p>
+          <p>{plan.meta?.number || board.number || "unnumbered plan"} · {selectedNode ? `${selectedNode.spineId} / ${selectedNode.id} / ${selectedNode.title}` : `${plan.spine.length} phases · ${uiCount} UI pages · ${allNodes.length - uiCount} support nodes`}</p>
         </div>
         <div className="ui-map-proof-state" aria-label="Browser proof routing">
           <span data-proof-method="chrome-mcp"><b>Chrome MCP</b> preferred</span>
           <span data-proof-method="playwright-script"><b>Script proof</b> ready</span>
-          <span data-proof-method="last-run"><b>Attached run</b> unknown</span>
+          <span data-proof-method="last-run"><b>Build captures</b> {buildScreenshots.size}/{uiCount}</span>
         </div>
         <div className="ui-map-zoom-controls" role="group" aria-label="Snapshot canvas zoom">
           <button id="pp-btn-ui-map-zoom-out" type="button" aria-label="Zoom out" disabled={!layoutReady} onClick={() => changeZoom(zoom - ZOOM_STEP)}>−</button>
@@ -356,7 +384,7 @@ export function UiNavigationMap({
               <section className="ui-map-spine-row" key={phase.id} data-spine-id={phase.id}>
                 <div className={`ui-map-artboards ui-map-artboards-left${leftOpen ? " open" : ""}`} id={leftRegionId}>
                   {leftOpen ? left.map((node) => (
-                    <Artboard key={node.id} node={node} phase={phase} selected={selectedPageId === node.id} screenshot={screenshots.get(node.id)} screenshotProof={latestScreenshotProof(node)} onSelect={focusPage} />
+                    <Artboard key={node.id} node={node} phase={phase} selected={selectedPageId === node.id} screenshot={screenshots.get(node.id)} screenshotProof={latestScreenshotProof(node)} buildScreenshot={buildScreenshots.get(node.id) || null} onSelect={focusPage} />
                   )) : null}
                   {leftOpen && !left.length ? <span className="ui-map-empty-branch">No left pages</span> : null}
                 </div>
@@ -391,7 +419,7 @@ export function UiNavigationMap({
 
                 <div className={`ui-map-artboards ui-map-artboards-right${rightOpen ? " open" : ""}`} id={rightRegionId}>
                   {rightOpen ? right.map((node) => (
-                    <Artboard key={node.id} node={node} phase={phase} selected={selectedPageId === node.id} screenshot={screenshots.get(node.id)} screenshotProof={latestScreenshotProof(node)} onSelect={focusPage} />
+                    <Artboard key={node.id} node={node} phase={phase} selected={selectedPageId === node.id} screenshot={screenshots.get(node.id)} screenshotProof={latestScreenshotProof(node)} buildScreenshot={buildScreenshots.get(node.id) || null} onSelect={focusPage} />
                   )) : null}
                   {rightOpen && !right.length ? <span className="ui-map-empty-branch">No right pages</span> : null}
                 </div>
@@ -403,13 +431,13 @@ export function UiNavigationMap({
             <section className="ui-map-spine-row ui-map-orphan-row" data-spine-id="unmapped">
               <div className="ui-map-artboards ui-map-artboards-left open">
                 {orphaned.filter((node) => node.side === "L").map((node) => (
-                  <Artboard key={node.id} node={node} phase={null} selected={selectedPageId === node.id} screenshot={screenshots.get(node.id)} screenshotProof={latestScreenshotProof(node)} onSelect={focusPage} />
+                  <Artboard key={node.id} node={node} phase={null} selected={selectedPageId === node.id} screenshot={screenshots.get(node.id)} screenshotProof={latestScreenshotProof(node)} buildScreenshot={buildScreenshots.get(node.id) || null} onSelect={focusPage} />
                 ))}
               </div>
               <article className="ui-map-spine-segment ui-map-orphan-segment"><span>UNMAPPED</span><h3>Outside the spine</h3><p>These nodes reference a phase missing from the loaded plan.</p></article>
               <div className="ui-map-artboards ui-map-artboards-right open">
                 {orphaned.filter((node) => node.side !== "L").map((node) => (
-                  <Artboard key={node.id} node={node} phase={null} selected={selectedPageId === node.id} screenshot={screenshots.get(node.id)} screenshotProof={latestScreenshotProof(node)} onSelect={focusPage} />
+                  <Artboard key={node.id} node={node} phase={null} selected={selectedPageId === node.id} screenshot={screenshots.get(node.id)} screenshotProof={latestScreenshotProof(node)} buildScreenshot={buildScreenshots.get(node.id) || null} onSelect={focusPage} />
                 ))}
               </div>
             </section>

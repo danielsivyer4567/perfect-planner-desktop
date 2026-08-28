@@ -34,6 +34,8 @@ def main() -> None:
         ROOT / "package.json",
         ROOT / "vite.config.ts",
         ROOT / "scripts" / "run-e2e.mjs",
+        ROOT / "scripts" / "run-build-screenshots.mjs",
+        ROOT / "build-screenshots.json",
     )
     for path in guarded_files:
         text = path.read_text(encoding="utf-8")

@@ -1,6 +1,8 @@
 import { defineConfig, Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
 
 interface ProbeReply {
   status: number;
@@ -168,8 +170,39 @@ function boardProbe(start = 5230, end = 5249): Plugin {
   };
 }
 
+function buildScreenshotArtifacts(): Plugin {
+  const artifactRoot = path.resolve(process.cwd(), "artifacts", "build-screenshots");
+  return {
+    name: "perfect-planner-build-screenshots",
+    configureServer(server) {
+      server.middlewares.use("/build-screenshots", (req, res) => {
+        const requestPath = new URL(req.url || "/", "http://127.0.0.1").pathname.replace(/^\//, "");
+        if (!/^(?:manifest\.json|files\/[a-z0-9-]+\.png)$/.test(requestPath)) {
+          res.statusCode = 404;
+          return res.end("not found");
+        }
+        const filePath = path.resolve(artifactRoot, requestPath);
+        if (!filePath.startsWith(`${artifactRoot}${path.sep}`) && filePath !== path.join(artifactRoot, "manifest.json")) {
+          res.statusCode = 400;
+          return res.end("invalid path");
+        }
+        fs.readFile(filePath, (error, body) => {
+          if (error) {
+            res.statusCode = 404;
+            return res.end("not found");
+          }
+          res.statusCode = 200;
+          res.setHeader("Content-Type", filePath.endsWith(".png") ? "image/png" : "application/json");
+          res.setHeader("Cache-Control", "no-store");
+          res.end(body);
+        });
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), boardProbe()],
+  plugins: [react(), boardProbe(), buildScreenshotArtifacts()],
   clearScreen: false,
   server: {
     port: 5180,

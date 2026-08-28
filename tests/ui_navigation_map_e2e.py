@@ -1,3 +1,4 @@
+import base64
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -123,6 +124,31 @@ def main():
                 route.fulfill(status=404, json={"ok": False})
 
         page.route("**/board-probe/**", mock_probe)
+        page.route(
+            "**/build-screenshots/manifest.json",
+            lambda route: route.fulfill(status=200, json={
+                "schemaVersion": 1,
+                "generatedAt": "2026-08-28T00:00:00Z",
+                "captures": [{
+                    "id": "release",
+                    "label": "Latest verified release page",
+                    "planNodes": ["PP-UI:A03"],
+                    "url": "/build-screenshots/files/release.png",
+                    "width": 1440,
+                    "height": 900,
+                    "sha256": "build-shot",
+                    "sourceArtifact": "artifacts/release.png",
+                }],
+            }),
+        )
+        page.route(
+            "**/build-screenshots/files/release.png",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="image/png",
+                body=base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="),
+            ),
+        )
         page.route("http://127.0.0.1:5230/", lambda route: route.fulfill(body="<html><title>board</title></html>"))
         page.goto(APP_URL, wait_until="domcontentloaded")
 
@@ -145,7 +171,7 @@ def main():
         expect(ui_map).to_contain_text("SNAPSHOT CANVAS")
         expect(page.locator('[data-proof-method="chrome-mcp"]')).to_contain_text("preferred")
         expect(page.locator('[data-proof-method="playwright-script"]')).to_contain_text("ready")
-        expect(page.locator('[data-proof-method="last-run"]')).to_contain_text("unknown")
+        expect(page.locator('[data-proof-method="last-run"]')).to_contain_text("Build captures")
         p1 = page.locator('.ui-map-spine-row[data-spine-id="P1"]')
         p2 = page.locator('.ui-map-spine-row[data-spine-id="P2"]')
         orphan_row = page.locator('.ui-map-spine-row[data-spine-id="unmapped"]')
@@ -202,11 +228,21 @@ def main():
         support_page = page.locator("#pp-ui-page-A02")
         expect(support_page).to_be_visible()
         expect(support_page).to_have_attribute("data-page-kind", "support-work")
-        expect(support_page).to_have_attribute("data-snapshot-state", "missing")
+        expect(support_page).to_have_attribute("data-snapshot-state", "not-applicable")
+        expect(support_page).to_have_attribute("data-snapshot-source", "none")
         support_page.locator(".ui-map-artboard-select").evaluate("element => element.click()")
         expect(ui_map).to_have_attribute("data-focus-page", "A02")
         expect(ui_map).to_have_attribute("data-focus-side", "R")
-        expect(support_page).to_contain_text("No screenshot yet")
+        expect(support_page).to_contain_text("Support node")
+        expect(support_page).to_contain_text("screenshot not required")
+
+        release_page = page.locator("#pp-ui-page-A03")
+        expect(release_page).to_have_attribute("data-snapshot-state", "build-capture")
+        expect(release_page).to_have_attribute("data-snapshot-source", "build")
+        expect(release_page.locator(".ui-map-build-badge")).to_have_text("BUILD CAPTURE")
+        expect(release_page.locator(".ui-map-artboard-frame img")).to_have_attribute(
+            "src", "/build-screenshots/files/release.png"
+        )
 
         spine_segment = p1.locator(".ui-map-spine-segment")
         left_box = left_page.bounding_box()

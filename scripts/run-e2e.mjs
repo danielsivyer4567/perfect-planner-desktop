@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import process from "node:process";
 
 const tests = [
+  "tests/build_screenshot_pipeline_e2e.py",
   "tests/control_connector_e2e.py",
   "tests/approval_chat_bridge_e2e.py",
   "tests/alarm_e2e.py",
