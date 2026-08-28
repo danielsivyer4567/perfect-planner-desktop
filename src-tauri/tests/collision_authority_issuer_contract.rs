@@ -9,7 +9,9 @@ use std::{fs, path::PathBuf};
 
 fn source(relative: &str) -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative);
-    fs::read_to_string(&path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()))
+    fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("read {}: {error}", path.display()))
+        .replace("\r\n", "\n")
 }
 
 fn item_body<'a>(source: &'a str, marker: &str) -> &'a str {
