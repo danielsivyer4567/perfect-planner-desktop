@@ -252,7 +252,21 @@ def main():
             "button", name="PP-001 Repository B Perfect Planner main Desktop shell"
         )
         target_plan.evaluate("element => element.click()")
-        target_plan.click(button="right")
+        # The preceding selection deliberately replaces the empty stage and can rerender this
+        # rail item while Playwright is completing a low-level pointer action. Dispatch the
+        # browser's context-menu event directly so this test exercises the delegated handler
+        # without racing actionability bookkeeping for a node React has just replaced.
+        target_plan.evaluate(
+            """
+            element => element.dispatchEvent(new MouseEvent('contextmenu', {
+              bubbles: true,
+              cancelable: true,
+              button: 2,
+              clientX: 180,
+              clientY: 400
+            }))
+            """
+        )
         context_menu = page.locator("#pp-context-menu")
         expect(context_menu).to_be_visible()
         expect(context_menu.get_by_role("menuitem", name="Reject and delete blocked")).to_be_disabled()
