@@ -337,6 +337,12 @@ def main():
         expect(page.locator(".diagnostics-source-summary")).to_contain_text("MESSAGING")
         expect(page.locator(".diagnostics-source-summary")).to_contain_text("PLAN / RUN")
         expect(page.locator(".diagnostics-source-summary")).to_contain_text("BROWSER CONSOLE · NOT COLLECTED HERE")
+        diagnostic_ids = page.locator("[data-diagnostic-id]").evaluate_all(
+            "nodes => nodes.map(node => node.getAttribute('data-diagnostic-id'))"
+        )
+        assert len(diagnostic_ids) == len(set(diagnostic_ids)), (
+            f"diagnostic event IDs must remain unique under batched updates: {diagnostic_ids}"
+        )
 
         page.screenshot(path=str(SCREENSHOT), full_page=True)
         print("repository rail: screenshot captured", flush=True)

@@ -25,6 +25,7 @@ import { ResourceGuard, type ResourceGuardState } from "./components/ResourceGua
 import { ActionContextMenu, type ContextActionLog } from "./components/ActionContextMenu";
 import { DiagnosticsConsole, type DiagnosticEntry } from "./components/DiagnosticsConsole";
 import { OperationalTruth } from "./components/OperationalTruth";
+import { UiNavigationMap } from "./components/UiNavigationMap";
 import {
   browserOrchestratorScope,
   OrchestratorSnapshot,
@@ -309,6 +310,7 @@ export const App: React.FC = () => {
   const [parallelAgents, setParallelAgents] = useState(storedParallelAgents);
   const [railCollapsed, setRailCollapsed] = useState(storedRailCollapsed);
   const [comparisonOpen, setComparisonOpen] = useState(false);
+  const [uiMapOpen, setUiMapOpen] = useState(false);
   const [resourceGuard, setResourceGuard] = useState<ResourceGuardState>({
     status: "checking",
     result: null,
@@ -346,11 +348,12 @@ export const App: React.FC = () => {
   }, []);
 
   const recordDiagnostic = useCallback((entry: Omit<DiagnosticEntry, "id" | "at">) => {
-    diagnosticSequenceRef.current += 1;
+    const sequence = ++diagnosticSequenceRef.current;
+    const recordedAt = Date.now();
     setDiagnosticEntries((current) => [...current.slice(-199), {
       ...entry,
-      id: `diagnostic-${diagnosticSequenceRef.current}`,
-      at: Date.now(),
+      id: `diagnostic-${sequence}`,
+      at: recordedAt,
     }]);
   }, []);
 
@@ -1702,12 +1705,28 @@ export const App: React.FC = () => {
               <span className="stage-actions">
                 <span className="context-action-hint" id="pp-hint-plan-context-actions">right-click plan for actions</span>
                 <button
+                  id="pp-btn-toggle-ui-navigation-map"
+                  type="button"
+                  className={`chip${uiMapOpen ? " active" : ""}`}
+                  aria-pressed={uiMapOpen}
+                  aria-controls="pp-region-ui-navigation-map"
+                  onClick={() => {
+                    setUiMapOpen((current) => !current);
+                    setComparisonOpen(false);
+                  }}
+                >
+                  {uiMapOpen ? "close UI map" : "UI map"}
+                </button>
+                <button
                   id="pp-btn-toggle-ui-comparison"
                   type="button"
                   className={`chip${comparisonOpen ? " active" : ""}`}
                   aria-expanded={comparisonOpen}
                   aria-controls="pp-region-ui-comparison"
-                  onClick={() => setComparisonOpen((current) => !current)}
+                  onClick={() => {
+                    setComparisonOpen((current) => !current);
+                    setUiMapOpen(false);
+                  }}
                 >
                   {comparisonOpen ? "close comparison" : "compare UI"}
                 </button>
@@ -1735,16 +1754,22 @@ export const App: React.FC = () => {
                 </a>
               </span>
             </div>
-            <div className={`stage-workspace${comparisonOpen ? " comparing" : ""}`}>
-              <iframe
-                id="pp-frame-active-board"
-                key={`${active.port}:${nonce}`}
-                ref={frameRef}
-                className="board"
-                src={active.url}
-                title={boardLabel(active)}
-              />
-              {comparisonOpen ? <LocalOutputWitness board={active} plan={activePlan} variant="comparison" /> : null}
+            <div className={`stage-workspace${comparisonOpen ? " comparing" : ""}${uiMapOpen ? " mapping" : ""}`}>
+              {uiMapOpen ? (
+                <UiNavigationMap key={active.planPath} board={active} plan={activePlan} />
+              ) : (
+                <>
+                  <iframe
+                    id="pp-frame-active-board"
+                    key={`${active.port}:${nonce}`}
+                    ref={frameRef}
+                    className="board"
+                    src={active.url}
+                    title={boardLabel(active)}
+                  />
+                  {comparisonOpen ? <LocalOutputWitness board={active} plan={activePlan} variant="comparison" /> : null}
+                </>
+              )}
             </div>
           </>
         ) : (

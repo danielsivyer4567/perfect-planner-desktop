@@ -1,0 +1,48 @@
+perfect planning HEAD ORCHESTRATOR - REPOSITORY .. EEE LEE © CEDED LET Action required RELEASE - NOT READY [) Parallel agents RESOURCE GUARD - UNAVAILABLE “renee:
+Plans ¢ orch-935c4d18 © live - run not selected © routed - CI unknown ON - NEW RUNS x4
+boards on 127.0.0.1:5230-5249
+B Perfect Planner 1 plan B X-Ray Desktop 1 plan
+D REPOSITORY A EE ——————————————
+Perfect Planner 1 .
+B X-Ray Desktop Isolated X-Ray _~ codex/pp-001-finish-1line PP-001 - Whole-App Finish Line ..e.json RIGHT-CLICK PLAN FOR ACTIONS compare UI refresh open in browser
+feature/tauri-orchestrator-messaging-20260821-
+® 1
+223935
+IN PROGRESS 1 4) X-Ray Whole-App Finish Line ® synced
+PP-001 [J
+Breve panne Unbuilt Untested  @ built @ tested Built ewe 28% Tested comm 41% ( integrity: ok - 8 stale cI T1 J Export .md
+PROJECT - PERFECT PLANNER DESKTOP
+_~ feature/tauri-orchestrator-messaging-20260821-
+223935 Share bundle
+Orchestrator messaging
+perfect-planner-tauri - :5232 #PP-001 project Isolated X-Ray ~~ codex/pp-001-finish-line topic Whole-App Finish Line planned by codex-gpt-5 for danie
+V approved 2026-08-28
+CerostroRy 8 This plan focuses on: reconciling the Kimi A-Z autopilot roadmap with the current Tauri codebase, then proving every product surface, trust boundary and release gate
+[5 | X-Ray Desktop il
+a . 2 workers have stopped moving — claimed but not progressing: A@3 Real validation corpus and rights held by s-bccg87979 - A@9
+® - codex/pp-@@1-finish-line 1 STALLED CT. . pp c. g prog g P g J no heartbeat for over 1em
+In PROGRESS ) Semantic identity, revisions and branch proposals held by s-bcc87979
+PP-001 STALLED
+BD X-RAY DESKTOP
+PROJECT - ISOLATED X-RAY
+_~ codex/pp-001-finish-line .
+CL . P1 — Reconcile and prove
+Whole-App Finish Line Convert Kimi's historical roadmap and receipts into one current, auditable
+Isolated X-ray - :5230 - 2 stalled baseline.
+Reconcile Kimi plan and
+Aol 1h 3em - 15k tok 4/4 4/4
+LOCAL OUTPUT [4] program ledger
+http://127.0.0.1:1420/ [1] [ ] 801-1 Mapevery Kimi Phase A/Btedgeritermto-carrent-codert
+—— —_—m= [ XN | Ae1-3) Record-featuresaddedafterKimiptanning—Taurisidecar...
+= PR ———— eo | CR [ |] [ |] Ae1-4) Publishraconcisecurrent-statuscrosswatk-withoutchang...
+[X [§ mt T vernres rn
+P1 1/4 P3 0/6 P4 0/4 P5 1/4 P6 0/3 P7 0/5
+Not shown in captured UI: Aol, Ae2, A@3, Ae9, Ale, All, Al2, Al3, AO2 One authoritative audit 4h - 40k tok 4/4 4/4
+Al4, A15, Ale, A17, A18, A20, A21, A22, A23, A24, A25, A26, A27,
+A28, A29, A30 command
+latest capture - 28/08/2026, 17:34:46 eo eo .
+202-1) imventory-everyPython Node Rust MEP Hrantime-an...
+alarm - gentle rise 2 stalled ® [ XN | AG2-2 Provide-onecommeand-thatruns-thecomptetecurrentat CPT eT eee TT TE Te ee CH Te eee Te tet re re
+sound on test Co — [ XN | 202-3) Ermitrrachime=readabe-PASS—FAH—NAVAHABH—ameHN
+[ |] [ |] A02-4) Mutatiorrgatestittcatcheswrongareatostsource
+rescan 2 boards CONSOLE

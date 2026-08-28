@@ -1,0 +1,388 @@
+diff --git a/scripts/run-e2e.mjs b/scripts/run-e2e.mjs
+index 16d5d52..eb46afd 100644
+--- a/scripts/run-e2e.mjs
++++ b/scripts/run-e2e.mjs
+@@ -6,6 +6,7 @@ const tests = [
+   "tests/approval_chat_bridge_e2e.py",
+   "tests/alarm_e2e.py",
+   "tests/repository_rail_e2e.py",
++  "tests/ui_navigation_map_e2e.py",
+   "tests/evidence_e2e.py",
+   "tests/control_plane_e2e.py",
+   "tests/orchestration_workspace_e2e.py",
+diff --git a/src/App.tsx b/src/App.tsx
+index d351889..50aa317 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -25,6 +25,7 @@ import { ResourceGuard, type ResourceGuardState } from "./components/ResourceGua
+ import { ActionContextMenu, type ContextActionLog } from "./components/ActionContextMenu";
+ import { DiagnosticsConsole, type DiagnosticEntry } from "./components/DiagnosticsConsole";
+ import { OperationalTruth } from "./components/OperationalTruth";
++import { UiNavigationMap } from "./components/UiNavigationMap";
+ import {
+   browserOrchestratorScope,
+   OrchestratorSnapshot,
+@@ -309,6 +310,7 @@ export const App: React.FC = () => {
+   const [parallelAgents, setParallelAgents] = useState(storedParallelAgents);
+   const [railCollapsed, setRailCollapsed] = useState(storedRailCollapsed);
+   const [comparisonOpen, setComparisonOpen] = useState(false);
++  const [uiMapOpen, setUiMapOpen] = useState(false);
+   const [resourceGuard, setResourceGuard] = useState<ResourceGuardState>({
+     status: "checking",
+     result: null,
+@@ -346,11 +348,12 @@ export const App: React.FC = () => {
+   }, []);
+ 
+   const recordDiagnostic = useCallback((entry: Omit<DiagnosticEntry, "id" | "at">) => {
+-    diagnosticSequenceRef.current += 1;
++    const sequence = ++diagnosticSequenceRef.current;
++    const recordedAt = Date.now();
+     setDiagnosticEntries((current) => [...current.slice(-199), {
+       ...entry,
+-      id: `diagnostic-${diagnosticSequenceRef.current}`,
+-      at: Date.now(),
++      id: `diagnostic-${sequence}`,
++      at: recordedAt,
+     }]);
+   }, []);
+ 
+@@ -1701,13 +1704,29 @@ export const App: React.FC = () => {
+               </span>
+               <span className="stage-actions">
+                 <span className="context-action-hint" id="pp-hint-plan-context-actions">right-click plan for actions</span>
++                <button
++                  id="pp-btn-toggle-ui-navigation-map"
++                  type="button"
++                  className={`chip${uiMapOpen ? " active" : ""}`}
++                  aria-pressed={uiMapOpen}
++                  aria-controls="pp-region-ui-navigation-map"
++                  onClick={() => {
++                    setUiMapOpen((current) => !current);
++                    setComparisonOpen(false);
++                  }}
++                >
++                  {uiMapOpen ? "close UI map" : "UI map"}
++                </button>
+                 <button
+                   id="pp-btn-toggle-ui-comparison"
+                   type="button"
+                   className={`chip${comparisonOpen ? " active" : ""}`}
+                   aria-expanded={comparisonOpen}
+                   aria-controls="pp-region-ui-comparison"
+-                  onClick={() => setComparisonOpen((current) => !current)}
++                  onClick={() => {
++                    setComparisonOpen((current) => !current);
++                    setUiMapOpen(false);
++                  }}
+                 >
+                   {comparisonOpen ? "close comparison" : "compare UI"}
+                 </button>
+@@ -1735,16 +1754,22 @@ export const App: React.FC = () => {
+                 </a>
+               </span>
+             </div>
+-            <div className={`stage-workspace${comparisonOpen ? " comparing" : ""}`}>
+-              <iframe
+-                id="pp-frame-active-board"
+-                key={`${active.port}:${nonce}`}
+-                ref={frameRef}
+-                className="board"
+-                src={active.url}
+-                title={boardLabel(active)}
+-              />
+-              {comparisonOpen ? <LocalOutputWitness board={active} plan={activePlan} variant="comparison" /> : null}
++            <div className={`stage-workspace${comparisonOpen ? " comparing" : ""}${uiMapOpen ? " mapping" : ""}`}>
++              {uiMapOpen ? (
++                <UiNavigationMap key={active.planPath} board={active} plan={activePlan} />
++              ) : (
++                <>
++                  <iframe
++                    id="pp-frame-active-board"
++                    key={`${active.port}:${nonce}`}
++                    ref={frameRef}
++                    className="board"
++                    src={active.url}
++                    title={boardLabel(active)}
++                  />
++                  {comparisonOpen ? <LocalOutputWitness board={active} plan={activePlan} variant="comparison" /> : null}
++                </>
++              )}
+             </div>
+           </>
+         ) : (
+diff --git a/src/components/DiagnosticsConsole.tsx b/src/components/DiagnosticsConsole.tsx
+index 196b3ef..4e42ed5 100644
+--- a/src/components/DiagnosticsConsole.tsx
++++ b/src/components/DiagnosticsConsole.tsx
+@@ -177,7 +177,7 @@ export function DiagnosticsConsole({
+               </div>
+               <button type="button" id="pp-btn-diagnostics-clear" onClick={onClear}>Clear display</button>
+               {entries.length ? entries.slice().reverse().map((entry) => (
+-                <article key={entry.id} data-level={entry.level}>
++                <article key={entry.id} data-level={entry.level} data-diagnostic-id={entry.id}>
+                   <time dateTime={new Date(entry.at).toISOString()}>{new Date(entry.at).toLocaleTimeString()}</time>
+                   <strong>{entry.source}</strong>
+                   <p>{entry.message}</p>
+diff --git a/src/index.css b/src/index.css
+index 5d03e8e..9fda670 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -1998,6 +1998,8 @@ input:focus-visible {
+   .shell { --rail-width: 270px; }
+   .scope-branch { max-width: 150px; }
+   .path { display: none; }
++  .ui-navigation-map { min-width: 760px; padding-inline: 14px; }
++  .ui-map-spine-row { grid-template-columns: minmax(190px, 1fr) 250px minmax(190px, 1fr); gap: 30px; }
+ }
+ 
+ @media (prefers-reduced-motion: reduce) {
+@@ -2053,6 +2055,223 @@ input:focus-visible {
+   background: #9ea49f;
+ }
+ 
++.stage-workspace.mapping {
++  display: block;
++  overflow: auto;
++  background: #e9e5dc;
++}
++
++.ui-navigation-map {
++  min-width: 920px;
++  min-height: 100%;
++  padding: 18px 22px 60px;
++  color: #202720;
++  background-color: #e9e5dc;
++  background-image:
++    linear-gradient(rgba(67, 87, 71, .055) 1px, transparent 1px),
++    linear-gradient(90deg, rgba(67, 87, 71, .055) 1px, transparent 1px);
++  background-size: 24px 24px;
++  font-family: var(--mono);
++}
++
++.ui-navigation-map-head {
++  display: flex;
++  align-items: flex-end;
++  justify-content: space-between;
++  gap: 24px;
++  max-width: 1360px;
++  margin: 0 auto;
++  padding: 14px 16px;
++  border: 1px solid #c5c2b9;
++  border-top: 4px solid #365642;
++  background: rgba(248, 246, 240, .94);
++  box-shadow: var(--shadow);
++}
++
++.ui-navigation-map-head > div:first-child { display: grid; gap: 4px; }
++.ui-navigation-map-head > div:first-child > span { color: #50705a; font-size: 6.5px; font-weight: 900; letter-spacing: .95px; }
++.ui-navigation-map-head h2 { font-size: 20px; line-height: 1.1; letter-spacing: -.5px; }
++.ui-navigation-map-head p { color: #6b706a; font-size: 8px; }
++
++.ui-map-counts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
++.ui-map-counts span { padding: 5px 7px; border: 1px solid #c3c8c2; border-radius: 999px; color: #5d655f; background: #fff; font-size: 6.5px; }
++.ui-map-counts b { color: #355b40; font-size: 8px; }
++.ui-map-counts span[data-state="warning"] { border-color: #c09052; color: #8b5b22; }
++
++.ui-map-disclosure {
++  max-width: 1360px;
++  margin: 8px auto 20px;
++  padding: 8px 12px;
++  border-left: 3px solid #77917d;
++  color: #5d675f;
++  background: rgba(248, 246, 240, .82);
++  font-size: 7px;
++  line-height: 1.5;
++}
++
++.ui-map-canvas {
++  position: relative;
++  display: grid;
++  max-width: 1360px;
++  gap: 18px;
++  margin: 0 auto;
++  padding: 10px 0 30px;
++}
++
++.ui-map-axis {
++  position: absolute;
++  top: 0;
++  bottom: 0;
++  left: 50%;
++  width: 4px;
++  transform: translateX(-2px);
++  border-right: 1px solid #95a69a;
++  border-left: 1px solid #95a69a;
++  background: #d8dfd9;
++}
++
++.ui-map-spine-row {
++  position: relative;
++  z-index: 1;
++  display: grid;
++  grid-template-columns: minmax(240px, 1fr) 300px minmax(240px, 1fr);
++  align-items: start;
++  gap: 42px;
++}
++
++.ui-map-spine-segment {
++  position: relative;
++  display: grid;
++  min-height: 116px;
++  align-content: center;
++  gap: 6px;
++  padding: 18px 38px;
++  border: 1px solid #9eaaa0;
++  border-radius: 32px 8px 32px 8px;
++  background: #faf9f5;
++  box-shadow: 0 7px 22px rgba(52, 66, 55, .12), 0 0 0 5px rgba(233, 229, 220, .88);
++  text-align: center;
++}
++
++.ui-map-spine-segment::before {
++  position: absolute;
++  top: 50%;
++  left: 50%;
++  z-index: -1;
++  width: 18px;
++  height: 18px;
++  transform: translate(-50%, -50%);
++  border: 4px solid #e9e5dc;
++  border-radius: 50%;
++  content: "";
++  background: #4e8a5c;
++}
++
++.ui-map-spine-id { color: #3e704b; font-size: 8px; font-weight: 900; letter-spacing: 1px; }
++.ui-map-spine-segment h3 { font-size: 11px; line-height: 1.35; }
++.ui-map-spine-segment p { color: #6d746e; font-size: 7px; line-height: 1.45; }
++
++.ui-map-branch-toggle {
++  position: absolute;
++  top: 50%;
++  display: inline-flex;
++  min-width: 38px;
++  min-height: 32px;
++  align-items: center;
++  justify-content: center;
++  gap: 4px;
++  transform: translateY(-50%);
++  border: 1px solid #697c6e;
++  border-radius: 999px;
++  color: #eef4ef;
++  background: #2b4032;
++  font: 800 8px var(--mono);
++  cursor: pointer;
++}
++
++.ui-map-branch-toggle.left { left: -20px; }
++.ui-map-branch-toggle.right { right: -20px; }
++.ui-map-branch-toggle[aria-expanded="true"] { border-color: #91bd9a; background: #406b4c; box-shadow: 0 0 0 3px rgba(78, 138, 92, .16); }
++.ui-map-branch-toggle > span[aria-hidden="true"] { font-size: 15px; line-height: 1; }
++
++.ui-map-branch {
++  position: relative;
++  display: grid;
++  gap: 8px;
++  min-width: 0;
++}
++
++.ui-map-branch.open::after {
++  position: absolute;
++  top: 56px;
++  width: 42px;
++  border-top: 2px dashed #8aa08f;
++  content: "";
++}
++
++.ui-map-branch.left::after { right: -42px; }
++.ui-map-branch.right::after { left: -42px; }
++
++.ui-map-page {
++  overflow: hidden;
++  border: 1px solid #bdc5be;
++  border-left: 4px solid #718077;
++  border-radius: 7px;
++  background: rgba(255, 255, 255, .96);
++  box-shadow: 0 4px 14px rgba(52, 66, 55, .08);
++}
++
++.ui-map-page.ui-capable { border-left-color: #4e8a5c; }
++.ui-map-page.support-work { border-left-color: #9a815d; }
++.ui-map-page summary { display: grid; min-height: 66px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; }
++.ui-map-page-id { padding: 4px 6px; border-radius: 4px; color: #f2f6f3; background: #3b5e46; font-size: 7px; font-weight: 900; }
++.ui-map-page.support-work .ui-map-page-id { background: #735f43; }
++.ui-map-page-copy { display: grid; min-width: 0; gap: 3px; }
++.ui-map-page-copy strong { color: #263129; font-size: 8px; line-height: 1.35; }
++.ui-map-page-copy small { color: #758079; font-size: 5.8px; line-height: 1.35; }
++.ui-map-page-progress { color: #657269; font-size: 6px; white-space: nowrap; }
++
++.ui-map-page-body { display: grid; gap: 10px; padding: 10px; border-top: 1px solid #d6dbd6; background: #f4f5f1; }
++.ui-map-page-body dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
++.ui-map-page-body dl div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 5px; }
++.ui-map-page-body dt,
++.ui-map-page-body h3 { color: #5a7461; font-size: 5.8px; font-weight: 900; letter-spacing: .5px; text-transform: uppercase; }
++.ui-map-page-body dd { margin: 0; color: #38423b; font-size: 6.3px; }
++.ui-map-page-body section { display: grid; gap: 4px; }
++.ui-map-page-body code { overflow-wrap: anywhere; color: #3f5946; font-size: 6px; }
++.ui-map-page-body p,
++.ui-map-page-body li { color: #6f7671; font-size: 6.2px; line-height: 1.45; }
++.ui-map-page-body ul { padding-left: 14px; }
++
++.ui-map-branch-empty {
++  margin-top: 30px;
++  padding: 12px;
++  border: 1px dashed #b1aaa0;
++  color: #756d63;
++  background: rgba(248, 246, 240, .8);
++  font-size: 7px;
++  text-align: center;
++}
++
++.ui-map-orphans {
++  max-width: 1360px;
++  margin: 16px auto 0;
++  padding: 10px 12px;
++  border: 1px solid #c28850;
++  color: #765020;
++  background: #fff7e8;
++  font-size: 7px;
++}
++
++.ui-navigation-map-empty {
++  display: grid;
++  min-width: 0;
++  min-height: 100%;
++  place-content: center;
++  gap: 8px;
++  text-align: center;
++}
++
+ /* ---------- stored localhost witness ---------- */
+ 
+ .local-output {
+@@ -2999,6 +3218,8 @@ button[data-context-kind="plan"] { cursor: pointer; }
+   .truth-summary-grid { grid-template-columns: 1fr; }
+   .operational-truth-head { align-items: stretch; flex-direction: column; }
+   .truth-release-verdict { align-self: flex-start; }
++  .ui-navigation-map-head { align-items: flex-start; flex-direction: column; }
++  .ui-map-counts { justify-content: flex-start; }
+   .repository-scope-tabs { padding-inline: 4px; }
+   .repository-scope-tabs button { min-width: 136px; }
+   .diagnostics-status-grid { grid-template-columns: 1fr; }
+diff --git a/tests/repository_rail_e2e.py b/tests/repository_rail_e2e.py
+index 95c8da8..710dfb5 100644
+--- a/tests/repository_rail_e2e.py
++++ b/tests/repository_rail_e2e.py
+@@ -337,6 +337,12 @@ def main():
+         expect(page.locator(".diagnostics-source-summary")).to_contain_text("MESSAGING")
+         expect(page.locator(".diagnostics-source-summary")).to_contain_text("PLAN / RUN")
+         expect(page.locator(".diagnostics-source-summary")).to_contain_text("BROWSER CONSOLE · NOT COLLECTED HERE")
++        diagnostic_ids = page.locator("[data-diagnostic-id]").evaluate_all(
++            "nodes => nodes.map(node => node.getAttribute('data-diagnostic-id'))"
++        )
++        assert len(diagnostic_ids) == len(set(diagnostic_ids)), (
++            f"diagnostic event IDs must remain unique under batched updates: {diagnostic_ids}"
++        )
+ 
+         page.screenshot(path=str(SCREENSHOT), full_page=True)
+         print("repository rail: screenshot captured", flush=True)

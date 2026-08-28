@@ -177,7 +177,7 @@ export function DiagnosticsConsole({
               </div>
               <button type="button" id="pp-btn-diagnostics-clear" onClick={onClear}>Clear display</button>
               {entries.length ? entries.slice().reverse().map((entry) => (
-                <article key={entry.id} data-level={entry.level}>
+                <article key={entry.id} data-level={entry.level} data-diagnostic-id={entry.id}>
                   <time dateTime={new Date(entry.at).toISOString()}>{new Date(entry.at).toLocaleTimeString()}</time>
                   <strong>{entry.source}</strong>
                   <p>{entry.message}</p>

@@ -1,0 +1,27 @@
+# perfect-planning proof artifact
+item: A09:1 — Every spine phase exposes independent left and right expansion controls whose page cards retain the source spine and node IDs
+command: python tests\ui_navigation_map_e2e.py
+cwd: C:\repos\perfect-planner-tauri
+exit: 0
+duration_ms: 2052
+at: 2026-08-28T08:30:08.492Z
+git: 8316d934a569ff7732039e11d3b8e4dc29b317fe (feature/tauri-orchestrator-messaging-20260821-223935, dirty)
+shot: PP-001-A09-1-1787905806263.png
+shot_note: Viewed the 4320x2700 capture: P1 independently exposes one left and one right branch; A01 and A02 retain their source node IDs, side, spine ID and mapping classification, while P2's zero-count left side expands to an explicit empty statement.
+shot_check: ok (4320x2700, blankScore 0.4298)
+before_shot: PP-001-A09-baseline-1787905440415.before.png
+before_shot_note: Viewed the 4320x2700 baseline: the workspace offers the embedded plan board and UI comparison only; there is no separate application-page map, no spine-side expansion controls, and no plan-derived page ID inventory.
+before_shot_check: ok (4320x2700, blankScore 0.4017)
+before_ocr: PP-001-A09-baseline-1787905440415.before.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 73, 5237ms)
+before_ocr_alarms: none
+after_ocr: PP-001-A09-1-1787905806263.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 82, 3188ms)
+after_ocr_alarms: none
+diff: PP-001-A09-1-1787905806263.diff
+diff_baseline: 8316d934a569ff7732039e11d3b8e4dc29b317fe
+
+## stdout
+ui_navigation_map_e2e: PASS
+screenshot: C:\repos\perfect-planner-tauri\artifacts\ui-navigation-map.png
+
+## stderr
+(empty)

@@ -6,6 +6,7 @@ const tests = [
   "tests/approval_chat_bridge_e2e.py",
   "tests/alarm_e2e.py",
   "tests/repository_rail_e2e.py",
+  "tests/ui_navigation_map_e2e.py",
   "tests/evidence_e2e.py",
   "tests/control_plane_e2e.py",
   "tests/orchestration_workspace_e2e.py",

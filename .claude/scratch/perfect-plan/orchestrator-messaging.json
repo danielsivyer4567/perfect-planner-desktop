@@ -4400,6 +4400,856 @@
         "at": "2026-08-28T08:23:04.263Z",
         "forced": false
       }
+    },
+    {
+      "id": "A09",
+      "spineId": "P2",
+      "side": "L",
+      "title": "Spine-driven UI navigation map",
+      "notes": "Add a separate plan-derived UI map mode. Each spine phase owns explicit left and right branch controls; opening a side reveals only the plan nodes recorded on that side, preserving the plan's real IDs and clearly distinguishing UI-capable pages from support work or missing mappings.",
+      "status": "done",
+      "dependsOn": [
+        "A08"
+      ],
+      "est": {
+        "tokens": 30000,
+        "minutes": 75
+      },
+      "files": [
+        "src/App.tsx",
+        "src/index.css",
+        "src/components/UiNavigationMap.tsx",
+        "src/components/DiagnosticsConsole.tsx",
+        "tests/ui_navigation_map_e2e.py",
+        "tests/repository_rail_e2e.py",
+        "scripts/run-e2e.mjs"
+      ],
+      "resources": [
+        "ui:planner-mode",
+        "ui:spine-navigation-map",
+        "identity:plan-spine-node"
+      ],
+      "checklist": [
+        {
+          "text": "A separate UI map mode replaces the embedded board without disturbing repository scope, comparison mode, or the persistent command header",
+          "built": true,
+          "tested": true,
+          "verify": "python tests\\ui_navigation_map_e2e.py",
+          "ref": "src/App.tsx",
+          "ui": true,
+          "builtBy": {
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-b4b3da34",
+            "at": "2026-08-28T08:29:12.342Z",
+            "git": {
+              "sha": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 6000,
+            "loc": {
+              "baseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+              "scope": "files",
+              "added": 641,
+              "removed": 15,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "scripts/run-e2e.mjs",
+                  "added": 1,
+                  "removed": 0
+                },
+                {
+                  "file": "src/App.tsx",
+                  "added": 39,
+                  "removed": 14
+                },
+                {
+                  "file": "src/components/DiagnosticsConsole.tsx",
+                  "added": 1,
+                  "removed": 1
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 221,
+                  "removed": 0
+                },
+                {
+                  "file": "tests/repository_rail_e2e.py",
+                  "added": 6,
+                  "removed": 0
+                },
+                {
+                  "file": "src/components/UiNavigationMap.tsx",
+                  "added": 204,
+                  "removed": 0,
+                  "untracked": true
+                },
+                {
+                  "file": "tests/ui_navigation_map_e2e.py",
+                  "added": 169,
+                  "removed": 0,
+                  "untracked": true
+                }
+              ],
+              "fileCount": 7,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "playwright",
+              "frontend-design"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-28T08:29:55.199Z",
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-b4b3da34",
+            "note": "ran `python tests\\ui_navigation_map_e2e.py` → exit 0 in 2129ms",
+            "log": "PP-001-A09-0-1787905792886.log",
+            "sha256": "6b2c58d6cf622fd0548fd391e012dd9aefc257fa8ec34c2dad10c1534b826454",
+            "exit": 0,
+            "durationMs": 2129,
+            "git": {
+              "sha": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "python tests\\ui_navigation_map_e2e.py",
+            "cwd": "C:\\repos\\perfect-planner-tauri",
+            "env": {
+              "node": "v24.20.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-001-A09-baseline-1787905440415.before.png",
+            "beforeScreenshotSha256": "7f71187af60279f972a88f14377e9ec39b356556383eb69302854713885cf0f7",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.4017,
+              "uniqueColors": 560,
+              "stddev": {
+                "r": 54.729,
+                "g": 51.352,
+                "b": 52.633
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Viewed the 4320x2700 baseline: the workspace offers the embedded plan board and UI comparison only; there is no separate application-page map, no spine-side expansion controls, and no plan-derived page ID inventory.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A09-baseline-1787905440415.before.png",
+              "textArtifact": "PP-001-A09-baseline-1787905440415.before.ocr.txt",
+              "textSha256": "489c10032f0073fba24c87f1858005c740d5eddf017023b2c816d76808832f16",
+              "confidence": 73,
+              "durationMs": 5237,
+              "rssStartBytes": 62513152,
+              "rssEndBytes": 199430144,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A09-0-1787905792886.png",
+              "textArtifact": "PP-001-A09-0-1787905792886.ocr.txt",
+              "textSha256": "8556de2c60ef2972026d7aca6ec63a4288d10761b6a0fbbd9963b279b0ce9ace",
+              "confidence": 82,
+              "durationMs": 3228,
+              "rssStartBytes": 62468096,
+              "rssEndBytes": 204939264,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-001-A09-0-1787905792886.diff",
+            "diffSha256": "c62d2c4ac773f753ab19f6288f14686bcb117ef37a3148c7c7290e0eda44a13c",
+            "diffBaseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+            "diffFiles": [
+              "scripts/run-e2e.mjs",
+              "src/App.tsx",
+              "src/components/DiagnosticsConsole.tsx",
+              "src/index.css",
+              "tests/repository_rail_e2e.py"
+            ],
+            "screenshot": "PP-001-A09-0-1787905792886.png",
+            "screenshotSha256": "104a90ad1ab8f98aecaec765bf54f1922423b15bb05fca1d62e6bd547929bc46",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.4298,
+              "uniqueColors": 423,
+              "stddev": {
+                "r": 57.477,
+                "g": 53.804,
+                "b": 54.63
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed the 4320x2700 capture: UI map is a separate active mode under the unchanged command header and repository scope; the embedded board is replaced only inside the workspace and comparison remains a separate control.",
+            "tokensEst": 900,
+            "loc": {
+              "baseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+              "scope": "files",
+              "added": 641,
+              "removed": 15,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "scripts/run-e2e.mjs",
+                  "added": 1,
+                  "removed": 0
+                },
+                {
+                  "file": "src/App.tsx",
+                  "added": 39,
+                  "removed": 14
+                },
+                {
+                  "file": "src/components/DiagnosticsConsole.tsx",
+                  "added": 1,
+                  "removed": 1
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 221,
+                  "removed": 0
+                },
+                {
+                  "file": "tests/repository_rail_e2e.py",
+                  "added": 6,
+                  "removed": 0
+                },
+                {
+                  "file": "src/components/UiNavigationMap.tsx",
+                  "added": 204,
+                  "removed": 0,
+                  "untracked": true
+                },
+                {
+                  "file": "tests/ui_navigation_map_e2e.py",
+                  "added": 169,
+                  "removed": 0,
+                  "untracked": true
+                }
+              ],
+              "fileCount": 7,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
+        },
+        {
+          "text": "Every spine phase exposes independent left and right expansion controls whose page cards retain the source spine and node IDs",
+          "built": true,
+          "tested": true,
+          "verify": "python tests\\ui_navigation_map_e2e.py",
+          "ref": "src/components/UiNavigationMap.tsx",
+          "ui": true,
+          "builtBy": {
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-b4b3da34",
+            "at": "2026-08-28T08:29:13.169Z",
+            "git": {
+              "sha": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 8500,
+            "loc": {
+              "baseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+              "scope": "files",
+              "added": 641,
+              "removed": 15,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "scripts/run-e2e.mjs",
+                  "added": 1,
+                  "removed": 0
+                },
+                {
+                  "file": "src/App.tsx",
+                  "added": 39,
+                  "removed": 14
+                },
+                {
+                  "file": "src/components/DiagnosticsConsole.tsx",
+                  "added": 1,
+                  "removed": 1
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 221,
+                  "removed": 0
+                },
+                {
+                  "file": "tests/repository_rail_e2e.py",
+                  "added": 6,
+                  "removed": 0
+                },
+                {
+                  "file": "src/components/UiNavigationMap.tsx",
+                  "added": 204,
+                  "removed": 0,
+                  "untracked": true
+                },
+                {
+                  "file": "tests/ui_navigation_map_e2e.py",
+                  "added": 169,
+                  "removed": 0,
+                  "untracked": true
+                }
+              ],
+              "fileCount": 7,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "playwright",
+              "frontend-design"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-28T08:30:08.492Z",
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-b4b3da34",
+            "note": "ran `python tests\\ui_navigation_map_e2e.py` → exit 0 in 2052ms",
+            "log": "PP-001-A09-1-1787905806263.log",
+            "sha256": "6b9853f0993052347f2ead6198daf90bf0a9bff79672cee6af3e20763a49b7a3",
+            "exit": 0,
+            "durationMs": 2052,
+            "git": {
+              "sha": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "python tests\\ui_navigation_map_e2e.py",
+            "cwd": "C:\\repos\\perfect-planner-tauri",
+            "env": {
+              "node": "v24.20.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-001-A09-baseline-1787905440415.before.png",
+            "beforeScreenshotSha256": "7f71187af60279f972a88f14377e9ec39b356556383eb69302854713885cf0f7",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.4017,
+              "uniqueColors": 560,
+              "stddev": {
+                "r": 54.729,
+                "g": 51.352,
+                "b": 52.633
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Viewed the 4320x2700 baseline: the workspace offers the embedded plan board and UI comparison only; there is no separate application-page map, no spine-side expansion controls, and no plan-derived page ID inventory.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A09-baseline-1787905440415.before.png",
+              "textArtifact": "PP-001-A09-baseline-1787905440415.before.ocr.txt",
+              "textSha256": "489c10032f0073fba24c87f1858005c740d5eddf017023b2c816d76808832f16",
+              "confidence": 73,
+              "durationMs": 5237,
+              "rssStartBytes": 62513152,
+              "rssEndBytes": 199430144,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A09-1-1787905806263.png",
+              "textArtifact": "PP-001-A09-1-1787905806263.ocr.txt",
+              "textSha256": "419be49716a25d355ceb606de88c5332f6cc48c38dfae25f3b0a809cf10a983b",
+              "confidence": 82,
+              "durationMs": 3188,
+              "rssStartBytes": 62558208,
+              "rssEndBytes": 207814656,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-001-A09-1-1787905806263.diff",
+            "diffSha256": "c62d2c4ac773f753ab19f6288f14686bcb117ef37a3148c7c7290e0eda44a13c",
+            "diffBaseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+            "diffFiles": [
+              "scripts/run-e2e.mjs",
+              "src/App.tsx",
+              "src/components/DiagnosticsConsole.tsx",
+              "src/index.css",
+              "tests/repository_rail_e2e.py"
+            ],
+            "screenshot": "PP-001-A09-1-1787905806263.png",
+            "screenshotSha256": "84b1510d7a33ccf62306e0d484eaa48add1c889c9459f575ee6999304ee553b9",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.4298,
+              "uniqueColors": 422,
+              "stddev": {
+                "r": 57.482,
+                "g": 53.81,
+                "b": 54.639
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed the 4320x2700 capture: P1 independently exposes one left and one right branch; A01 and A02 retain their source node IDs, side, spine ID and mapping classification, while P2's zero-count left side expands to an explicit empty statement.",
+            "tokensEst": 2500,
+            "loc": {
+              "baseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+              "scope": "files",
+              "added": 641,
+              "removed": 15,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "scripts/run-e2e.mjs",
+                  "added": 1,
+                  "removed": 0
+                },
+                {
+                  "file": "src/App.tsx",
+                  "added": 39,
+                  "removed": 14
+                },
+                {
+                  "file": "src/components/DiagnosticsConsole.tsx",
+                  "added": 1,
+                  "removed": 1
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 221,
+                  "removed": 0
+                },
+                {
+                  "file": "tests/repository_rail_e2e.py",
+                  "added": 6,
+                  "removed": 0
+                },
+                {
+                  "file": "src/components/UiNavigationMap.tsx",
+                  "added": 204,
+                  "removed": 0,
+                  "untracked": true
+                },
+                {
+                  "file": "tests/ui_navigation_map_e2e.py",
+                  "added": 169,
+                  "removed": 0,
+                  "untracked": true
+                }
+              ],
+              "fileCount": 7,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
+        },
+        {
+          "text": "The map distinguishes UI-capable pages from support work, names missing mappings honestly, and remains keyboard, focus, reduced-motion, and narrow-screen usable",
+          "built": true,
+          "tested": true,
+          "verify": "npm run build",
+          "ref": "src/components/UiNavigationMap.tsx",
+          "ui": true,
+          "builtBy": {
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-b4b3da34",
+            "at": "2026-08-28T08:29:13.973Z",
+            "git": {
+              "sha": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "tokensEst": 5500,
+            "loc": {
+              "baseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+              "scope": "files",
+              "added": 641,
+              "removed": 15,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "scripts/run-e2e.mjs",
+                  "added": 1,
+                  "removed": 0
+                },
+                {
+                  "file": "src/App.tsx",
+                  "added": 39,
+                  "removed": 14
+                },
+                {
+                  "file": "src/components/DiagnosticsConsole.tsx",
+                  "added": 1,
+                  "removed": 1
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 221,
+                  "removed": 0
+                },
+                {
+                  "file": "tests/repository_rail_e2e.py",
+                  "added": 6,
+                  "removed": 0
+                },
+                {
+                  "file": "src/components/UiNavigationMap.tsx",
+                  "added": 204,
+                  "removed": 0,
+                  "untracked": true
+                },
+                {
+                  "file": "tests/ui_navigation_map_e2e.py",
+                  "added": 169,
+                  "removed": 0,
+                  "untracked": true
+                }
+              ],
+              "fileCount": 7,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            },
+            "via": [
+              "perfect-planning",
+              "playwright",
+              "accessibility"
+            ]
+          },
+          "proof": {
+            "by": "prove",
+            "at": "2026-08-28T08:30:23.217Z",
+            "model": "gpt-5.6-sol",
+            "user": "danielsivyer4567",
+            "session": "s-b4b3da34",
+            "note": "ran `npm run build` → exit 0 in 3179ms",
+            "log": "PP-001-A09-2-1787905819857.log",
+            "sha256": "aad79ccf0e682ea4ee5fa30b8bd576561b37fe2c1f20b1b059efad5b52c8838f",
+            "exit": 0,
+            "durationMs": 3179,
+            "git": {
+              "sha": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+              "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+              "dirty": true
+            },
+            "verify": "npm run build",
+            "cwd": "C:\\repos\\perfect-planner-tauri",
+            "env": {
+              "node": "v24.20.0",
+              "platform": "win32",
+              "arch": "x64",
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
+              "osRelease": "10.0.26200"
+            },
+            "beforeScreenshot": "PP-001-A09-baseline-1787905440415.before.png",
+            "beforeScreenshotSha256": "7f71187af60279f972a88f14377e9ec39b356556383eb69302854713885cf0f7",
+            "beforeScreenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.4017,
+              "uniqueColors": 560,
+              "stddev": {
+                "r": 54.729,
+                "g": 51.352,
+                "b": 52.633
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "beforeShotNote": "Viewed the 4320x2700 baseline: the workspace offers the embedded plan board and UI comparison only; there is no separate application-page map, no spine-side expansion controls, and no plan-derived page ID inventory.",
+            "beforeScreenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A09-baseline-1787905440415.before.png",
+              "textArtifact": "PP-001-A09-baseline-1787905440415.before.ocr.txt",
+              "textSha256": "489c10032f0073fba24c87f1858005c740d5eddf017023b2c816d76808832f16",
+              "confidence": 73,
+              "durationMs": 5237,
+              "rssStartBytes": 62513152,
+              "rssEndBytes": 199430144,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A09-2-1787905819857.png",
+              "textArtifact": "PP-001-A09-2-1787905819857.ocr.txt",
+              "textSha256": "419be49716a25d355ceb606de88c5332f6cc48c38dfae25f3b0a809cf10a983b",
+              "confidence": 82,
+              "durationMs": 3359,
+              "rssStartBytes": 62377984,
+              "rssEndBytes": 202481664,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
+            "diff": "PP-001-A09-2-1787905819857.diff",
+            "diffSha256": "c62d2c4ac773f753ab19f6288f14686bcb117ef37a3148c7c7290e0eda44a13c",
+            "diffBaseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+            "diffFiles": [
+              "scripts/run-e2e.mjs",
+              "src/App.tsx",
+              "src/components/DiagnosticsConsole.tsx",
+              "src/index.css",
+              "tests/repository_rail_e2e.py"
+            ],
+            "screenshot": "PP-001-A09-2-1787905819857.png",
+            "screenshotSha256": "84b1510d7a33ccf62306e0d484eaa48add1c889c9459f575ee6999304ee553b9",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.4298,
+              "uniqueColors": 421,
+              "stddev": {
+                "r": 57.483,
+                "g": 53.81,
+                "b": 54.635
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed the 4320x2700 capture: UI-capable and support work use both text and distinct structural labels, the unmapped A99/P9 identity is explicit, branch targets exceed 24px, and the map remains horizontally navigable without collapsing its left/right meaning.",
+            "tokensEst": 2200,
+            "loc": {
+              "baseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+              "scope": "files",
+              "added": 641,
+              "removed": 15,
+              "dirty": true,
+              "files": [
+                {
+                  "file": "scripts/run-e2e.mjs",
+                  "added": 1,
+                  "removed": 0
+                },
+                {
+                  "file": "src/App.tsx",
+                  "added": 39,
+                  "removed": 14
+                },
+                {
+                  "file": "src/components/DiagnosticsConsole.tsx",
+                  "added": 1,
+                  "removed": 1
+                },
+                {
+                  "file": "src/index.css",
+                  "added": 221,
+                  "removed": 0
+                },
+                {
+                  "file": "tests/repository_rail_e2e.py",
+                  "added": 6,
+                  "removed": 0
+                },
+                {
+                  "file": "src/components/UiNavigationMap.tsx",
+                  "added": 204,
+                  "removed": 0,
+                  "untracked": true
+                },
+                {
+                  "file": "tests/ui_navigation_map_e2e.py",
+                  "added": 169,
+                  "removed": 0,
+                  "untracked": true
+                }
+              ],
+              "fileCount": 7,
+              "filesTruncated": false,
+              "untrackedCapped": false
+            }
+          }
+        }
+      ],
+      "visualBaseline": {
+        "beforeScreenshot": "PP-001-A09-baseline-1787905440415.before.png",
+        "beforeScreenshotSha256": "7f71187af60279f972a88f14377e9ec39b356556383eb69302854713885cf0f7",
+        "beforeScreenshotCheck": {
+          "ok": true,
+          "width": 4320,
+          "height": 2700,
+          "bitDepth": 8,
+          "colorType": 2,
+          "blankScore": 0.4017,
+          "uniqueColors": 560,
+          "stddev": {
+            "r": 54.729,
+            "g": 51.352,
+            "b": 52.633
+          },
+          "reason": null,
+          "samples": 42848
+        },
+        "beforeShotNote": "Viewed the 4320x2700 baseline: the workspace offers the embedded plan board and UI comparison only; there is no separate application-page map, no spine-side expansion controls, and no plan-derived page ID inventory.",
+        "registeredAt": "2026-08-28T08:24:00.180Z",
+        "model": "gpt-5.6-sol",
+        "user": "danielsivyer4567",
+        "session": "s-b4b3da34",
+        "git": {
+          "sha": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+          "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
+          "dirty": true
+        },
+        "sourceFile": "PP-001-A09-baseline.png",
+        "beforeScreenshotOcr": {
+          "status": "clear",
+          "role": "derived-warning-only",
+          "rawScreenshotAuthoritative": true,
+          "engine": "tesseract.js",
+          "engineVersion": "5.1.1",
+          "language": "eng",
+          "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+          "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+          "oem": 1,
+          "runtime": "one-shot-subprocess",
+          "resident": false,
+          "network": "disabled-local-model-only",
+          "shot": "PP-001-A09-baseline-1787905440415.before.png",
+          "textArtifact": "PP-001-A09-baseline-1787905440415.before.ocr.txt",
+          "textSha256": "489c10032f0073fba24c87f1858005c740d5eddf017023b2c816d76808832f16",
+          "confidence": 73,
+          "durationMs": 5237,
+          "rssStartBytes": 62513152,
+          "rssEndBytes": 199430144,
+          "workerTerminated": true,
+          "expectedText": [],
+          "alarms": []
+        }
+      },
+      "startSha": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+      "startedAt": "2026-08-28T08:24:00.180Z",
+      "startedBy": {
+        "model": "gpt-5.6-sol",
+        "user": "danielsivyer4567",
+        "session": "s-b4b3da34",
+        "at": "2026-08-28T08:24:00.180Z"
+      },
+      "lastStampSha": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+      "doneAt": "2026-08-28T08:30:33.791Z",
+      "doneBy": {
+        "model": "gpt-5.6-sol",
+        "user": "danielsivyer4567",
+        "session": "s-b4b3da34",
+        "at": "2026-08-28T08:30:33.791Z",
+        "forced": false
+      }
     }
   ],
   "ci": {
