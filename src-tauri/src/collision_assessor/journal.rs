@@ -821,7 +821,7 @@ fn unpack_participant_node_bindings(
     }
     let mut bindings = BTreeMap::new();
     let mut previous: Option<String> = None;
-    for chunk in bytes.chunks_exact(64) {
+    for chunk in bytes.as_chunks::<64>().0 {
         let participant_id = encode_sha256_hex(&chunk[..32]);
         let node_digest = encode_sha256_hex(&chunk[32..]);
         if previous
@@ -894,7 +894,7 @@ fn unpack_participant_conflict_edges(
     }
     let mut edges = BTreeSet::new();
     let mut previous: Option<(u16, u16)> = None;
-    for chunk in bytes.chunks_exact(4) {
+    for chunk in bytes.as_chunks::<4>().0 {
         let edge = (
             u16::from_be_bytes([chunk[0], chunk[1]]),
             u16::from_be_bytes([chunk[2], chunk[3]]),
@@ -2172,7 +2172,7 @@ fn decode_journal_hex<const N: usize>(value: &str) -> Result<[u8; N], JournalErr
         return Err(JournalError::AnchorInvalid);
     }
     let mut output = [0_u8; N];
-    for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
+    for (index, chunk) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let high = (chunk[0] as char)
             .to_digit(16)
             .ok_or(JournalError::AnchorInvalid)? as u8;

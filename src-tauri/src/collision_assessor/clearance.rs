@@ -844,7 +844,7 @@ fn decode_lower_hex<const N: usize>(value: &str) -> Result<[u8; N], ClearanceErr
         return Err(ClearanceError::InvalidToken);
     }
     let mut output = [0_u8; N];
-    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+    for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         output[index] = (hex_nibble(pair[0])? << 4) | hex_nibble(pair[1])?;
     }
     Ok(output)

@@ -760,7 +760,7 @@ fn decode_key32(value: &str) -> Result<[u8; 32], DiscoveryError> {
         return Err(DiscoveryError::Malformed);
     }
     let mut output = [0u8; 32];
-    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+    for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let high = (pair[0] as char)
             .to_digit(16)
             .ok_or(DiscoveryError::Malformed)? as u8;
