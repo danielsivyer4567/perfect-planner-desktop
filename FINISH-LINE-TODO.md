@@ -5,7 +5,7 @@ Repository: `C:\repos\perfect-planner-tauri`
 Branch: `feature/tauri-orchestrator-messaging-20260821-223935`
 Continuation base commit: `6c0f3000614ae841913805f87efcfb2c89ce2eb3`
 Continuation starting head: `bbe53bc1e285ae0f09043240dc26af06994b6a12`
-Latest product/evidence commit verified: `e20673a2069ce4da83c0b86628ab68c2180c77e9`
+Latest integrated product/security commit verified: `4a4d50ecc8589a574453bb6f22e5402aea50cd28`
 
 ## Finish-line definition
 
@@ -80,6 +80,8 @@ signed Windows installer has been installed and exercised successfully.
   - [x] Confirm physical Windows Escape/Tab input against the installed packaged app.
   - [x] Embed and inspect a Per-Monitor V2 Windows manifest; prove the installed process is
         `PER_MONITOR_DPI_AWARE` and its WebView inherits the active monitor scale.
+  - [x] Enumerate the attached physical monitors: one is 100% and two are 150%; no attached target
+        can provide an honest OS-level 300% pass.
   - [ ] Confirm Windows OS-level 300% scaling on the target display.
 - [x] Install both MSI and NSIS candidates on Windows x64; verify launch, upgrade/reinstall,
       uninstall, retained user data, and no orphan background processes.
@@ -90,7 +92,7 @@ signed Windows installer has been installed and exercised successfully.
       `danielsivyer4567/perfect-planner-desktop`; its default branch is `main`.
 - [x] Add a CI workflow that runs frontend build, browser/integration tests, Rust format/tests/lint,
       and the Windows Tauri package build.
-- [ ] Run a conflict-free integration against the intended base and pass the full local CI mirror.
+- [x] Run a conflict-free integration against the intended base and pass the full local CI mirror.
   - [x] Fetch and verify exact remote heads: `origin/main` and the remote feature branch both point
         to `1f3a183`; product/evidence head `e20673a` is 18 commits ahead and 1 commit behind.
   - [x] Identify the only content conflict as `.gitignore`; Rust formatting and PostCSS changes
@@ -101,8 +103,10 @@ signed Windows installer has been installed and exercised successfully.
         builds. The only test that cannot pass in a deliberately Git-less tree export requires a
         `.git` checkout identity; its source is unchanged in the candidate and the same test passed
         separately in the real repository, bringing the environment-correct active total to 309.
-  - [ ] Resolve the known `.gitignore` conflict in the eventual authorized merge or rebase, then
-        rerun hosted CI on that exact integrated commit.
+  - [x] Resolve `.gitignore` by retaining the audited local superset in merge commit `4a4d50e`.
+  - [x] Remove the obfuscated network-executing payload discovered in the automatically merged
+        remote `postcss.config.js`; add a fail-closed pre-execution security gate.
+  - [ ] Rerun hosted CI on the final sanitized feature SHA.
 - [x] Commit all intended source, tests, documentation, and required evidence with a clear message.
 - [x] Confirm the working tree is clean and record the exact handoff commit SHA in the final report.
 - [ ] Push only when explicitly authorized, then require the actual CI run to pass on that same SHA.
@@ -111,7 +115,21 @@ signed Windows installer has been installed and exercised successfully.
   - [ ] GitHub returned HTTP 403 because private-repository protection requires an account upgrade;
         enforce this gate after the repository plan supports it or make an explicit alternative policy.
 
-## 6. Prepare Windows production distribution
+## 6. Close the build-host security incident
+
+- [x] Preserve the exact remote commit, payload location, exposure boundary, containment, and scan
+      evidence in `SECURITY-INCIDENT-20260828.md`.
+- [x] Reinstall JavaScript dependencies from the lockfile with lifecycle scripts disabled; package
+      audit reports zero vulnerabilities.
+- [x] Confirm no known loader process, external Node connection, or payload indicator remains live
+      or in the final working tree; complete a fresh Defender quick scan with zero new detections.
+- [x] Enforce the exact declarative PostCSS allowlist before local dev/build/test/preview/Tauri and
+      hosted CI can load the build configuration.
+- [ ] Rotate credentials that were accessible to the exposed Windows account from a known-clean
+      device; local inspection cannot prove they were not disclosed.
+- [ ] Rebuild, sign, and smoke-test the release on a known-clean Windows host or fresh VM.
+
+## 7. Prepare Windows production distribution
 
 - [ ] Obtain and configure an appropriate Windows code-signing identity.
 - [ ] Sign the application executable, MSI, and NSIS installer; verify all signatures with
@@ -126,10 +144,9 @@ signed Windows installer has been installed and exercised successfully.
 ## Release decision
 
 - [x] No known P0 product or isolation defects remain.
-- [x] Current product/evidence head `e20673a` passes the full local matrix. Its resolved remote-main
-      candidate tree `489f3000dec4b9fd4e46576eaee1f8d6fcfbc3a1` passes the same matrix with the checkout-identity
-      test run from the unchanged real-repository source, as documented above. The branch remains
-      unmerged.
+- [x] Integrated sanitized commit `4a4d50e` passes the security gate, frontend build, all eight
+      browser suites, Rust format, 309 active Rust tests plus 17 contract tests, warning-denied
+      Clippy, MSI/NSIS packaging, and packaged/installed native smoke.
 - [ ] Required screenshots, console output, native logs, and manual interaction notes are attached.
   - [x] Attach the locally reproducible screenshot, console, geometry, scale-emulation, focus, and
         native event-hash evidence described in `NATIVE-EVIDENCE.md`.

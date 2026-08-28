@@ -7,13 +7,13 @@ Branch: `feature/tauri-orchestrator-messaging-20260821-223935`
 ## Outcome
 
 The local Perfect Planner product lifecycle is substantially finished and regression-proven, but
-the application is **not production-ready**. Product, browser, native package, and both installer
-candidates pass locally, including a resolved simulation against the exact remote `main`. The real
-branch integration still has one known `.gitignore` conflict. Production promotion remains blocked
-by that unresolved integration, an unrun hosted CI build, absent Windows signing identity, untested
-OS-level 300% Windows scale, and absent clean-VM smoke. Real Windows Escape and Tab behavior now
-passes against the installed candidate. The installed executable is now Per-Monitor V2 aware; the
-active physical monitor was 100%, so the separate 300% target-display gate remains open.
+the application is **not production-ready**. Sanitized merge commit `4a4d50e` integrates the exact
+remote `main`, resolves `.gitignore`, and passes the complete local matrix. During the real merge,
+an obfuscated network-executing payload was discovered in remote `postcss.config.js`; it is removed
+from the final tree and guarded against recurrence, but an earlier simulation executed the tainted
+configuration. Production promotion is therefore blocked by clean-host credential rotation/build
+evidence in addition to hosted CI, Windows signing, OS-level 300% scale, and clean-VM smoke. See
+`SECURITY-INCIDENT-20260828.md`.
 
 The final local UI slice adds a prominent Parallel agents switch that defaults new runs to four
 native-enforced active workers and creates serial one-worker runs when off. Existing runs retain
@@ -21,13 +21,11 @@ their stored limit. The workflow canvas can split into live UI and captured evid
 evidence pane between UI and attached text/code output, and refuses to label captures below
 1280x720 or without dimensions as comparison-grade.
 
-A fresh read-only integration simulation at product/evidence commit `e20673a` confirms the only
-content conflict with `origin/main` is `.gitignore`. Retaining the verified local superset produced
-tree `489f3000dec4b9fd4e46576eaee1f8d6fcfbc3a1`. That tree passed frontend build, all eight browser
-suites, Rust format, 308 active Rust tests, warning-denied Clippy, and MSI/NSIS packaging. One Rust
-test intentionally requires its source root to contain `.git`, so it cannot pass in the Git-less
-export; the test source is unchanged by the integration and passed separately from the real
-repository, for 309 environment-correct active tests in total. This is evidence, not a merge.
+The real integration is now committed. The final tree passes the repository-security gate,
+frontend build, all eight browser suites, Rust format, 309 active Rust tests plus 17 contract tests,
+warning-denied Clippy, MSI/NSIS packaging, and packaged/installed native smoke. The native proof has
+zero console errors, page errors, or unexpected failed requests and records physical Escape/Tab,
+Per-Monitor awareness, scoped message routing, and correlated launch/exit.
 
 The Graphify architecture map influenced this review by separating the Session Recovery, Control
 Plane Messaging, Collision Registry/Census, Repository Identity, Verification Evidence, and Release
@@ -252,25 +250,37 @@ The NSIS candidate was reinstalled and passed native routing, correlated launch/
 Escape/Tab, per-monitor awareness/active-scale inheritance, screenshot, and clean-console proof.
 These artifacts remain unsigned and were not tested on a clean VM.
 
+The sanitized integrated candidate produced these latest **unsigned local-test-only** fingerprints:
+
+- release app EXE: `02DB0D8127FFE764D561C5A6B9B9E20201C49C8C02775D79B63FD0176D89F851`
+- MSI: `83BD5AD0758D6C1FAE2550C1D43AEF33CE269F16274662E14A08AE439035A4B2`
+- NSIS: `ECD75ECFB6E189A1943BF5B6C87BDD92FC090B3D428D2368C5F0B9E963D3D667`
+- installed NSIS executable: `C378020DBA631440F0C88116C967C3B8ADDA937DDA82496B94CE8C24AFC3D2FE`
+
+The installed executable passed the packaged native lifecycle after silent reinstall. All four
+fingerprints are unsigned and must not be promoted from this exposed build host.
+
 ## Known gaps deliberately left open
 
-1. Product/evidence head `e20673a` is 18 commits ahead and 1 behind the remote feature branch. Its
-   resolved simulation tree `489f3000dec4b9fd4e46576eaee1f8d6fcfbc3a1` is verified as described above,
-   but the real integration still requires an authorized resolution of the `.gitignore` conflict
-   and hosted verification on the resulting commit.
-2. The exact remote is `https://github.com/danielsivyer4567/perfect-planner-desktop.git` and its
+1. Sanitized integration commit `4a4d50e` contains `origin/main` and is 20 commits ahead of it.
+   Hosted verification still must run on the final documentation commit after push.
+2. Remote commit `1f3a183` contains an obfuscated network-executing PostCSS payload. The final tree
+   is clean and guarded, but the prior execution means credentials must be rotated and production
+   artifacts rebuilt on a known-clean host. See `SECURITY-INCIDENT-20260828.md`.
+3. The exact remote is `https://github.com/danielsivyer4567/perfect-planner-desktop.git` and its
    default branch is `main`. Hosted CI has not run because no push was authorized. GitHub returned
    HTTP 403 for branch-protection and ruleset APIs because this private repository's current account
    plan does not provide those controls.
-3. No user or machine code-signing certificate is installed. Signing and signed-artifact hashes
+4. No user or machine code-signing certificate is installed. Signing and signed-artifact hashes
    cannot be completed.
-4. No clean Windows VM was available for final signed-installer smoke or artifact promotion.
-5. Real Windows Escape and Tab input, native narrow-window behavior, and 300% WebView device-scale
-   emulation are proven. Windows OS-level 300% display scaling still requires a target-display pass.
-6. The current native run `run-mt52331o` is honestly `ready` with no recorded preflight, worker,
+5. No clean Windows VM was available for final signed-installer smoke or artifact promotion.
+6. Real Windows Escape and Tab input, native narrow-window behavior, and 300% WebView device-scale
+   emulation are proven. The three attached physical monitors enumerate as 100%, 150%, and 150%,
+   so Windows OS-level 300% display scaling still requires a different target display.
+7. The current native run `run-mt52331o` is honestly `ready` with no recorded preflight, worker,
    completion, or CI result. Those states were proven in isolated browser/native test fixtures and
    Rust tests, but were not invented in the packaged app.
-7. During pre-fix verification, Perfect Planner wrote a recovery marker into one external Looplet
+8. During pre-fix verification, Perfect Planner wrote a recovery marker into one external Looplet
    plan. The app was stopped, Looplet was not edited or reverted here, and the corrected package did
    not advance that external file's timestamp. Details are preserved in `RECONCILIATION.md`.
 
