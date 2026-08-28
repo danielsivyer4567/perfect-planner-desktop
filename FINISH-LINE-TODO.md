@@ -5,7 +5,8 @@ Repository: `C:\repos\perfect-planner-tauri`
 Branch: `feature/tauri-orchestrator-messaging-20260821-223935`
 Continuation base commit: `6c0f3000614ae841913805f87efcfb2c89ce2eb3`
 Continuation starting head: `bbe53bc1e285ae0f09043240dc26af06994b6a12`
-Latest integrated product/security commit verified: `4a4d50ecc8589a574453bb6f22e5402aea50cd28`
+Latest integrated product/security source verified: `9d28edfc22de3975e6bb69ecaf10b9586d5a77b6`
+Hosted Windows CI: run `33145216487` — passed on that exact source commit
 
 ## Finish-line definition
 
@@ -106,10 +107,12 @@ signed Windows installer has been installed and exercised successfully.
   - [x] Resolve `.gitignore` by retaining the audited local superset in merge commit `4a4d50e`.
   - [x] Remove the obfuscated network-executing payload discovered in the automatically merged
         remote `postcss.config.js`; add a fail-closed pre-execution security gate.
-  - [ ] Rerun hosted CI on the final sanitized feature SHA.
+  - [x] Rerun hosted CI on the final sanitized feature source SHA; Windows run `33145216487`
+        passed security, frontend, browser/integration, Rust format/tests/lint, and MSI/NSIS build.
 - [x] Commit all intended source, tests, documentation, and required evidence with a clear message.
 - [x] Confirm the working tree is clean and record the exact handoff commit SHA in the final report.
-- [ ] Push only when explicitly authorized, then require the actual CI run to pass on that same SHA.
+- [x] Push the feature branch after broad finish authorization and require the actual CI run to pass
+      on the same source SHA. No merge or push to `main` was performed.
 - [ ] Confirm branch protection/review requirements and prevent release from an unverified commit.
   - [x] Query branch protection and repository rulesets on the exact private repository.
   - [ ] GitHub returned HTTP 403 because private-repository protection requires an account upgrade;
@@ -144,15 +147,16 @@ signed Windows installer has been installed and exercised successfully.
 ## Release decision
 
 - [x] No known P0 product or isolation defects remain.
-- [x] Integrated sanitized commit `4a4d50e` passes the security gate, frontend build, all eight
+- [x] Integrated sanitized source commit `9d28edf` passes the security gate, frontend build, all eight
       browser suites, Rust format, 309 active Rust tests plus 17 contract tests, warning-denied
-      Clippy, MSI/NSIS packaging, and packaged/installed native smoke.
+      Clippy, MSI/NSIS packaging, and packaged/installed native smoke; hosted Windows CI run
+      `33145216487` independently passes the same source and package gates.
 - [ ] Required screenshots, console output, native logs, and manual interaction notes are attached.
   - [x] Attach the locally reproducible screenshot, console, geometry, scale-emulation, focus, and
         native event-hash evidence described in `NATIVE-EVIDENCE.md`.
   - [x] Attach packaged routing, product launch/exit, and physical Windows keyboard evidence.
   - [ ] Attach a Windows OS-level 300% display-scale pass on the target display.
-- [ ] CI passes on the exact release commit.
+- [x] CI passes on the exact release source commit.
 - [x] The working tree is clean and every intended file is committed.
 - [ ] Signed installers pass clean-machine installation and runtime smoke tests.
 - [ ] Remaining limitations are documented and accepted explicitly.

@@ -12,7 +12,7 @@ remote `main`, resolves `.gitignore`, and passes the complete local matrix. Duri
 an obfuscated network-executing payload was discovered in remote `postcss.config.js`; it is removed
 from the final tree and guarded against recurrence, but an earlier simulation executed the tainted
 configuration. Production promotion is therefore blocked by clean-host credential rotation/build
-evidence in addition to hosted CI, Windows signing, OS-level 300% scale, and clean-VM smoke. See
+evidence, Windows signing, OS-level 300% scale, and clean-VM smoke. See
 `SECURITY-INCIDENT-20260828.md`.
 
 The final local UI slice adds a prominent Parallel agents switch that defaults new runs to four
@@ -21,7 +21,9 @@ their stored limit. The workflow canvas can split into live UI and captured evid
 evidence pane between UI and attached text/code output, and refuses to label captures below
 1280x720 or without dimensions as comparison-grade.
 
-The real integration is now committed. The final tree passes the repository-security gate,
+The real integration is committed and pushed on the feature branch. Hosted Windows CI run
+`33145216487` passed the exact source commit
+`9d28edfc22de3975e6bb69ecaf10b9586d5a77b6`. The final tree passes the repository-security gate,
 frontend build, all eight browser suites, Rust format, 309 active Rust tests plus 17 contract tests,
 warning-denied Clippy, MSI/NSIS packaging, and packaged/installed native smoke. The native proof has
 zero console errors, page errors, or unexpected failed requests and records physical Escape/Tab,
@@ -47,7 +49,8 @@ bounded board identity census
   -> evidence-gated completion
   -> reconciliation
   -> CI readiness
-  -> hosted CI + signed distribution (not yet available)
+  -> hosted CI
+  -> signed distribution (external release gate still pending)
 ```
 
 The most serious finding was a global recovery replay path that could mutate a discovered board in
@@ -151,7 +154,7 @@ The exact final committed inventory is available with `git show --name-status --
   historical `.log` evidence contains original CRLF/trailing-space command output and is not
   rewritten. The tracked-diff secret-shape scan found no matches.
 
-### Exact remote-main integration simulation
+### Historical remote-main integration simulation
 
 - Remote: `https://github.com/danielsivyer4567/perfect-planner-desktop.git`.
 - Integration-simulation input head: `7c1e91c1863d7e31a72eb4dfb08252876f0cf395`.
@@ -165,7 +168,18 @@ The exact final committed inventory is available with `git show --name-status --
   tests passed; warning-denied Clippy passed; MSI and NSIS package creation passed.
 - The first package attempt was terminated during a Windows restart (`0x40010004`). The retry on the
   restarted system compiled the same dependencies and product successfully without a source change.
-- No merge, rebase, push, or remote mutation was performed.
+- No merge, rebase, push, or remote mutation was performed during this earlier simulation. The
+  later real integration and feature-branch push are recorded below.
+
+### Exact hosted verification
+
+- Feature source commit: `9d28edfc22de3975e6bb69ecaf10b9586d5a77b6`.
+- GitHub Actions run: `33145216487`.
+- Result: passed on Windows in 21m10s.
+- Passed steps: security guard, frontend build, all browser/integration regressions, Rust format,
+  all Rust tests, warning-denied Clippy, and Windows x64 MSI/NSIS package creation.
+- The feature branch and `origin/feature/tauri-orchestrator-messaging-20260821-223935` both resolved
+  to that exact source commit after the push; the working tree was clean.
 
 ## Screenshot and local evidence
 
@@ -262,31 +276,27 @@ fingerprints are unsigned and must not be promoted from this exposed build host.
 
 ## Known gaps deliberately left open
 
-1. Sanitized integration commit `4a4d50e` contains `origin/main` and is 20 commits ahead of it.
-   Hosted verification still must run on the final documentation commit after push.
-2. Remote commit `1f3a183` contains an obfuscated network-executing PostCSS payload. The final tree
+1. Remote commit `1f3a183` contains an obfuscated network-executing PostCSS payload. The final tree
    is clean and guarded, but the prior execution means credentials must be rotated and production
    artifacts rebuilt on a known-clean host. See `SECURITY-INCIDENT-20260828.md`.
-3. The exact remote is `https://github.com/danielsivyer4567/perfect-planner-desktop.git` and its
-   default branch is `main`. Hosted CI has not run because no push was authorized. GitHub returned
-   HTTP 403 for branch-protection and ruleset APIs because this private repository's current account
-   plan does not provide those controls.
-4. No user or machine code-signing certificate is installed. Signing and signed-artifact hashes
+2. GitHub returned HTTP 403 for branch-protection and ruleset APIs because this private repository's
+   current account plan does not provide those controls.
+3. No user or machine code-signing certificate is installed. Signing and signed-artifact hashes
    cannot be completed.
-5. No clean Windows VM was available for final signed-installer smoke or artifact promotion.
-6. Real Windows Escape and Tab input, native narrow-window behavior, and 300% WebView device-scale
+4. No clean Windows VM was available for final signed-installer smoke or artifact promotion.
+5. Real Windows Escape and Tab input, native narrow-window behavior, and 300% WebView device-scale
    emulation are proven. The three attached physical monitors enumerate as 100%, 150%, and 150%,
    so Windows OS-level 300% display scaling still requires a different target display.
-7. The current native run `run-mt52331o` is honestly `ready` with no recorded preflight, worker,
+6. The current native run `run-mt52331o` is honestly `ready` with no recorded preflight, worker,
    completion, or CI result. Those states were proven in isolated browser/native test fixtures and
    Rust tests, but were not invented in the packaged app.
-8. During pre-fix verification, Perfect Planner wrote a recovery marker into one external Looplet
+7. During pre-fix verification, Perfect Planner wrote a recovery marker into one external Looplet
    plan. The app was stopped, Looplet was not edited or reverted here, and the corrected package did
    not advance that external file's timestamp. Details are preserved in `RECONCILIATION.md`.
 
 ## Release decision
 
-The verified local commit is suitable for review and for configuring a real remote CI/signing
+The verified feature source is suitable for review and has passed the real hosted Windows CI
 pipeline. It must not be labelled production-ready or distributed until the open gates in
 `FINISH-LINE-TODO.md` are completed on the exact signed release commit.
 

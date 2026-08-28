@@ -118,8 +118,9 @@ place missing prerequisites are discovered.
 
 The repository contains `.github/workflows/ci.yml`, which runs the frontend build, full browser
 regression, Rust format/tests/lint, and Windows MSI/NSIS package build on the checked-out commit.
-The exact GitHub remote and default branch are known, but no push was authorized, so no hosted run
-exists for the local candidate.
+The feature branch is pushed to the exact GitHub remote. Hosted Windows run `33145216487` passed
+every gate on source commit `9d28edfc22de3975e6bb69ecaf10b9586d5a77b6`, including the
+pre-execution repository-security check and both native installer builds.
 
 ## Current versus required lifecycle
 
@@ -176,9 +177,9 @@ bounded identity census
 
 ### P1 — release blockers outside the completed product changes
 
-1. The real feature branch remains one commit behind its upstream with a known `.gitignore`
-   integration conflict; the conflict-resolved candidate passed locally, but hosted CI has not run
-   on an authorized integrated commit.
+1. A tainted build configuration from remote `main` executed once on the original Windows account
+   before discovery. The source is sanitized and guarded, but credentials still require rotation
+   from a known-clean device and the production build must be repeated on a known-clean host.
 2. The application executable, MSI, and NSIS installer are unsigned and no Windows signing identity
    is configured.
 3. Local MSI/NSIS install, upgrade/reinstall, uninstall, retained-data, and orphan-process tests
