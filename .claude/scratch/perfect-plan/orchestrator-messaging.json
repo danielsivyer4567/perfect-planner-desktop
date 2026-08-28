@@ -92,24 +92,24 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T01:58:06.149Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T08:40:56.401Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-84099084",
-            "note": "Fresh current-checkout proof of the append-only control-plane ledger.",
-            "log": "PP-001-A01-0-1787450282426.log",
-            "sha256": "873f996d7c6b6f1c93e989708d208865ef52757a709c4760db69956ac4585ec4",
+            "session": "s-d4c2d89b",
+            "note": "reverify of: Persist worker notes and orchestrator messages in an append-only local ledger",
+            "log": "PP-001-A01-0-1787906453726.log",
+            "sha256": "a26403ebb6e24e6f7bae372d76617b3645d3efdc7c628bb906fc9fd894afee26",
             "exit": 0,
-            "durationMs": 3154,
+            "durationMs": 2100,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
             "verify": "cargo test control_plane",
             "cwd": "C:\\repos\\perfect-planner-tauri\\src-tauri",
             "env": {
-              "node": "v24.7.0",
+              "node": "v24.20.0",
               "platform": "win32",
               "arch": "x64",
               "lockfile": null,
@@ -166,17 +166,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T01:58:17.549Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T08:40:57.940Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-84099084",
-            "note": "Fresh current-checkout proof of durable message-state derivation.",
-            "log": "PP-001-A01-1-1787450295713.log",
-            "sha256": "8ef50d38bcf89e59a6f434327672bd5ba26d90108d6f7b4fb9c4a28756556d7a",
+            "note": "reverified via the shared run of `cargo test control_plane` proven at A01:0",
+            "log": "PP-001-A01-0-1787906453726.log",
+            "sha256": "a26403ebb6e24e6f7bae372d76617b3645d3efdc7c628bb906fc9fd894afee26",
             "exit": 0,
             "durationMs": 1052,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -200,7 +200,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "A01:0"
           }
         },
         {
@@ -234,17 +235,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T01:58:28.12Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T08:40:57.949Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-84099084",
-            "note": "Fresh current-checkout proof of repository-scope validation and idempotency.",
-            "log": "PP-001-A01-2-1787450306292.log",
-            "sha256": "3660a2ae6f57787ac1104300ff6221b0e2694d68eb52eb967275d301cd88fc36",
+            "note": "reverified via the shared run of `cargo test control_plane` proven at A01:0",
+            "log": "PP-001-A01-0-1787906453726.log",
+            "sha256": "a26403ebb6e24e6f7bae372d76617b3645d3efdc7c628bb906fc9fd894afee26",
             "exit": 0,
             "durationMs": 1144,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -268,7 +269,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "A01:0"
           }
         }
       ],
@@ -320,7 +322,7 @@
           "text": "Expose scoped post, snapshot, claim, result and acknowledgement commands",
           "built": true,
           "tested": true,
-          "verify": "cargo test",
+          "verify": "cargo test --manifest-path src-tauri\\Cargo.toml",
           "ref": "src-tauri/src/lib.rs",
           "builtBy": {
             "model": "gpt-5",
@@ -358,64 +360,57 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T01:59:09.161Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T09:08:44.822Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-84099084",
-            "note": "Fresh current-checkout proof of the scoped Tauri command surface.",
-            "log": "PP-001-A02-0-1787450315915.log",
-            "sha256": "ee7f5deb1165714be719b0385a9f62f1cb1d0c9a48f0bff651f9c2c4c20030e8",
+            "session": "s-d4c2d89b",
+            "note": "Fresh scoped command-surface proof after the prior transient Cargo lock; the full Rust suite is green.",
+            "log": "PP-001-A02-0-1787908077271.log",
+            "sha256": "1135ddd59a52423f5f01c2822fe9a28a0f35acd9cff233bfbe1d467e629ffe88",
             "exit": 0,
-            "durationMs": 32640,
+            "durationMs": 47071,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
-            "verify": "cargo test",
-            "cwd": "C:\\repos\\perfect-planner-tauri\\src-tauri",
+            "verify": "cargo test --manifest-path src-tauri\\Cargo.toml",
+            "cwd": "C:\\repos\\perfect-planner-tauri",
             "env": {
-              "node": "v24.7.0",
+              "node": "v24.20.0",
               "platform": "win32",
               "arch": "x64",
-              "lockfile": null,
+              "lockfile": {
+                "name": "package-lock.json",
+                "sha256": "600ab8e44298f37777b4757c4bcaf2f1571a438173b5749fdbc406c503ef7a33"
+              },
               "osRelease": "10.0.26200"
             },
-            "tokensEst": 1000,
+            "diff": "PP-001-A02-0-1787908077271.diff",
+            "diffSha256": "19c9ba81dc76cd340419c6b4af3a244b872a58168a08cce047c31b65e2556a05",
+            "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+            "diffFiles": [
+              "src-tauri/Cargo.toml",
+              "src-tauri/capabilities/main-read-only.json",
+              "src-tauri/permissions/control-plane.toml",
+              "src-tauri/src/control_plane_api.rs",
+              "src-tauri/src/lib.rs"
+            ],
+            "tokensEst": null,
             "loc": {
-              "baseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
+              "baseline": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
               "scope": "files",
-              "added": 934,
-              "removed": 14,
+              "added": 17,
+              "removed": 4,
               "dirty": true,
               "files": [
                 {
-                  "file": "src-tauri/Cargo.toml",
-                  "added": 10,
-                  "removed": 0
-                },
-                {
-                  "file": "src-tauri/capabilities/main-read-only.json",
-                  "added": 5,
-                  "removed": 2
-                },
-                {
-                  "file": "src-tauri/permissions/control-plane.toml",
-                  "added": 4,
-                  "removed": 0
-                },
-                {
-                  "file": "src-tauri/src/control_plane_api.rs",
-                  "added": 696,
-                  "removed": 0
-                },
-                {
                   "file": "src-tauri/src/lib.rs",
-                  "added": 219,
-                  "removed": 12
+                  "added": 17,
+                  "removed": 4
                 }
               ],
-              "fileCount": 5,
+              "fileCount": 1,
               "filesTruncated": false,
               "untrackedCapped": false
             }
@@ -463,24 +458,24 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T01:59:54.584Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T08:41:59.874Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-84099084",
-            "note": "Fresh current-checkout proof of the named Tauri permission boundary.",
-            "log": "PP-001-A02-1-1787450373141.log",
-            "sha256": "6b2085d3c94d23b3cade3aa59d5892e22e5d9c2e597bfc62ada94ebcc7d7463a",
+            "session": "s-d4c2d89b",
+            "note": "reverify of: Grant only the named control-plane commands to the main window",
+            "log": "PP-001-A02-1-1787906500844.log",
+            "sha256": "b159b6c49bb5230da1e03c2616eea3ad41cce4e0036b4495181e6bffe7cb9a4f",
             "exit": 0,
-            "durationMs": 20385,
+            "durationMs": 18569,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
             "verify": "cargo check",
             "cwd": "C:\\repos\\perfect-planner-tauri\\src-tauri",
             "env": {
-              "node": "v24.7.0",
+              "node": "v24.20.0",
               "platform": "win32",
               "arch": "x64",
               "lockfile": null,
@@ -508,7 +503,7 @@
         "session": "s-05f8c444",
         "at": "2026-08-21T13:07:59.5Z"
       },
-      "lastStampSha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+      "lastStampSha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
       "doneAt": "2026-08-21T13:14:19.148Z",
       "doneBy": {
         "model": "gpt-5",
@@ -576,24 +571,24 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T02:00:10.517Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T08:42:11.072Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-84099084",
-            "note": "Fresh current-checkout proof of the strict TypeScript control-plane client.",
-            "log": "PP-001-A03-0-1787450405433.log",
-            "sha256": "670e7ad36d8437ce8a1695bdb2f7f25e817b045f20d3633b21210906ec8f963f",
+            "session": "s-d4c2d89b",
+            "note": "reverify of: Map the Rust snapshot and commands into strict TypeScript types",
+            "log": "PP-001-A03-0-1787906520687.log",
+            "sha256": "f3be6df3297e13a6bb44abd3a707138233d837309a62144ccce4f980e606fef5",
             "exit": 0,
-            "durationMs": 4075,
+            "durationMs": 9612,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
             "verify": "npm run build",
             "cwd": "C:\\repos\\perfect-planner-tauri",
             "env": {
-              "node": "v24.7.0",
+              "node": "v24.20.0",
               "platform": "win32",
               "arch": "x64",
               "lockfile": {
@@ -602,7 +597,7 @@
               },
               "osRelease": "10.0.26200"
             },
-            "diff": "PP-001-A03-0-1787450405433.diff",
+            "diff": "PP-001-A03-0-1787906520687.diff",
             "diffSha256": "aa41356e6b93604058b24b2e57cede51d3355092fabfd2874944b715b09caa2f",
             "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
             "diffFiles": [
@@ -666,17 +661,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T02:00:24.376Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T08:42:11.983Z",
+            "model": null,
             "user": "danielsivyer4567",
             "session": "s-84099084",
-            "note": "Fresh current-checkout proof that browser fallback remains repository-scoped and build-safe.",
-            "log": "PP-001-A03-1-1787450418996.log",
-            "sha256": "9b910501ce6ec867d6c327689a65ff4a179cb7dbc2b32d325fd9ee6c879b370b",
+            "note": "reverified via the shared run of `npm run build` proven at A03:0",
+            "log": "PP-001-A03-0-1787906520687.log",
+            "sha256": "f3be6df3297e13a6bb44abd3a707138233d837309a62144ccce4f980e606fef5",
             "exit": 0,
             "durationMs": 4552,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -709,7 +704,8 @@
               "fileCount": 0,
               "filesTruncated": false,
               "untrackedCapped": false
-            }
+            },
+            "sharedWith": "A03:0"
           }
         }
       ],
@@ -811,24 +807,24 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T02:00:43.723Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T08:42:20.140Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-84099084",
-            "note": "Fresh current-checkout interaction proof: expand orchestrator, open the scoped worker panel, append a note, and preserve repository isolation.",
-            "log": "PP-001-A04-0-1787450435275.log",
-            "sha256": "a4ee4091b0c21ce963c0ed882e6ef1938e7ee403459a3044d2992b0c0905b56c",
+            "session": "s-d4c2d89b",
+            "note": "reverify of: Worker cards open a fully scoped notes panel and can append a note",
+            "log": "PP-001-A04-0-1787906532008.log",
+            "sha256": "5e2f03fa533ffb776bdb41354768eb8b0e60a2d184b34606688fc7eba5af7514",
             "exit": 0,
-            "durationMs": 7430,
+            "durationMs": 7445,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
             "verify": "python tests/control_plane_e2e.py",
             "cwd": "C:\\repos\\perfect-planner-tauri",
             "env": {
-              "node": "v24.7.0",
+              "node": "v24.20.0",
               "platform": "win32",
               "arch": "x64",
               "lockfile": {
@@ -880,32 +876,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "screenshotOcr": {
-              "status": "clear",
-              "role": "derived-warning-only",
-              "rawScreenshotAuthoritative": true,
-              "engine": "tesseract.js",
-              "engineVersion": "5.1.1",
-              "language": "eng",
-              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
-              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
-              "oem": 1,
-              "runtime": "one-shot-subprocess",
-              "resident": false,
-              "network": "disabled-local-model-only",
-              "shot": "PP-001-A04-0-1787450435275.png",
-              "textArtifact": "PP-001-A04-0-1787450435275.ocr.txt",
-              "textSha256": "ec0f6ffd5886a98ba8b779a6f03d76882dd0d648bb5588e2ea4866d734d735d8",
-              "confidence": 90,
-              "durationMs": 1652,
-              "rssStartBytes": 65970176,
-              "rssEndBytes": 108154880,
-              "workerTerminated": true,
-              "expectedText": [],
-              "alarms": []
-            },
-            "diff": "PP-001-A04-0-1787450435275.diff",
-            "diffSha256": "d077e6ce2d8088ecf23ea99cb43c8ec8487029daa717e18fad7aef7f8d975cb9",
+            "diff": "PP-001-A04-0-1787906532008.diff",
+            "diffSha256": "3b2c172605338e42000cad6fe4fcab3edf135759f3521904e8a813efa9582729",
             "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
             "diffFiles": [
               "src/App.tsx",
@@ -932,6 +904,30 @@
               "samples": 41200
             },
             "shotNote": "Viewed at 2880x1800: the s-worker-alpha/A01 modal is open over the expanded orchestrator, with its scoped history, composer, and visible ACKNOWLEDGED, UNROUTED, and DELIVERED states.",
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A04-0-1787450435275.png",
+              "textArtifact": "PP-001-A04-0-1787450435275.ocr.txt",
+              "textSha256": "ec0f6ffd5886a98ba8b779a6f03d76882dd0d648bb5588e2ea4866d734d735d8",
+              "confidence": 90,
+              "durationMs": 1652,
+              "rssStartBytes": 65970176,
+              "rssEndBytes": 108154880,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
             "tokensEst": 1500,
             "loc": {
               "baseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
@@ -1022,24 +1018,24 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T02:01:02.778Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T08:42:27.469Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-84099084",
-            "note": "Fresh current-checkout interaction proof of explicit delivery and acknowledgement truth after expanding the orchestrator.",
-            "log": "PP-001-A04-1-1787450454940.log",
-            "sha256": "0296ef391fd9d5e8b0d70d93f5e1ecbd05199eddceb481be121d0755dd5145a1",
+            "session": "s-d4c2d89b",
+            "note": "reverify of: The head orchestrator lists pending messages with explicit delivery and acknowledgement state",
+            "log": "PP-001-A04-1-1787906541080.log",
+            "sha256": "3db7fab1fe4d4345b6b83d91210caf26643ef20c22f1c8e0eb4295798803444d",
             "exit": 0,
-            "durationMs": 7058,
+            "durationMs": 5833,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
             "verify": "python tests/control_plane_e2e.py",
             "cwd": "C:\\repos\\perfect-planner-tauri",
             "env": {
-              "node": "v24.7.0",
+              "node": "v24.20.0",
               "platform": "win32",
               "arch": "x64",
               "lockfile": {
@@ -1091,32 +1087,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "screenshotOcr": {
-              "status": "clear",
-              "role": "derived-warning-only",
-              "rawScreenshotAuthoritative": true,
-              "engine": "tesseract.js",
-              "engineVersion": "5.1.1",
-              "language": "eng",
-              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
-              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
-              "oem": 1,
-              "runtime": "one-shot-subprocess",
-              "resident": false,
-              "network": "disabled-local-model-only",
-              "shot": "PP-001-A04-1-1787450454940.png",
-              "textArtifact": "PP-001-A04-1-1787450454940.ocr.txt",
-              "textSha256": "ad4e84b2a3ba16cc1566c0af4421c5fb9f745e2ca44ea4d482992b9c76c328f8",
-              "confidence": 91,
-              "durationMs": 1610,
-              "rssStartBytes": 65908736,
-              "rssEndBytes": 126509056,
-              "workerTerminated": true,
-              "expectedText": [],
-              "alarms": []
-            },
-            "diff": "PP-001-A04-1-1787450454940.diff",
-            "diffSha256": "d077e6ce2d8088ecf23ea99cb43c8ec8487029daa717e18fad7aef7f8d975cb9",
+            "diff": "PP-001-A04-1-1787906541080.diff",
+            "diffSha256": "3b2c172605338e42000cad6fe4fcab3edf135759f3521904e8a813efa9582729",
             "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
             "diffFiles": [
               "src/App.tsx",
@@ -1143,6 +1115,30 @@
               "samples": 41200
             },
             "shotNote": "Viewed at 2880x1800: the worker modal visibly distinguishes ACKNOWLEDGED, UNROUTED and DELIVERED states; the background keeps the orchestrator and Minimise control visible without claiming unsupported delivery.",
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A04-1-1787450454940.png",
+              "textArtifact": "PP-001-A04-1-1787450454940.ocr.txt",
+              "textSha256": "ad4e84b2a3ba16cc1566c0af4421c5fb9f745e2ca44ea4d482992b9c76c328f8",
+              "confidence": 91,
+              "durationMs": 1610,
+              "rssStartBytes": 65908736,
+              "rssEndBytes": 126509056,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
             "tokensEst": 1500,
             "loc": {
               "baseline": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
@@ -1228,24 +1224,24 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T02:01:22.961Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T08:42:34.767Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-84099084",
-            "note": "Fresh current-checkout proof covers accessible expand/minimise, scoped modal controls, note submission, acknowledgement, repository switching and refreshed console status.",
-            "log": "PP-001-A04-2-1787450475022.log",
-            "sha256": "7cd0b1547ac3d1347ffd3cd85b540a1206965c75885b7b8db8e7c05b5108eba8",
+            "session": "s-d4c2d89b",
+            "note": "reverify of: Keyboard and screen-reader paths can open, write, close and acknowledge notes",
+            "log": "PP-001-A04-2-1787906548114.log",
+            "sha256": "181f204e05258fca922ac0d8cffbc1907225db7baa27fe1978be667392066e82",
             "exit": 0,
-            "durationMs": 7287,
+            "durationMs": 6202,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
             "verify": "python tests/control_plane_e2e.py",
             "cwd": "C:\\repos\\perfect-planner-tauri",
             "env": {
-              "node": "v24.7.0",
+              "node": "v24.20.0",
               "platform": "win32",
               "arch": "x64",
               "lockfile": {
@@ -1297,32 +1293,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "screenshotOcr": {
-              "status": "clear",
-              "role": "derived-warning-only",
-              "rawScreenshotAuthoritative": true,
-              "engine": "tesseract.js",
-              "engineVersion": "5.1.1",
-              "language": "eng",
-              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
-              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
-              "oem": 1,
-              "runtime": "one-shot-subprocess",
-              "resident": false,
-              "network": "disabled-local-model-only",
-              "shot": "PP-001-A04-2-1787450475022.png",
-              "textArtifact": "PP-001-A04-2-1787450475022.ocr.txt",
-              "textSha256": "6aee0b2873f397ef94f620b356fed27fdc9c7a8632daf1079a12126cc12b2cf9",
-              "confidence": 90,
-              "durationMs": 1477,
-              "rssStartBytes": 65937408,
-              "rssEndBytes": 99004416,
-              "workerTerminated": true,
-              "expectedText": [],
-              "alarms": []
-            },
-            "diff": "PP-001-A04-2-1787450475022.diff",
-            "diffSha256": "d077e6ce2d8088ecf23ea99cb43c8ec8487029daa717e18fad7aef7f8d975cb9",
+            "diff": "PP-001-A04-2-1787906548114.diff",
+            "diffSha256": "3b2c172605338e42000cad6fe4fcab3edf135759f3521904e8a813efa9582729",
             "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
             "diffFiles": [
               "src/App.tsx",
@@ -1349,6 +1321,30 @@
               "samples": 41200
             },
             "shotNote": "Viewed at 2880x1800: the full-width modal exposes the Close control, scoped notes list and composer; the expanded header behind it retains the Minimise control and status regions.",
+            "screenshotOcr": {
+              "status": "clear",
+              "role": "derived-warning-only",
+              "rawScreenshotAuthoritative": true,
+              "engine": "tesseract.js",
+              "engineVersion": "5.1.1",
+              "language": "eng",
+              "model": "@tesseract.js-data/eng@1.0.0/4.0.0_best_int",
+              "modelFileSha256": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+              "oem": 1,
+              "runtime": "one-shot-subprocess",
+              "resident": false,
+              "network": "disabled-local-model-only",
+              "shot": "PP-001-A04-2-1787450475022.png",
+              "textArtifact": "PP-001-A04-2-1787450475022.ocr.txt",
+              "textSha256": "6aee0b2873f397ef94f620b356fed27fdc9c7a8632daf1079a12126cc12b2cf9",
+              "confidence": 90,
+              "durationMs": 1477,
+              "rssStartBytes": 65937408,
+              "rssEndBytes": 99004416,
+              "workerTerminated": true,
+              "expectedText": [],
+              "alarms": []
+            },
             "tokensEst": 1500,
             "loc": {
               "baseline": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
@@ -1558,24 +1554,24 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T02:01:36.138Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T08:42:36.147Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-84099084",
-            "note": "Fresh current-checkout proof of atomic scoped external-worker notes.",
-            "log": "PP-001-A05-0-1787450495178.log",
-            "sha256": "c12fb97a46450d56b65b9b68e6ba74f07fc51b05a4a8c9057cb903139e824dd0",
+            "session": "s-d4c2d89b",
+            "note": "reverify of: External workers can atomically leave scoped notes without sharing the ledger file",
+            "log": "PP-001-A05-0-1787906555432.log",
+            "sha256": "1080b0599461890b1bf5e2805e8da114b773bbec0e63e2cc1c5209b74af1b3f6",
             "exit": 0,
-            "durationMs": 317,
+            "durationMs": 214,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
             "verify": "node scripts/pp-control.mjs self-test",
             "cwd": "C:\\repos\\perfect-planner-tauri",
             "env": {
-              "node": "v24.7.0",
+              "node": "v24.20.0",
               "platform": "win32",
               "arch": "x64",
               "lockfile": {
@@ -1627,8 +1623,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A05-0-1787450495178.diff",
-            "diffSha256": "3878a89e64719d70ff1da0bf21f8bb16e0d43cab899092ae6f46f924dbf78c40",
+            "diff": "PP-001-A05-0-1787906555432.diff",
+            "diffSha256": "b97f9a10bb2f634fad6d1be1ba801a664efcb3b6af68765cf4873caca12c5fb1",
             "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
             "diffFiles": [
               ".gitignore",
@@ -1763,24 +1759,24 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T02:01:47.256Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T08:42:39.322Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-84099084",
-            "note": "Fresh current-checkout proof of explicitly registered bounded connector delivery.",
-            "log": "PP-001-A05-1-1787450504997.log",
-            "sha256": "378ed16cf4d7efa33627c31776b9a2d5b7e9fd79d05d2a25825e6a90623882f5",
+            "session": "s-d4c2d89b",
+            "note": "reverify of: Only an explicitly registered Codex destination can trigger a bounded hidden resume delivery",
+            "log": "PP-001-A05-1-1787906556843.log",
+            "sha256": "074f8c1450d78f78ae682276c2df19a9557daec15ca4864600e4c724b33dd519",
             "exit": 0,
-            "durationMs": 1286,
+            "durationMs": 1956,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
             "verify": "cargo test --manifest-path src-tauri/Cargo.toml connectors",
             "cwd": "C:\\repos\\perfect-planner-tauri",
             "env": {
-              "node": "v24.7.0",
+              "node": "v24.20.0",
               "platform": "win32",
               "arch": "x64",
               "lockfile": {
@@ -1832,8 +1828,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A05-1-1787450504997.diff",
-            "diffSha256": "3878a89e64719d70ff1da0bf21f8bb16e0d43cab899092ae6f46f924dbf78c40",
+            "diff": "PP-001-A05-1-1787906556843.diff",
+            "diffSha256": "b97f9a10bb2f634fad6d1be1ba801a664efcb3b6af68765cf4873caca12c5fb1",
             "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
             "diffFiles": [
               ".gitignore",
@@ -1944,24 +1940,24 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T02:02:06.848Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T09:06:46.589Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-84099084",
-            "note": "Fresh current-checkout headless proof covers creation, isolation, truthful failure visibility and acknowledgement after explicit header expansion.",
-            "log": "PP-001-A05-2-1787450518038.log",
-            "sha256": "cffcfcd2d3d533d2633c636807e8b1246f81eff899795dfbabc71b4d8fdf10b8",
+            "session": "s-d4c2d89b",
+            "note": "Current UI lifecycle proof: note creation, scope isolation, failure visibility, acknowledgement, and clean browser evidence are green.",
+            "log": "PP-001-A05-2-1787908001175.log",
+            "sha256": "5fbf7b7f7a9d8c51487237e6c5504f3ebde0e7275e1839a97c81824315f006a6",
             "exit": 0,
-            "durationMs": 8135,
+            "durationMs": 4952,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
             "verify": "python tests/control_plane_e2e.py",
             "cwd": "C:\\repos\\perfect-planner-tauri",
             "env": {
-              "node": "v24.7.0",
+              "node": "v24.20.0",
               "platform": "win32",
               "arch": "x64",
               "lockfile": {
@@ -2026,19 +2022,19 @@
               "runtime": "one-shot-subprocess",
               "resident": false,
               "network": "disabled-local-model-only",
-              "shot": "PP-001-A05-2-1787450518038.png",
-              "textArtifact": "PP-001-A05-2-1787450518038.ocr.txt",
-              "textSha256": "8e2db0337eb5b0d0361a12efa334cc48c922778c5014f0ced18ed5721b7d3601",
-              "confidence": 90,
-              "durationMs": 1893,
-              "rssStartBytes": 65810432,
-              "rssEndBytes": 106393600,
+              "shot": "PP-001-A05-2-1787908001175.png",
+              "textArtifact": "PP-001-A05-2-1787908001175.ocr.txt",
+              "textSha256": "797c23d2c2e9e626d24283f36f8a2ec8c1b271b5cbb7923434c9e44b4590ee19",
+              "confidence": 89,
+              "durationMs": 2937,
+              "rssStartBytes": 62406656,
+              "rssEndBytes": 128307200,
               "workerTerminated": true,
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A05-2-1787450518038.diff",
-            "diffSha256": "477930f4130ae53cd7c4a8f257a82f7520a0a68520240c3eacae9960c90af685",
+            "diff": "PP-001-A05-2-1787908001175.diff",
+            "diffSha256": "b149ea63a08b8de897676ba8b1d2751378f49a94cdaf5fd61e2b56b5a684f5c9",
             "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
             "diffFiles": [
               ".gitignore",
@@ -2049,45 +2045,65 @@
               "tests/control_connector_e2e.py",
               "tests/control_plane_e2e.py"
             ],
-            "screenshot": "PP-001-A05-2-1787450518038.png",
-            "screenshotSha256": "c5c52dc80d6f7ab9eabfb86fcdcbf8acfe689cd5ce85d3c6939cdd992e7a2381",
+            "screenshot": "PP-001-A05-2-1787908001175.png",
+            "screenshotSha256": "f0360bcf881fd29ef28f62de9ed9e156a11b47005a321bb4b5c7207fa8170ef3",
             "screenshotCheck": {
               "ok": true,
               "width": 2880,
               "height": 1800,
               "bitDepth": 8,
               "colorType": 2,
-              "blankScore": 0.2257,
-              "uniqueColors": 145,
+              "blankScore": 0.2328,
+              "uniqueColors": 142,
               "stddev": {
-                "r": 103.441,
-                "g": 100.604,
-                "b": 100.861
+                "r": 111.087,
+                "g": 107.946,
+                "b": 108.245
               },
               "reason": null,
               "samples": 41200
             },
-            "shotNote": "Viewed at 2880x1800: exact worker and node scope is visible with ACKNOWLEDGED, UNROUTED and DELIVERED records; the expanded command deck remains visible behind the modal.",
-            "tokensEst": 1500,
+            "shotNote": "Message lifecycle UI after the acknowledgement transition.",
+            "tokensEst": null,
             "loc": {
               "baseline": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
               "scope": "files",
-              "added": 6,
-              "removed": 0,
+              "added": 106,
+              "removed": 29,
               "dirty": true,
               "files": [
                 {
                   "file": ".gitignore",
-                  "added": 1,
+                  "added": 4,
                   "removed": 0
                 },
                 {
-                  "file": "tests/control_plane_e2e.py",
-                  "added": 5,
+                  "file": "package.json",
+                  "added": 8,
                   "removed": 0
+                },
+                {
+                  "file": "scripts/pp-control.mjs",
+                  "added": 10,
+                  "removed": 2
+                },
+                {
+                  "file": "src-tauri/src/lib.rs",
+                  "added": 17,
+                  "removed": 4
+                },
+                {
+                  "file": "tests/control_connector_e2e.py",
+                  "added": 39,
+                  "removed": 16
+                },
+                {
+                  "file": "tests/control_plane_e2e.py",
+                  "added": 28,
+                  "removed": 7
                 }
               ],
-              "fileCount": 2,
+              "fileCount": 6,
               "filesTruncated": false,
               "untrackedCapped": false
             }
@@ -2168,24 +2184,24 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T02:27:42.948Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T09:14:13.434Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-c26d2982",
-            "note": "Final aggregate verification after independently proving every remaining browser test with explicit detail-deck expansion where required.",
-            "log": "PP-001-A05-3-1787452003025.log",
-            "sha256": "77a7230eae7ef49943108e5a59f55544e2c54f7922fdfa9d5aaa2f1a19c8a519",
+            "session": "s-d4c2d89b",
+            "note": "Final combined local gate after replacing frame-sensitive load waits with document-ready navigation plus explicit semantic UI assertions.",
+            "log": "PP-001-A05-3-1787908308576.log",
+            "sha256": "197fe1f02944f7d4ecc53f125726eccef8da90787313bb7bf09c89941c12a8f5",
             "exit": 0,
-            "durationMs": 59228,
+            "durationMs": 144480,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
             "verify": "npm run build && npm run test:e2e && cargo test --manifest-path src-tauri/Cargo.toml",
             "cwd": "C:\\repos\\perfect-planner-tauri",
             "env": {
-              "node": "v24.7.0",
+              "node": "v24.20.0",
               "platform": "win32",
               "arch": "x64",
               "lockfile": {
@@ -2237,8 +2253,8 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A05-3-1787452003025.diff",
-            "diffSha256": "3878a89e64719d70ff1da0bf21f8bb16e0d43cab899092ae6f46f924dbf78c40",
+            "diff": "PP-001-A05-3-1787908308576.diff",
+            "diffSha256": "f612855f09c02e664cfb8197fa6ca64b916ad1363f494e106da2bc37408a0cf5",
             "diffBaseline": "6b5d52e3ce1cd6157719144fd5506d1cc15d4900",
             "diffFiles": [
               ".gitignore",
@@ -2248,23 +2264,23 @@
               "src-tauri/src/lib.rs",
               "tests/control_connector_e2e.py"
             ],
-            "tokensEst": 3500,
+            "tokensEst": null,
             "loc": {
-              "baseline": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "baseline": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "scope": "files",
-              "added": 6,
-              "removed": 0,
+              "added": 10,
+              "removed": 5,
               "dirty": true,
               "files": [
                 {
-                  "file": ".gitignore",
+                  "file": "package.json",
                   "added": 1,
                   "removed": 0
                 },
                 {
                   "file": "tests/control_plane_e2e.py",
-                  "added": 5,
-                  "removed": 0
+                  "added": 9,
+                  "removed": 5
                 }
               ],
               "fileCount": 2,
@@ -2336,7 +2352,7 @@
         "session": "s-05f8c444",
         "at": "2026-08-21T13:20:19.323Z"
       },
-      "lastStampSha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+      "lastStampSha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
       "doneAt": "2026-08-21T13:36:42.609Z",
       "doneBy": {
         "model": null,
@@ -2408,24 +2424,24 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T01:53:16.68Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T08:43:36.329Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-84099084",
-            "note": "Git returns exit 1 for the probe path, proving the evidence log exception defeats the global *.log ignore.",
-            "log": "PP-001-A06-0-1787449995668.log",
-            "sha256": "f027d328b415fd17b92312c96708de212cb158756cc8c688f377ef48d686b8cf",
+            "session": "s-d4c2d89b",
+            "note": "reverify of: Perfect Planner proof logs are explicitly unignored beneath the evidence directory",
+            "log": "PP-001-A06-0-1787906614700.log",
+            "sha256": "72088bf087ec54eb38bf3311a17b485640b8758df3ec8fbeaa719d643c807b14",
             "exit": 0,
-            "durationMs": 240,
+            "durationMs": 673,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
             "verify": "git check-ignore .claude/scratch/perfect-plan/evidence/proof-retention-test.log >nul 2>&1 & if errorlevel 1 (exit /b 0) else (exit /b 1)",
             "cwd": "C:\\repos\\perfect-planner-tauri",
             "env": {
-              "node": "v24.7.0",
+              "node": "v24.20.0",
               "platform": "win32",
               "arch": "x64",
               "lockfile": {
@@ -2434,8 +2450,8 @@
               },
               "osRelease": "10.0.26200"
             },
-            "diff": "PP-001-A06-0-1787449995668.diff",
-            "diffSha256": "f56895ba86601e914cf6735239323df7bbc5cf734090dcf9bdc87a91ed13cec8",
+            "diff": "PP-001-A06-0-1787906614700.diff",
+            "diffSha256": "7b10a782a74d17e3f0064f901ab4f130c1a82b3233bfb85cf19ec7848933f0fe",
             "diffBaseline": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
             "diffFiles": [
               ".gitignore"
@@ -2514,7 +2530,7 @@
           "text": "The orchestrator resets to a compact state on every load with an accessible temporary expand/minimise control",
           "built": true,
           "tested": true,
-          "verify": "python tests\\head_orchestrator_character_e2e.py",
+          "verify": "python tests/head_orchestrator_character_e2e.py",
           "ref": "src/App.tsx#L52-L244",
           "ui": true,
           "builtBy": {
@@ -2593,24 +2609,24 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T02:22:30.811Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T09:07:00.002Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-c26d2982",
-            "note": "Regression first failed with aria-expanded=true after reload; the corrected run proves expansion is temporary and each reload restores the compact canvas-first layout.",
-            "log": "PP-001-A07-0-1787451746265.log",
-            "sha256": "2cb4c0e0dce371075a584707cb472b155b4dffc1707f4f80a99a6e46fb0acca0",
+            "session": "s-d4c2d89b",
+            "note": "Current compact inspector proof: the fixed orchestration inspector opens and closes accessibly without consuming canvas height.",
+            "log": "PP-001-A07-0-1787908013062.log",
+            "sha256": "7a1634832bc29b6f358b9aee5531ef0a908fde17d0791ab8bb95e2931033cb40",
             "exit": 0,
-            "durationMs": 3735,
+            "durationMs": 6325,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
-            "verify": "python tests\\head_orchestrator_character_e2e.py",
+            "verify": "python tests/head_orchestrator_character_e2e.py",
             "cwd": "C:\\repos\\perfect-planner-tauri",
             "env": {
-              "node": "v24.7.0",
+              "node": "v24.20.0",
               "platform": "win32",
               "arch": "x64",
               "lockfile": {
@@ -2675,19 +2691,19 @@
               "runtime": "one-shot-subprocess",
               "resident": false,
               "network": "disabled-local-model-only",
-              "shot": "PP-001-A07-0-1787451746265.png",
-              "textArtifact": "PP-001-A07-0-1787451746265.ocr.txt",
-              "textSha256": "2cc031b93774efc7b84bd4f72b23c98ee6d99ee3f9bd5a65d65df252d58b16ae",
-              "confidence": 88,
-              "durationMs": 2868,
-              "rssStartBytes": 65884160,
-              "rssEndBytes": 159830016,
+              "shot": "PP-001-A07-0-1787908013062.png",
+              "textArtifact": "PP-001-A07-0-1787908013062.ocr.txt",
+              "textSha256": "fc401700ba323b9e622227e9dcd96250bf4f334011502c0791ae49e48dcf6ca1",
+              "confidence": 82,
+              "durationMs": 4373,
+              "rssStartBytes": 62492672,
+              "rssEndBytes": 215924736,
               "workerTerminated": true,
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A07-0-1787451746265.diff",
-            "diffSha256": "eea21a2ad2d571b2007403e6d29952fcf04e4264d8c77fc5e1ca0a15d84b910e",
+            "diff": "PP-001-A07-0-1787908013062.diff",
+            "diffSha256": "8dc31bc322d65943126c85d62617e1997980ceabf524e6db0a81104b96c07639",
             "diffBaseline": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
             "diffFiles": [
               "src/App.tsx",
@@ -2701,62 +2717,62 @@
               "tests/native_webview_cdp_e2e.py",
               "tests/orchestrator_pipeline_e2e.py"
             ],
-            "screenshot": "PP-001-A07-0-1787451746265.png",
-            "screenshotSha256": "e4e0b9affded299e0400a7fae4e9ee273e5576b399b9d737e80d6aa371b07dab",
+            "screenshot": "PP-001-A07-0-1787908013062.png",
+            "screenshotSha256": "fc684b3986aa90e17f6efd599278b82182a509edb869a92a52d1aa71e818360d",
             "screenshotCheck": {
               "ok": true,
               "width": 4320,
               "height": 2700,
               "bitDepth": 8,
               "colorType": 2,
-              "blankScore": 0.5111,
-              "uniqueColors": 246,
+              "blankScore": 0.6676,
+              "uniqueColors": 286,
               "stddev": {
-                "r": 88.922,
-                "g": 83.651,
-                "b": 83.383
+                "r": 55.961,
+                "g": 52.316,
+                "b": 52.616
               },
               "reason": null,
               "samples": 42848
             },
-            "shotNote": "Viewed at 4320x2700: the orchestration deck is one compact dark row with an Expand control, and the active planner viewport begins immediately beneath it near the top of the window.",
-            "tokensEst": 1500,
+            "shotNote": "Compact workspace with the fixed inspector closed and the planner canvas retained.",
+            "tokensEst": null,
             "loc": {
               "baseline": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
               "scope": "files",
-              "added": 177,
-              "removed": 11,
+              "added": 1533,
+              "removed": 112,
               "dirty": true,
               "files": [
                 {
                   "file": "src/App.tsx",
-                  "added": 38,
-                  "removed": 11
+                  "added": 483,
+                  "removed": 71
                 },
                 {
                   "file": "src/index.css",
-                  "added": 65,
-                  "removed": 0
+                  "added": 872,
+                  "removed": 15
                 },
                 {
                   "file": "tests/alarm_e2e.py",
-                  "added": 4,
-                  "removed": 0
+                  "added": 6,
+                  "removed": 2
                 },
                 {
                   "file": "tests/approval_chat_bridge_e2e.py",
-                  "added": 5,
-                  "removed": 0
+                  "added": 22,
+                  "removed": 4
                 },
                 {
                   "file": "tests/control_plane_e2e.py",
-                  "added": 5,
-                  "removed": 0
+                  "added": 28,
+                  "removed": 7
                 },
                 {
                   "file": "tests/head_orchestrator_character_e2e.py",
-                  "added": 41,
-                  "removed": 0
+                  "added": 47,
+                  "removed": 10
                 },
                 {
                   "file": "tests/live_board_smoke.py",
@@ -2775,8 +2791,8 @@
                 },
                 {
                   "file": "tests/orchestrator_pipeline_e2e.py",
-                  "added": 4,
-                  "removed": 0
+                  "added": 60,
+                  "removed": 3
                 }
               ],
               "fileCount": 10,
@@ -2837,24 +2853,24 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T01:55:45.629Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T09:07:14.094Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-84099084",
-            "note": "The browser test compares layout boxes and proves the compact state moves the planner iframe and its right-hand scrollbar at least 140 CSS pixels higher.",
-            "log": "PP-001-A07-1-1787450139658.log",
-            "sha256": "66a786ee7db919fa7d5c98d411beb27ced799026bf17a34fda693e0cb4a3004b",
+            "session": "s-d4c2d89b",
+            "note": "Superseding proof: minimising the fixed inspector preserves the planner viewport because the inspector is an overlay, not a 140px layout block.",
+            "log": "PP-001-A07-1-1787908027980.log",
+            "sha256": "50b60cd844d75d3f5a64966fab5e2a65e8b426d3d1be7349f45f675fe34ae11d",
             "exit": 0,
-            "durationMs": 5020,
+            "durationMs": 5678,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
             "verify": "python tests/head_orchestrator_character_e2e.py",
             "cwd": "C:\\repos\\perfect-planner-tauri",
             "env": {
-              "node": "v24.7.0",
+              "node": "v24.20.0",
               "platform": "win32",
               "arch": "x64",
               "lockfile": {
@@ -2919,69 +2935,96 @@
               "runtime": "one-shot-subprocess",
               "resident": false,
               "network": "disabled-local-model-only",
-              "shot": "PP-001-A07-1-1787450139658.png",
-              "textArtifact": "PP-001-A07-1-1787450139658.ocr.txt",
-              "textSha256": "b50ee86986fafb559a4245272b81b408034c315b2e27e194cef3300e9ae4673d",
-              "confidence": 88,
-              "durationMs": 3377,
-              "rssStartBytes": 65978368,
-              "rssEndBytes": 196841472,
+              "shot": "PP-001-A07-1-1787908027980.png",
+              "textArtifact": "PP-001-A07-1-1787908027980.ocr.txt",
+              "textSha256": "f76797af2ccc3baaf9e1b8df23294ce030ae8b210fd298f2d0b8003cc72db6b2",
+              "confidence": 83,
+              "durationMs": 3764,
+              "rssStartBytes": 62464000,
+              "rssEndBytes": 240107520,
               "workerTerminated": true,
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A07-1-1787450139658.diff",
-            "diffSha256": "4dffaa6737ccc927b81b0ecfeacb6ad0e1637e7c8eff1f6aaef39e1878e98440",
+            "diff": "PP-001-A07-1-1787908027980.diff",
+            "diffSha256": "8dc31bc322d65943126c85d62617e1997980ceabf524e6db0a81104b96c07639",
             "diffBaseline": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
             "diffFiles": [
               "src/App.tsx",
               "src/index.css",
-              "tests/head_orchestrator_character_e2e.py"
+              "tests/alarm_e2e.py",
+              "tests/approval_chat_bridge_e2e.py",
+              "tests/control_plane_e2e.py",
+              "tests/head_orchestrator_character_e2e.py",
+              "tests/live_board_smoke.py",
+              "tests/native_tauri_lifecycle_e2e.py",
+              "tests/native_webview_cdp_e2e.py",
+              "tests/orchestrator_pipeline_e2e.py"
             ],
-            "screenshot": "PP-001-A07-1-1787450139658.png",
-            "screenshotSha256": "8fa0f3c943c086011afe89650f2990dfc04165b717fc2b666c1444289a5f3503",
+            "screenshot": "PP-001-A07-1-1787908027980.png",
+            "screenshotSha256": "9ba82729d67bf4d897f9e05ba87a2b54cdaead89bd71f98f2dd96609d24675e3",
             "screenshotCheck": {
               "ok": true,
               "width": 4320,
               "height": 2700,
               "bitDepth": 8,
               "colorType": 2,
-              "blankScore": 0.5111,
-              "uniqueColors": 246,
+              "blankScore": 0.6676,
+              "uniqueColors": 285,
               "stddev": {
-                "r": 88.922,
-                "g": 83.651,
-                "b": 83.383
+                "r": 55.952,
+                "g": 52.303,
+                "b": 52.601
               },
               "reason": null,
               "samples": 42848
             },
-            "shotNote": "Viewed at 4320x2700: orchestrator details and pipeline are absent, the active-plan bar sits directly under the 50px header, and nearly the full window height is available to the planner iframe.",
-            "tokensEst": 2000,
+            "shotNote": "Minimised fixed inspector leaves the dominant planner canvas in place.",
+            "tokensEst": null,
             "loc": {
-              "baseline": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "baseline": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "scope": "files",
-              "added": 162,
-              "removed": 11,
+              "added": 138,
+              "removed": 39,
               "dirty": true,
               "files": [
                 {
                   "file": "src/App.tsx",
-                  "added": 57,
-                  "removed": 11
+                  "added": 16,
+                  "removed": 13
                 },
                 {
                   "file": "src/index.css",
-                  "added": 65,
-                  "removed": 0
+                  "added": 97,
+                  "removed": 1
+                },
+                {
+                  "file": "tests/alarm_e2e.py",
+                  "added": 2,
+                  "removed": 2
+                },
+                {
+                  "file": "tests/approval_chat_bridge_e2e.py",
+                  "added": 2,
+                  "removed": 2
+                },
+                {
+                  "file": "tests/control_plane_e2e.py",
+                  "added": 9,
+                  "removed": 4
                 },
                 {
                   "file": "tests/head_orchestrator_character_e2e.py",
-                  "added": 40,
-                  "removed": 0
+                  "added": 11,
+                  "removed": 16
+                },
+                {
+                  "file": "tests/orchestrator_pipeline_e2e.py",
+                  "added": 1,
+                  "removed": 1
                 }
               ],
-              "fileCount": 3,
+              "fileCount": 7,
               "filesTruncated": false,
               "untrackedCapped": false
             }
@@ -3039,24 +3082,24 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-23T01:56:10.277Z",
-            "model": "gpt-5",
+            "at": "2026-08-28T09:07:29.842Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-84099084",
-            "note": "The focused browser scenario expands the deck, exercises actor/guidance state transitions and rescan behavior, and finishes with zero refreshed console errors.",
-            "log": "PP-001-A07-2-1787450164613.log",
-            "sha256": "c8917d200a89dc3b95dd1791157e76633e27b25345c576acc4bcb5b65fc54a91",
+            "session": "s-d4c2d89b",
+            "note": "Current expanded inspector proof: guidance, worker route, messenger, pipeline, focus behavior, and clean browser logs are green.",
+            "log": "PP-001-A07-2-1787908041012.log",
+            "sha256": "2cccee584b8400dca0f62ae1373b7a3a8a1ab64864177ecc398e341adfbdbf6a",
             "exit": 0,
-            "durationMs": 4748,
+            "durationMs": 8215,
             "git": {
-              "sha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
             "verify": "python tests/head_orchestrator_character_e2e.py",
             "cwd": "C:\\repos\\perfect-planner-tauri",
             "env": {
-              "node": "v24.7.0",
+              "node": "v24.20.0",
               "platform": "win32",
               "arch": "x64",
               "lockfile": {
@@ -3121,69 +3164,96 @@
               "runtime": "one-shot-subprocess",
               "resident": false,
               "network": "disabled-local-model-only",
-              "shot": "PP-001-A07-2-1787450164613.png",
-              "textArtifact": "PP-001-A07-2-1787450164613.ocr.txt",
-              "textSha256": "8ff7a834f84923be7263bc965d836024da47a501c5188c0e8aad899ba6109aa9",
-              "confidence": 87,
-              "durationMs": 5422,
-              "rssStartBytes": 65957888,
-              "rssEndBytes": 183009280,
+              "shot": "PP-001-A07-2-1787908041012.png",
+              "textArtifact": "PP-001-A07-2-1787908041012.ocr.txt",
+              "textSha256": "644b89cbd8dbc14407544e35b10d50887bd481dda19ab3ad888561f37563ddf7",
+              "confidence": 85,
+              "durationMs": 13240,
+              "rssStartBytes": 62459904,
+              "rssEndBytes": 246685696,
               "workerTerminated": true,
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A07-2-1787450164613.diff",
-            "diffSha256": "4dffaa6737ccc927b81b0ecfeacb6ad0e1637e7c8eff1f6aaef39e1878e98440",
+            "diff": "PP-001-A07-2-1787908041012.diff",
+            "diffSha256": "8dc31bc322d65943126c85d62617e1997980ceabf524e6db0a81104b96c07639",
             "diffBaseline": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
             "diffFiles": [
               "src/App.tsx",
               "src/index.css",
-              "tests/head_orchestrator_character_e2e.py"
+              "tests/alarm_e2e.py",
+              "tests/approval_chat_bridge_e2e.py",
+              "tests/control_plane_e2e.py",
+              "tests/head_orchestrator_character_e2e.py",
+              "tests/live_board_smoke.py",
+              "tests/native_tauri_lifecycle_e2e.py",
+              "tests/native_webview_cdp_e2e.py",
+              "tests/orchestrator_pipeline_e2e.py"
             ],
-            "screenshot": "PP-001-A07-2-1787450164613.png",
-            "screenshotSha256": "5ef5b0dc7cb85b7f7060454cd4efc05273dfcbe23042cb5dd4d130e745803538",
+            "screenshot": "PP-001-A07-2-1787908041012.png",
+            "screenshotSha256": "6b1698f445dc5b99cbe32c127703602a7b2fc5e3fb88438be2309da233c8914b",
             "screenshotCheck": {
               "ok": true,
               "width": 4320,
               "height": 2700,
               "bitDepth": 8,
               "colorType": 2,
-              "blankScore": 0.1451,
-              "uniqueColors": 532,
+              "blankScore": 0.2688,
+              "uniqueColors": 534,
               "stddev": {
-                "r": 104.725,
-                "g": 98.443,
-                "b": 97.798
+                "r": 100.162,
+                "g": 93.831,
+                "b": 92.771
               },
               "reason": null,
               "samples": 42848
             },
-            "shotNote": "Viewed at 4320x2700: expanded mode visibly retains the head actor and guidance, identity and lease, worker route, messenger states, pipeline console, diagnostics, and the new Minimise control.",
-            "tokensEst": 2000,
+            "shotNote": "Expanded fixed orchestration inspector with operational guidance and workspace context.",
+            "tokensEst": null,
             "loc": {
-              "baseline": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+              "baseline": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "scope": "files",
-              "added": 162,
-              "removed": 11,
+              "added": 138,
+              "removed": 39,
               "dirty": true,
               "files": [
                 {
                   "file": "src/App.tsx",
-                  "added": 57,
-                  "removed": 11
+                  "added": 16,
+                  "removed": 13
                 },
                 {
                   "file": "src/index.css",
-                  "added": 65,
-                  "removed": 0
+                  "added": 97,
+                  "removed": 1
+                },
+                {
+                  "file": "tests/alarm_e2e.py",
+                  "added": 2,
+                  "removed": 2
+                },
+                {
+                  "file": "tests/approval_chat_bridge_e2e.py",
+                  "added": 2,
+                  "removed": 2
+                },
+                {
+                  "file": "tests/control_plane_e2e.py",
+                  "added": 9,
+                  "removed": 4
                 },
                 {
                   "file": "tests/head_orchestrator_character_e2e.py",
-                  "added": 40,
-                  "removed": 0
+                  "added": 11,
+                  "removed": 16
+                },
+                {
+                  "file": "tests/orchestrator_pipeline_e2e.py",
+                  "added": 1,
+                  "removed": 1
                 }
               ],
-              "fileCount": 3,
+              "fileCount": 7,
               "filesTruncated": false,
               "untrackedCapped": false
             }
@@ -3291,7 +3361,7 @@
         "session": "s-84099084",
         "at": "2026-08-23T01:54:40.781Z"
       },
-      "lastStampSha": "77abb60cbbba9f964e04461e68e237b0255a9fd1",
+      "lastStampSha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
       "doneAt": "2026-08-23T01:56:37.446Z",
       "doneBy": {
         "model": "gpt-5",
@@ -3407,17 +3477,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-28T08:22:05.015Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-28T08:44:21.774Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-b4b3da34",
-            "note": "ran `python tests\\repository_rail_e2e.py` → exit 0 in 5815ms",
-            "log": "PP-001-A08-0-1787905319010.log",
-            "sha256": "a1070c93f69396189c33cccf2c25e2d7b27d3f9e23d7aee502308eb9a88527e2",
+            "session": "s-d4c2d89b",
+            "note": "reverify of: The repository rail collapses to zero width and leaves one persistent, keyboard-accessible Plans pill without hiding or displacing the workflow canvas",
+            "log": "PP-001-A08-0-1787906651280.log",
+            "sha256": "5ce4c66fcd1f6abc842a1938e29ee11df1e70b964ba5cf0ebcc7d4d1414712ee",
             "exit": 0,
-            "durationMs": 5815,
+            "durationMs": 9922,
             "git": {
-              "sha": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -3476,6 +3546,37 @@
               "expectedText": [],
               "alarms": []
             },
+            "diff": "PP-001-A08-0-1787906651280.diff",
+            "diffSha256": "cb7f6f94217e75b71812cda661eee60adb0661cf5f2531415c0d3270d85a392b",
+            "diffBaseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/components/DiagnosticsConsole.tsx",
+              "src/components/OperationalTruth.tsx",
+              "src/index.css",
+              "src/services/operationalTruth.ts",
+              "tests/orchestrator_pipeline_e2e.py",
+              "tests/repository_rail_e2e.py"
+            ],
+            "screenshot": "PP-001-A08-0-1787905319010.png",
+            "screenshotSha256": "9d258d54ad6d3c9480907c90609c9525ef828eddeef20d1d7e70a5d6717283cb",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.8398,
+              "uniqueColors": 194,
+              "stddev": {
+                "r": 49.828,
+                "g": 46.097,
+                "b": 46.564
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed the 4320x2700 capture: the rail is absent, the canvas begins at the left edge, and one compact Plans pill remains midway on the left without covering the command header or scope bar.",
             "screenshotOcr": {
               "status": "clear",
               "role": "derived-warning-only",
@@ -3500,35 +3601,6 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A08-0-1787905319010.diff",
-            "diffSha256": "e8a4ee18a596a73e29a970023218453cba872ff2354179378dc3355534cd99d3",
-            "diffBaseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
-            "diffFiles": [
-              "src/App.tsx",
-              "src/components/DiagnosticsConsole.tsx",
-              "src/index.css",
-              "tests/orchestrator_pipeline_e2e.py",
-              "tests/repository_rail_e2e.py"
-            ],
-            "screenshot": "PP-001-A08-0-1787905319010.png",
-            "screenshotSha256": "9d258d54ad6d3c9480907c90609c9525ef828eddeef20d1d7e70a5d6717283cb",
-            "screenshotCheck": {
-              "ok": true,
-              "width": 4320,
-              "height": 2700,
-              "bitDepth": 8,
-              "colorType": 2,
-              "blankScore": 0.8398,
-              "uniqueColors": 194,
-              "stddev": {
-                "r": 49.828,
-                "g": 46.097,
-                "b": 46.564
-              },
-              "reason": null,
-              "samples": 42848
-            },
-            "shotNote": "Viewed the 4320x2700 capture: the rail is absent, the canvas begins at the left edge, and one compact Plans pill remains midway on the left without covering the command header or scope bar.",
             "tokensEst": 2500,
             "loc": {
               "baseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
@@ -3656,17 +3728,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-28T08:22:17.197Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-28T08:44:30.075Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-b4b3da34",
-            "note": "ran `python tests\\orchestrator_pipeline_e2e.py` → exit 0 in 3302ms",
-            "log": "PP-001-A08-1-1787905333703.log",
-            "sha256": "bfce7cd804fc2eb9de696640ed211200f5884028775011ce908a14ba14991b65",
+            "session": "s-d4c2d89b",
+            "note": "reverify of: The command surface states an explicit release verdict and the inspector explains collision scope, impact, source, freshness, and one safe next action",
+            "log": "PP-001-A08-1-1787906662727.log",
+            "sha256": "47573a93e36e989dfd69a83bcba65fae97854fd5a0ed93314dd5f46601d896ba",
             "exit": 0,
-            "durationMs": 3302,
+            "durationMs": 6871,
             "git": {
-              "sha": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -3725,6 +3797,37 @@
               "expectedText": [],
               "alarms": []
             },
+            "diff": "PP-001-A08-1-1787906662727.diff",
+            "diffSha256": "cb7f6f94217e75b71812cda661eee60adb0661cf5f2531415c0d3270d85a392b",
+            "diffBaseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/components/DiagnosticsConsole.tsx",
+              "src/components/OperationalTruth.tsx",
+              "src/index.css",
+              "src/services/operationalTruth.ts",
+              "tests/orchestrator_pipeline_e2e.py",
+              "tests/repository_rail_e2e.py"
+            ],
+            "screenshot": "PP-001-A08-1-1787905333703.png",
+            "screenshotSha256": "420feb9b91271bce92141ade100ad73967d7b64fbd70db059a38786ee8676091",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 5760,
+              "height": 3240,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3134,
+              "uniqueColors": 449,
+              "stddev": {
+                "r": 104.091,
+                "g": 97.741,
+                "b": 97.143
+              },
+              "reason": null,
+              "samples": 41818
+            },
+            "shotNote": "Viewed the 5760x3240 inspector capture: RELEASE NOT READY is explicit; collision approval is blocked with source, checked time, impact and one safe next action; provenance and affected scope are visible.",
             "screenshotOcr": {
               "status": "clear",
               "role": "derived-warning-only",
@@ -3749,35 +3852,6 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A08-1-1787905333703.diff",
-            "diffSha256": "e8a4ee18a596a73e29a970023218453cba872ff2354179378dc3355534cd99d3",
-            "diffBaseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
-            "diffFiles": [
-              "src/App.tsx",
-              "src/components/DiagnosticsConsole.tsx",
-              "src/index.css",
-              "tests/orchestrator_pipeline_e2e.py",
-              "tests/repository_rail_e2e.py"
-            ],
-            "screenshot": "PP-001-A08-1-1787905333703.png",
-            "screenshotSha256": "420feb9b91271bce92141ade100ad73967d7b64fbd70db059a38786ee8676091",
-            "screenshotCheck": {
-              "ok": true,
-              "width": 5760,
-              "height": 3240,
-              "bitDepth": 8,
-              "colorType": 2,
-              "blankScore": 0.3134,
-              "uniqueColors": 449,
-              "stddev": {
-                "r": 104.091,
-                "g": 97.741,
-                "b": 97.143
-              },
-              "reason": null,
-              "samples": 41818
-            },
-            "shotNote": "Viewed the 5760x3240 inspector capture: RELEASE NOT READY is explicit; collision approval is blocked with source, checked time, impact and one safe next action; provenance and affected scope are visible.",
             "tokensEst": 3000,
             "loc": {
               "baseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
@@ -3904,17 +3978,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-28T08:22:35.854Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-28T08:44:38.359Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-b4b3da34",
-            "note": "ran `python tests\\orchestrator_pipeline_e2e.py` → exit 0 in 3207ms",
-            "log": "PP-001-A08-2-1787905352455.log",
-            "sha256": "17e6be9d59e9007f4040b8362a249f8029dfadab609845cbdf1078ce4bd83e16",
+            "session": "s-d4c2d89b",
+            "note": "reverify of: The inspector shows per-task evidence, current-run versus future-run parallel limits, and one chronological repository-and-plan-scoped activity feed",
+            "log": "PP-001-A08-2-1787906670839.log",
+            "sha256": "447d59daeb1398f5f9dc0a81a89d170e78802989d9721cbd0abaf622b07b0618",
             "exit": 0,
-            "durationMs": 3207,
+            "durationMs": 6980,
             "git": {
-              "sha": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -3973,6 +4047,37 @@
               "expectedText": [],
               "alarms": []
             },
+            "diff": "PP-001-A08-2-1787906670839.diff",
+            "diffSha256": "cb7f6f94217e75b71812cda661eee60adb0661cf5f2531415c0d3270d85a392b",
+            "diffBaseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/components/DiagnosticsConsole.tsx",
+              "src/components/OperationalTruth.tsx",
+              "src/index.css",
+              "src/services/operationalTruth.ts",
+              "tests/orchestrator_pipeline_e2e.py",
+              "tests/repository_rail_e2e.py"
+            ],
+            "screenshot": "PP-001-A08-2-1787905352455.png",
+            "screenshotSha256": "420feb9b91271bce92141ade100ad73967d7b64fbd70db059a38786ee8676091",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 5760,
+              "height": 3240,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.3134,
+              "uniqueColors": 449,
+              "stddev": {
+                "r": 104.091,
+                "g": 97.741,
+                "b": 97.143
+              },
+              "reason": null,
+              "samples": 41818
+            },
+            "shotNote": "Viewed the 5760x3240 inspector capture: the current run is visibly capped at two while new runs are four, both task rows show tests/build/runtime/artifact evidence, unresolved risks remain named, and the scoped activity count is present.",
             "screenshotOcr": {
               "status": "clear",
               "role": "derived-warning-only",
@@ -3997,35 +4102,6 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A08-2-1787905352455.diff",
-            "diffSha256": "e8a4ee18a596a73e29a970023218453cba872ff2354179378dc3355534cd99d3",
-            "diffBaseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
-            "diffFiles": [
-              "src/App.tsx",
-              "src/components/DiagnosticsConsole.tsx",
-              "src/index.css",
-              "tests/orchestrator_pipeline_e2e.py",
-              "tests/repository_rail_e2e.py"
-            ],
-            "screenshot": "PP-001-A08-2-1787905352455.png",
-            "screenshotSha256": "420feb9b91271bce92141ade100ad73967d7b64fbd70db059a38786ee8676091",
-            "screenshotCheck": {
-              "ok": true,
-              "width": 5760,
-              "height": 3240,
-              "bitDepth": 8,
-              "colorType": 2,
-              "blankScore": 0.3134,
-              "uniqueColors": 449,
-              "stddev": {
-                "r": 104.091,
-                "g": 97.741,
-                "b": 97.143
-              },
-              "reason": null,
-              "samples": 41818
-            },
-            "shotNote": "Viewed the 5760x3240 inspector capture: the current run is visibly capped at two while new runs are four, both task rows show tests/build/runtime/artifact evidence, unresolved risks remain named, and the scoped activity count is present.",
             "tokensEst": 3000,
             "loc": {
               "baseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
@@ -4153,17 +4229,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-28T08:22:53.347Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-28T08:44:52.237Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-b4b3da34",
-            "note": "ran `npm run build` → exit 0 in 3043ms",
-            "log": "PP-001-A08-3-1787905370108.log",
-            "sha256": "d37369f8928084fdfe3945e217511eae59d2aee005acb8a0f824aad11c71051d",
+            "session": "s-d4c2d89b",
+            "note": "reverify of: Diagnostics separate application, messaging, plan, and browser provenance while unknown state remains explicit and the new controls meet focus, target-size, and reduced-motion requirements",
+            "log": "PP-001-A08-3-1787906679249.log",
+            "sha256": "3158aef32c2e6f993c19d81fbac31d311fa880d8d308dd5a0cf4c5753a76a79f",
             "exit": 0,
-            "durationMs": 3043,
+            "durationMs": 12458,
             "git": {
-              "sha": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -4222,6 +4298,37 @@
               "expectedText": [],
               "alarms": []
             },
+            "diff": "PP-001-A08-3-1787906679249.diff",
+            "diffSha256": "cb7f6f94217e75b71812cda661eee60adb0661cf5f2531415c0d3270d85a392b",
+            "diffBaseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
+            "diffFiles": [
+              "src/App.tsx",
+              "src/components/DiagnosticsConsole.tsx",
+              "src/components/OperationalTruth.tsx",
+              "src/index.css",
+              "src/services/operationalTruth.ts",
+              "tests/orchestrator_pipeline_e2e.py",
+              "tests/repository_rail_e2e.py"
+            ],
+            "screenshot": "PP-001-A08-3-1787905370108.png",
+            "screenshotSha256": "f3e307666fbe2b83884d77f8e9b2c8deefebeb40a6b8249eaece6251a3ca9c07",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.5234,
+              "uniqueColors": 386,
+              "stddev": {
+                "r": 86.961,
+                "g": 82.174,
+                "b": 82.087
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed the 4320x2700 capture: the diagnostics console separates application, messaging, plan/run, and explicitly uncollected browser-console sources; focusable controls and their labels are visible without relying on colour alone.",
             "screenshotOcr": {
               "status": "clear",
               "role": "derived-warning-only",
@@ -4246,35 +4353,6 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A08-3-1787905370108.diff",
-            "diffSha256": "e8a4ee18a596a73e29a970023218453cba872ff2354179378dc3355534cd99d3",
-            "diffBaseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
-            "diffFiles": [
-              "src/App.tsx",
-              "src/components/DiagnosticsConsole.tsx",
-              "src/index.css",
-              "tests/orchestrator_pipeline_e2e.py",
-              "tests/repository_rail_e2e.py"
-            ],
-            "screenshot": "PP-001-A08-3-1787905370108.png",
-            "screenshotSha256": "f3e307666fbe2b83884d77f8e9b2c8deefebeb40a6b8249eaece6251a3ca9c07",
-            "screenshotCheck": {
-              "ok": true,
-              "width": 4320,
-              "height": 2700,
-              "bitDepth": 8,
-              "colorType": 2,
-              "blankScore": 0.5234,
-              "uniqueColors": 386,
-              "stddev": {
-                "r": 86.961,
-                "g": 82.174,
-                "b": 82.087
-              },
-              "reason": null,
-              "samples": 42848
-            },
-            "shotNote": "Viewed the 4320x2700 capture: the diagnostics console separates application, messaging, plan/run, and explicitly uncollected browser-console sources; focusable controls and their labels are visible without relying on colour alone.",
             "tokensEst": 2500,
             "loc": {
               "baseline": "3a86cc602fc673277f570063deaa69fb53e5a8d5",
@@ -4505,17 +4583,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-28T08:29:55.199Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-28T08:44:58.067Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-b4b3da34",
-            "note": "ran `python tests\\ui_navigation_map_e2e.py` → exit 0 in 2129ms",
-            "log": "PP-001-A09-0-1787905792886.log",
-            "sha256": "6b2c58d6cf622fd0548fd391e012dd9aefc257fa8ec34c2dad10c1534b826454",
+            "session": "s-d4c2d89b",
+            "note": "reverify of: A separate UI map mode replaces the embedded board without disturbing repository scope, comparison mode, or the persistent command header",
+            "log": "PP-001-A09-0-1787906693149.log",
+            "sha256": "55c676c638b775826df4de461bab22e0253959e44cbe6bda66dd8b77a24be212",
             "exit": 0,
-            "durationMs": 2129,
+            "durationMs": 4503,
             "git": {
-              "sha": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -4574,6 +4652,37 @@
               "expectedText": [],
               "alarms": []
             },
+            "diff": "PP-001-A09-0-1787906693149.diff",
+            "diffSha256": "18db23ebaf7d78694e592aa3d7e85c17856cf35270fa2f3a4e46b1801b36bc7e",
+            "diffBaseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+            "diffFiles": [
+              "scripts/run-e2e.mjs",
+              "src/App.tsx",
+              "src/components/DiagnosticsConsole.tsx",
+              "src/components/UiNavigationMap.tsx",
+              "src/index.css",
+              "tests/repository_rail_e2e.py",
+              "tests/ui_navigation_map_e2e.py"
+            ],
+            "screenshot": "PP-001-A09-0-1787905792886.png",
+            "screenshotSha256": "104a90ad1ab8f98aecaec765bf54f1922423b15bb05fca1d62e6bd547929bc46",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.4298,
+              "uniqueColors": 423,
+              "stddev": {
+                "r": 57.477,
+                "g": 53.804,
+                "b": 54.63
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed the 4320x2700 capture: UI map is a separate active mode under the unchanged command header and repository scope; the embedded board is replaced only inside the workspace and comparison remains a separate control.",
             "screenshotOcr": {
               "status": "clear",
               "role": "derived-warning-only",
@@ -4598,35 +4707,6 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A09-0-1787905792886.diff",
-            "diffSha256": "c62d2c4ac773f753ab19f6288f14686bcb117ef37a3148c7c7290e0eda44a13c",
-            "diffBaseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
-            "diffFiles": [
-              "scripts/run-e2e.mjs",
-              "src/App.tsx",
-              "src/components/DiagnosticsConsole.tsx",
-              "src/index.css",
-              "tests/repository_rail_e2e.py"
-            ],
-            "screenshot": "PP-001-A09-0-1787905792886.png",
-            "screenshotSha256": "104a90ad1ab8f98aecaec765bf54f1922423b15bb05fca1d62e6bd547929bc46",
-            "screenshotCheck": {
-              "ok": true,
-              "width": 4320,
-              "height": 2700,
-              "bitDepth": 8,
-              "colorType": 2,
-              "blankScore": 0.4298,
-              "uniqueColors": 423,
-              "stddev": {
-                "r": 57.477,
-                "g": 53.804,
-                "b": 54.63
-              },
-              "reason": null,
-              "samples": 42848
-            },
-            "shotNote": "Viewed the 4320x2700 capture: UI map is a separate active mode under the unchanged command header and repository scope; the embedded board is replaced only inside the workspace and comparison remains a separate control.",
             "tokensEst": 900,
             "loc": {
               "baseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
@@ -4754,17 +4834,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-28T08:30:08.492Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-28T08:45:03.761Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-b4b3da34",
-            "note": "ran `python tests\\ui_navigation_map_e2e.py` → exit 0 in 2052ms",
-            "log": "PP-001-A09-1-1787905806263.log",
-            "sha256": "6b9853f0993052347f2ead6198daf90bf0a9bff79672cee6af3e20763a49b7a3",
+            "session": "s-d4c2d89b",
+            "note": "reverify of: Every spine phase exposes independent left and right expansion controls whose page cards retain the source spine and node IDs",
+            "log": "PP-001-A09-1-1787906698903.log",
+            "sha256": "e901d08d387d64a1f2d0942cc4730da4e3cfb1ed2a771fe58ef539e4d61b19f5",
             "exit": 0,
-            "durationMs": 2052,
+            "durationMs": 4429,
             "git": {
-              "sha": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -4823,6 +4903,37 @@
               "expectedText": [],
               "alarms": []
             },
+            "diff": "PP-001-A09-1-1787906698903.diff",
+            "diffSha256": "18db23ebaf7d78694e592aa3d7e85c17856cf35270fa2f3a4e46b1801b36bc7e",
+            "diffBaseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+            "diffFiles": [
+              "scripts/run-e2e.mjs",
+              "src/App.tsx",
+              "src/components/DiagnosticsConsole.tsx",
+              "src/components/UiNavigationMap.tsx",
+              "src/index.css",
+              "tests/repository_rail_e2e.py",
+              "tests/ui_navigation_map_e2e.py"
+            ],
+            "screenshot": "PP-001-A09-1-1787905806263.png",
+            "screenshotSha256": "84b1510d7a33ccf62306e0d484eaa48add1c889c9459f575ee6999304ee553b9",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.4298,
+              "uniqueColors": 422,
+              "stddev": {
+                "r": 57.482,
+                "g": 53.81,
+                "b": 54.639
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed the 4320x2700 capture: P1 independently exposes one left and one right branch; A01 and A02 retain their source node IDs, side, spine ID and mapping classification, while P2's zero-count left side expands to an explicit empty statement.",
             "screenshotOcr": {
               "status": "clear",
               "role": "derived-warning-only",
@@ -4847,35 +4958,6 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A09-1-1787905806263.diff",
-            "diffSha256": "c62d2c4ac773f753ab19f6288f14686bcb117ef37a3148c7c7290e0eda44a13c",
-            "diffBaseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
-            "diffFiles": [
-              "scripts/run-e2e.mjs",
-              "src/App.tsx",
-              "src/components/DiagnosticsConsole.tsx",
-              "src/index.css",
-              "tests/repository_rail_e2e.py"
-            ],
-            "screenshot": "PP-001-A09-1-1787905806263.png",
-            "screenshotSha256": "84b1510d7a33ccf62306e0d484eaa48add1c889c9459f575ee6999304ee553b9",
-            "screenshotCheck": {
-              "ok": true,
-              "width": 4320,
-              "height": 2700,
-              "bitDepth": 8,
-              "colorType": 2,
-              "blankScore": 0.4298,
-              "uniqueColors": 422,
-              "stddev": {
-                "r": 57.482,
-                "g": 53.81,
-                "b": 54.639
-              },
-              "reason": null,
-              "samples": 42848
-            },
-            "shotNote": "Viewed the 4320x2700 capture: P1 independently exposes one left and one right branch; A01 and A02 retain their source node IDs, side, spine ID and mapping classification, while P2's zero-count left side expands to an explicit empty statement.",
             "tokensEst": 2500,
             "loc": {
               "baseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
@@ -5003,17 +5085,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-28T08:30:23.217Z",
-            "model": "gpt-5.6-sol",
+            "at": "2026-08-28T08:45:15.918Z",
+            "model": null,
             "user": "danielsivyer4567",
-            "session": "s-b4b3da34",
-            "note": "ran `npm run build` → exit 0 in 3179ms",
-            "log": "PP-001-A09-2-1787905819857.log",
-            "sha256": "aad79ccf0e682ea4ee5fa30b8bd576561b37fe2c1f20b1b059efad5b52c8838f",
+            "session": "s-d4c2d89b",
+            "note": "reverify of: The map distinguishes UI-capable pages from support work, names missing mappings honestly, and remains keyboard, focus, reduced-motion, and narrow-screen usable",
+            "log": "PP-001-A09-2-1787906704458.log",
+            "sha256": "268bf3c10e2ec7b2fd21a1e63997099fb70b1ebb6338703ace5ff7a85c87feae",
             "exit": 0,
-            "durationMs": 3179,
+            "durationMs": 10982,
             "git": {
-              "sha": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -5072,6 +5154,37 @@
               "expectedText": [],
               "alarms": []
             },
+            "diff": "PP-001-A09-2-1787906704458.diff",
+            "diffSha256": "18db23ebaf7d78694e592aa3d7e85c17856cf35270fa2f3a4e46b1801b36bc7e",
+            "diffBaseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+            "diffFiles": [
+              "scripts/run-e2e.mjs",
+              "src/App.tsx",
+              "src/components/DiagnosticsConsole.tsx",
+              "src/components/UiNavigationMap.tsx",
+              "src/index.css",
+              "tests/repository_rail_e2e.py",
+              "tests/ui_navigation_map_e2e.py"
+            ],
+            "screenshot": "PP-001-A09-2-1787905819857.png",
+            "screenshotSha256": "84b1510d7a33ccf62306e0d484eaa48add1c889c9459f575ee6999304ee553b9",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.4298,
+              "uniqueColors": 421,
+              "stddev": {
+                "r": 57.483,
+                "g": 53.81,
+                "b": 54.635
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed the 4320x2700 capture: UI-capable and support work use both text and distinct structural labels, the unmapped A99/P9 identity is explicit, branch targets exceed 24px, and the map remains horizontally navigable without collapsing its left/right meaning.",
             "screenshotOcr": {
               "status": "clear",
               "role": "derived-warning-only",
@@ -5096,35 +5209,6 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A09-2-1787905819857.diff",
-            "diffSha256": "c62d2c4ac773f753ab19f6288f14686bcb117ef37a3148c7c7290e0eda44a13c",
-            "diffBaseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
-            "diffFiles": [
-              "scripts/run-e2e.mjs",
-              "src/App.tsx",
-              "src/components/DiagnosticsConsole.tsx",
-              "src/index.css",
-              "tests/repository_rail_e2e.py"
-            ],
-            "screenshot": "PP-001-A09-2-1787905819857.png",
-            "screenshotSha256": "84b1510d7a33ccf62306e0d484eaa48add1c889c9459f575ee6999304ee553b9",
-            "screenshotCheck": {
-              "ok": true,
-              "width": 4320,
-              "height": 2700,
-              "bitDepth": 8,
-              "colorType": 2,
-              "blankScore": 0.4298,
-              "uniqueColors": 421,
-              "stddev": {
-                "r": 57.483,
-                "g": 53.81,
-                "b": 54.635
-              },
-              "reason": null,
-              "samples": 42848
-            },
-            "shotNote": "Viewed the 4320x2700 capture: UI-capable and support work use both text and distinct structural labels, the unmapped A99/P9 identity is explicit, branch targets exceed 24px, and the map remains horizontally navigable without collapsing its left/right meaning.",
             "tokensEst": 2200,
             "loc": {
               "baseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",

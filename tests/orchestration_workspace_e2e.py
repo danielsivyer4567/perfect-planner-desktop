@@ -14,7 +14,7 @@ def main() -> None:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page()
-        page.goto(APP_URL)
+        page.goto(APP_URL, wait_until="domcontentloaded")
         result = page.evaluate(
             """
             async () => {

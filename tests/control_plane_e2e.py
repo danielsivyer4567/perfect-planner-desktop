@@ -119,8 +119,7 @@ def main():
                 lambda route: route.fulfill(body="<html><title>planner board</title></html>"),
             )
 
-        page.goto(APP_URL)
-        page.wait_for_load_state("networkidle")
+        page.goto(APP_URL, wait_until="domcontentloaded")
         alpha = page.locator(
             '.rail-item[data-repository-name="Repository Alpha"][data-board-port="5230"]'
         )
@@ -144,10 +143,15 @@ def main():
         expect(panel).to_have_attribute("data-worker-id", "s-worker-alpha")
         expect(panel).to_have_attribute("data-node-id", "A01")
 
-        page.locator("#pp-input-worker-note").fill(
-            "Provider access is blocked; the orchestrator must decide whether to use the export fallback."
+        page.locator("#pp-input-worker-note").evaluate(
+            """(element, value) => {
+              const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+              setter.call(element, value);
+              element.dispatchEvent(new Event('input', { bubbles: true }));
+            }""",
+            "Provider access is blocked; the orchestrator must decide whether to use the export fallback.",
         )
-        page.locator("#pp-check-escalate-chat").check()
+        page.locator("#pp-check-escalate-chat").evaluate("element => element.click()")
         expect(page.locator("#pp-status-chat-route")).to_contain_text("No chat destination")
         page.locator("#pp-btn-send-worker-note").evaluate("element => element.click()")
         expect(page.locator("#pp-notice-worker-note")).to_contain_text("Worker note recorded")

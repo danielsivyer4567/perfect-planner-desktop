@@ -865,7 +865,7 @@ def main() -> None:
             lambda route: route.fulfill(status=200, json={"ok": False}),
         )
 
-        page.goto(APP_URL, wait_until="networkidle")
+        page.goto(APP_URL, wait_until="domcontentloaded")
         orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
         expect(orchestrator_toggle).to_have_attribute("aria-expanded", "false")
         orchestrator_toggle.evaluate("element => element.click()")

@@ -1,0 +1,2109 @@
+diff --git a/src/App.tsx b/src/App.tsx
+index 40f3379..50aa317 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -24,6 +24,8 @@ import { PipelineConsole } from "./components/PipelineConsole";
+ import { ResourceGuard, type ResourceGuardState } from "./components/ResourceGuard";
+ import { ActionContextMenu, type ContextActionLog } from "./components/ActionContextMenu";
+ import { DiagnosticsConsole, type DiagnosticEntry } from "./components/DiagnosticsConsole";
++import { OperationalTruth } from "./components/OperationalTruth";
++import { UiNavigationMap } from "./components/UiNavigationMap";
+ import {
+   browserOrchestratorScope,
+   OrchestratorSnapshot,
+@@ -42,16 +44,29 @@ import {
+ } from "./services/identityRegistry";
+ import {
+   LeaseDisposition,
++  classifyRecoveryMirror,
++  recoveryMirrorMatchesSelection,
+   reconcileSessionLeases,
+   recoverClearedSession,
+   sessionLeaseKey,
+   SupervisorSnapshot,
+ } from "./services/sessionSupervisor";
+ import { ControlPlaneScope } from "./services/controlPlane";
++import type { ControlPlaneSnapshot } from "./services/controlPlane";
++import { deriveWorkspaceStatus } from "./services/orchestrationWorkspace";
++import { deriveReleaseVerdict } from "./services/operationalTruth";
+ 
+ const SOUND_KEY = "perfect-planner:stall-sound";
+ const VOLUME_KEY = "perfect-planner:stall-volume";
++const PARALLEL_AGENTS_KEY = "perfect-planner:parallel-agents";
+ const DISMISSED_BOARDS_KEY = "perfect-planner:dismissed-plans";
++const ACTIVE_BOARD_KEY = "perfect-planner:active-board";
++const RAIL_COLLAPSED_KEY = "perfect-planner:repository-rail-collapsed";
++
++interface ActiveBoardIdentity {
++  repositoryRoot: string;
++  planPath: string;
++}
+ 
+ interface WorkerReport {
+   boardPort: number;
+@@ -65,6 +80,23 @@ interface WorkerReport {
+   fence: number;
+ }
+ 
++function storedParallelAgents(): boolean {
++  try {
++    const stored = localStorage.getItem(PARALLEL_AGENTS_KEY);
++    return stored === null ? true : stored === "true";
++  } catch {
++    return true;
++  }
++}
++
++function storedRailCollapsed(): boolean {
++  try {
++    return localStorage.getItem(RAIL_COLLAPSED_KEY) === "true";
++  } catch {
++    return false;
++  }
++}
++
+ type HeadOrchestratorActorState = "working" | "holding" | "standby" | "stopped";
+ 
+ interface HeadOrchestratorGuidance {
+@@ -169,6 +201,53 @@ function storedDismissedPlans(): Set<string> {
+   }
+ }
+ 
++function normalizedIdentityPath(value: string): string {
++  return value.trim().replace(/\\/g, "/").replace(/\/$/, "").toLocaleLowerCase();
++}
++
++function boardIdentity(board: Board): ActiveBoardIdentity {
++  return {
++    repositoryRoot: board.repoRoot,
++    planPath: board.planPath,
++  };
++}
++
++function boardMatchesIdentity(board: Board, identity: ActiveBoardIdentity): boolean {
++  return normalizedIdentityPath(board.repoRoot) === normalizedIdentityPath(identity.repositoryRoot) &&
++    normalizedIdentityPath(board.planPath) === normalizedIdentityPath(identity.planPath);
++}
++
++function storedActiveBoardIdentity(): ActiveBoardIdentity | null {
++  try {
++    const value = JSON.parse(localStorage.getItem(ACTIVE_BOARD_KEY) || "null");
++    if (
++      !value ||
++      typeof value !== "object" ||
++      typeof value.repositoryRoot !== "string" ||
++      !value.repositoryRoot.trim() ||
++      typeof value.planPath !== "string" ||
++      !value.planPath.trim()
++    ) {
++      return null;
++    }
++    return {
++      repositoryRoot: value.repositoryRoot,
++      planPath: value.planPath,
++    };
++  } catch {
++    return null;
++  }
++}
++
++function persistActiveBoardIdentity(identity: ActiveBoardIdentity | null): void {
++  try {
++    if (identity) localStorage.setItem(ACTIVE_BOARD_KEY, JSON.stringify(identity));
++    else localStorage.removeItem(ACTIVE_BOARD_KEY);
++  } catch {
++    // Selection remains valid for this process when storage is unavailable.
++  }
++}
++
+ function isPlanComplete(plan: PlanSnapshot | undefined): boolean {
+   const items = plan?.vertebrae.flatMap((vertebra) => vertebra.checklist || []) || [];
+   if (!items.length) return false;
+@@ -215,6 +294,7 @@ export const App: React.FC = () => {
+   const [orchestratorIds, setOrchestratorIds] = useState<Record<string, string>>({});
+   const [supervisor, setSupervisor] = useState<SupervisorSnapshot | null>(null);
+   const [supervisorError, setSupervisorError] = useState<string | null>(null);
++  const [recoveryDeliveryErrors, setRecoveryDeliveryErrors] = useState<Record<string, string>>({});
+   const [identityError, setIdentityError] = useState<string | null>(null);
+   const [planSnapshots, setPlanSnapshots] = useState<Record<string, PlanManifestSnapshot>>({});
+   const [selectedPipelineScope, setSelectedPipelineScope] = useState<{
+@@ -223,7 +303,14 @@ export const App: React.FC = () => {
+     planPath: string;
+   } | null>(null);
+   const [pipelineSnapshot, setPipelineSnapshot] = useState<OrchestratorSnapshot | null>(null);
++  const [controlPlaneSnapshot, setControlPlaneSnapshot] = useState<ControlPlaneSnapshot | null>(null);
+   const [dismissedPlans, setDismissedPlans] = useState<Set<string>>(storedDismissedPlans);
++  const [unavailableSelection, setUnavailableSelection] = useState<ActiveBoardIdentity | null>(null);
++  const [orchestratorMinimized, setOrchestratorMinimized] = useState(true);
++  const [parallelAgents, setParallelAgents] = useState(storedParallelAgents);
++  const [railCollapsed, setRailCollapsed] = useState(storedRailCollapsed);
++  const [comparisonOpen, setComparisonOpen] = useState(false);
++  const [uiMapOpen, setUiMapOpen] = useState(false);
+   const [resourceGuard, setResourceGuard] = useState<ResourceGuardState>({
+     status: "checking",
+     result: null,
+@@ -238,24 +325,35 @@ export const App: React.FC = () => {
+   const stallsByPlanRef = useRef(new Map<string, Set<string>>());
+   const orchestratorLeasesRef = useRef(new Map<string, IdentityLease>());
+   const mirroredRecoveryEventsRef = useRef(new Set<string>());
++  const reportedRecoveryErrorsRef = useRef(new Set<string>());
+   const dismissedPlansRef = useRef(dismissedPlans);
+   const diagnosticSequenceRef = useRef(0);
+   const lastResourceDiagnosticRef = useRef("");
+   const activePortRef = useRef<number | null>(null);
+   const activePortMissesRef = useRef(0);
++  const activeBoardIdentityRef = useRef<ActiveBoardIdentity | null>(storedActiveBoardIdentity());
++  const recoveryScopeAuthorizedRef = useRef(activeBoardIdentityRef.current !== null);
++  const orchestratorToggleRef = useRef<HTMLButtonElement>(null);
++  const orchestratorInspectorRef = useRef<HTMLElement>(null);
+ 
+-  const activateBoardPort = useCallback((port: number | null) => {
+-    activePortRef.current = port;
++  const activateBoard = useCallback((board: Board | null) => {
++    const identity = board ? boardIdentity(board) : null;
++    activeBoardIdentityRef.current = identity;
++    recoveryScopeAuthorizedRef.current = identity !== null;
++    persistActiveBoardIdentity(identity);
++    setUnavailableSelection(null);
++    activePortRef.current = board?.port ?? null;
+     activePortMissesRef.current = 0;
+-    setActivePort(port);
++    setActivePort(board?.port ?? null);
+   }, []);
+ 
+   const recordDiagnostic = useCallback((entry: Omit<DiagnosticEntry, "id" | "at">) => {
+-    diagnosticSequenceRef.current += 1;
++    const sequence = ++diagnosticSequenceRef.current;
++    const recordedAt = Date.now();
+     setDiagnosticEntries((current) => [...current.slice(-199), {
+       ...entry,
+-      id: `diagnostic-${diagnosticSequenceRef.current}`,
+-      at: Date.now(),
++      id: `diagnostic-${sequence}`,
++      at: recordedAt,
+     }]);
+   }, []);
+ 
+@@ -283,17 +381,38 @@ export const App: React.FC = () => {
+       const found = await discoverBoards();
+       const visible = found.filter((board) => !dismissedPlansRef.current.has(board.planPath));
+       const currentPort = activePortRef.current;
++      const savedIdentity = activeBoardIdentityRef.current;
++      const currentBoard = currentPort === null
++        ? null
++        : visible.find((board) => board.port === currentPort) || null;
++      const currentBoardMatchesSelection = currentBoard !== null && (
++        savedIdentity === null || boardMatchesIdentity(currentBoard, savedIdentity)
++      );
+       let nextPort = currentPort;
+-      if (currentPort !== null && visible.some((board) => board.port === currentPort)) {
++      if (currentPort !== null && currentBoardMatchesSelection) {
+         activePortMissesRef.current = 0;
+-      } else if (currentPort !== null && activePortMissesRef.current < 3) {
++        setUnavailableSelection(null);
++      } else if (currentPort !== null && currentBoard === null && activePortMissesRef.current < 3) {
+         // Board discovery is a network census and one endpoint can miss a single poll while
+         // its sibling boards remain visible. Do not silently switch plans during that gap:
+         // retain the explicit user selection and its last trusted metadata for three scans.
+         activePortMissesRef.current += 1;
+       } else {
+         activePortMissesRef.current = 0;
+-        nextPort = visible.length ? visible[0].port : null;
++        const restored = savedIdentity
++          ? visible.find((board) => boardMatchesIdentity(board, savedIdentity)) || null
++          : visible[0] || null;
++        nextPort = restored?.port ?? null;
++        if (restored) {
++          if (savedIdentity) {
++            const identity = boardIdentity(restored);
++            activeBoardIdentityRef.current = identity;
++            persistActiveBoardIdentity(identity);
++          }
++          setUnavailableSelection(null);
++        } else {
++          setUnavailableSelection(savedIdentity);
++        }
+       }
+       activePortRef.current = nextPort;
+       setActivePort(nextPort);
+@@ -387,23 +506,68 @@ export const App: React.FC = () => {
+         );
+         setSupervisor(nextSupervisor);
+         setSupervisorError(null);
+-
+-        // A reaper tombstone that exists only in app memory leaves the board in split-brain:
+-        // the shell says CLEARED while `/workers` keeps deriving STALE from the untouched
+-        // plan. Mirror each durable event into its identity-fenced board exactly once per app
+-        // run; the endpoint is also idempotent, so restarts are safe.
++      } catch (error) {
++        setSupervisorError(
++          error instanceof Error ? error.message : "session supervisor unavailable"
++        );
++      }
++      const recoveryErrors: Array<{ planPath: string; message: string }> = [];
++      if (nextSupervisor) {
++        // The ledger retains events for audit. Only a freshly-read, still-in-progress task held
++        // by the exact cleared session may receive the recovery transition. Completed or already
++        // recovered tasks are settled locally so a restart cannot replay an obsolete write.
+         const boardsByPlan = new Map(found.map((board) => [board.planPath, board]));
++        const manifestsByPlan = new Map(
++          found.flatMap((board, index) => manifests[index] ? [[board.planPath, manifests[index]]] : [])
++        );
+         for (const event of nextSupervisor.events) {
+           if (event.kind !== "SESSION_CLEARED" || mirroredRecoveryEventsRef.current.has(event.id)) continue;
+           const board = boardsByPlan.get(event.planPath);
+           if (!board) continue;
+-          const recovered = await recoverClearedSession(board.port, event);
+-          if (recovered.ok) mirroredRecoveryEventsRef.current.add(event.id);
++          const selectedIdentity = recoveryScopeAuthorizedRef.current
++            ? activeBoardIdentityRef.current
++            : null;
++          if (
++            board.port !== nextPort ||
++            !recoveryMirrorMatchesSelection(event, board.repoRoot, selectedIdentity)
++          ) {
++            continue;
++          }
++          const disposition = classifyRecoveryMirror(event, manifestsByPlan.get(event.planPath)?.plan);
++          if (disposition === "ALREADY_APPLIED" || disposition === "SUPERSEDED") {
++            mirroredRecoveryEventsRef.current.add(event.id);
++            continue;
++          }
++          if (disposition !== "DELIVER") {
++            recoveryErrors.push({
++              planPath: event.planPath,
++              message: `${event.vertebra}: ${disposition.toLocaleLowerCase().replace("_", " ")}`,
++            });
++            continue;
++          }
++          try {
++            const recovered = await recoverClearedSession(board.port, event);
++            if (recovered.ok) mirroredRecoveryEventsRef.current.add(event.id);
++          } catch (error) {
++            recoveryErrors.push({
++              planPath: event.planPath,
++              message: `${event.vertebra}: ${error instanceof Error ? error.message : "recovery delivery failed"}`,
++            });
++          }
+         }
+-      } catch (error) {
+-        setSupervisorError(
+-          error instanceof Error ? error.message : "session supervisor unavailable"
+-        );
++      }
++      setRecoveryDeliveryErrors(Object.fromEntries(
++        recoveryErrors.map((error) => [error.planPath, error.message])
++      ));
++      for (const error of recoveryErrors) {
++        const diagnosticKey = `${error.planPath}\u0000${error.message}`;
++        if (reportedRecoveryErrorsRef.current.has(diagnosticKey)) continue;
++        reportedRecoveryErrorsRef.current.add(diagnosticKey);
++        recordDiagnostic({
++          level: "error",
++          source: "recovery",
++          message: `${error.planPath} / ${error.message}`,
++        });
+       }
+       const leasesByKey = new Map(
+         (nextSupervisor?.leases || []).map((lease) => [lease.key, lease])
+@@ -471,7 +635,7 @@ export const App: React.FC = () => {
+       setScanGeneration((generation) => generation + 1);
+       scanRunningRef.current = false;
+     }
+-  }, [ring]);
++  }, [recordDiagnostic, ring]);
+ 
+   useEffect(() => {
+     scan();
+@@ -494,6 +658,9 @@ export const App: React.FC = () => {
+   );
+   const hiddenBoardCount = boards.length - visibleBoards.length;
+   const active = visibleBoards.find((b) => b.port === activePort) || null;
++  const recoveryDeliveryError = active
++    ? recoveryDeliveryErrors[active.planPath] || null
++    : null;
+   const isNativeTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+   const activePlan = active ? planSnapshots[active.planPath]?.plan || null : null;
+   const repositoryGroups = useMemo(() => {
+@@ -512,17 +679,16 @@ export const App: React.FC = () => {
+     ? orchestratorIds[activeRepository.id] || null
+     : null;
+   const firstStalledBoard = visibleBoards.find((board) => (stalledByPlan[board.planPath] || 0) > 0);
+-  const decisionBoards = visibleBoards
++  const decisionBoards = activeRepository ? visibleBoards
+     .map((board) => ({ board, decision: decisionRequest(board) }))
+     .filter(
+       (entry) =>
+         entry.decision !== null &&
+-        (!activeRepository ||
+-          repositoryForBoard(entry.board).id === activeRepository.id)
+-    );
+-  const scopedWorkerReports = workerReports.filter(
+-    (report) => !activeRepository || report.organization.id === activeRepository.id
+-  );
++        repositoryForBoard(entry.board).id === activeRepository.id
++    ) : [];
++  const scopedWorkerReports = activeRepository
++    ? workerReports.filter((report) => report.organization.id === activeRepository.id)
++    : [];
+   const visibleWorkerReports = scopedWorkerReports.filter(
+     (report) => report.disposition !== "CLEARED"
+   );
+@@ -571,7 +737,7 @@ export const App: React.FC = () => {
+         : "standby"
+     : identityError || supervisorError
+       ? "stopped"
+-      : decisionBoards.length || scopedStalled
++      : recoveryDeliveryError || decisionBoards.length || scopedStalled
+         ? "holding"
+         : activeWorkers
+           ? "working"
+@@ -643,6 +809,13 @@ export const App: React.FC = () => {
+         remedy: "Keep legacy board claims blocked, restore the supervisor, inspect its log, and rescan before retrying.",
+       };
+     }
++    if (recoveryDeliveryError) {
++      return {
++        problem: "A durable recovery event could not be delivered to its exact task identity.",
++        where: `${selectedScope} / recovery delivery`,
++        remedy: "Keep the affected task blocked, inspect the recovery diagnostic, and verify its plan, task, and session identity before retrying.",
++      };
++    }
+     if (firstDecisionEntry && firstDecision) {
+       return {
+         problem: firstDecision.problem || `Decision required: ${firstDecision.kind}.`,
+@@ -728,6 +901,7 @@ export const App: React.FC = () => {
+   useEffect(() => {
+     setSelectedPipelineScope(null);
+     setPipelineSnapshot(null);
++    setControlPlaneSnapshot(null);
+   }, [active?.planPath]);
+   const selectPipelineRun = useCallback((run: PipelineRunSummary) => {
+     if (!active?.planPath) return;
+@@ -774,6 +948,46 @@ export const App: React.FC = () => {
+       })),
+     [active?.planPath, visibleWorkerReports]
+   );
++  const workspaceStatus = useMemo(() => deriveWorkspaceStatus({
++    board: active,
++    pipeline: boundPipelineSnapshot,
++    controlPlane: controlPlaneSnapshot,
++    workers: visibleWorkerReports
++      .filter((report) => report.planPath === active?.planPath)
++      .map((report) => report.worker),
++    decisionCount: decisionBoards.length,
++    identityError,
++    supervisorError,
++    recoveryDeliveryError,
++  }), [
++    active,
++    boundPipelineSnapshot,
++    controlPlaneSnapshot,
++    decisionBoards.length,
++    identityError,
++    supervisorError,
++    recoveryDeliveryError,
++    visibleWorkerReports,
++  ]);
++  const releaseVerdict = useMemo(
++    () => deriveReleaseVerdict(boundPipelineSnapshot, active),
++    [active, boundPipelineSnapshot],
++  );
++
++  useEffect(() => {
++    if (orchestratorMinimized) return;
++    const inspector = orchestratorInspectorRef.current;
++    const closeButton = inspector?.querySelector<HTMLButtonElement>("[data-inspector-close]");
++    closeButton?.focus();
++    const closeOnEscape = (event: KeyboardEvent) => {
++      if (event.key !== "Escape") return;
++      if (document.querySelector("#pp-context-menu, #pp-panel-worker-notes")) return;
++      setOrchestratorMinimized(true);
++      window.setTimeout(() => orchestratorToggleRef.current?.focus(), 0);
++    };
++    window.addEventListener("keydown", closeOnEscape);
++    return () => window.removeEventListener("keydown", closeOnEscape);
++  }, [orchestratorMinimized]);
+ 
+   const toggleSound = () => {
+     const next = !soundEnabledRef.current;
+@@ -855,10 +1069,10 @@ export const App: React.FC = () => {
+       // Dismissal remains reversible for this session when storage is unavailable.
+     }
+     const replacement = boards.find((board) => !next.has(board.planPath));
+-    activateBoardPort(replacement?.port ?? null);
++    activateBoard(replacement || null);
+     recordDiagnostic({ level: "info", source: "plan", message: `Removed ${planPath} from the live rail; the plan file was not changed.` });
+     void scan();
+-  }, [activateBoardPort, boards, recordDiagnostic, scan]);
++  }, [activateBoard, boards, recordDiagnostic, scan]);
+ 
+   const restoreDismissedPlans = () => {
+     const next = new Set<string>();
+@@ -869,20 +1083,36 @@ export const App: React.FC = () => {
+     } catch {
+       // The in-memory restore still takes effect.
+     }
+-    activateBoardPort(boards[0]?.port ?? null);
++    activateBoard(boards[0] || null);
+     void scan();
+   };
+ 
++  const toggleOrchestratorMinimized = () => {
++    setOrchestratorMinimized((current) => !current);
++  };
++
++  const toggleRailCollapsed = () => {
++    setRailCollapsed((current) => {
++      const next = !current;
++      try {
++        localStorage.setItem(RAIL_COLLAPSED_KEY, String(next));
++      } catch {
++        // The rail still changes for this session when storage is unavailable.
++      }
++      return next;
++    });
++  };
++
+   const handleContextPlanAction = useCallback((action: "select" | "remove" | "open", planPath: string) => {
+     const board = boards.find((candidate) => candidate.planPath === planPath);
+     if (!board) {
+       recordDiagnostic({ level: "warning", source: "context-menu", message: `Plan action refused because ${planPath} is no longer in the current board census.` });
+       return;
+     }
+-    if (action === "select") activateBoardPort(board.port);
++    if (action === "select") activateBoard(board);
+     if (action === "remove") dismissPlan(planPath);
+     if (action === "open") window.open(board.url, "_blank", "noopener,noreferrer");
+-  }, [activateBoardPort, boards, dismissPlan, recordDiagnostic]);
++  }, [activateBoard, boards, dismissPlan, recordDiagnostic]);
+ 
+   const recordContextAction = useCallback((entry: ContextActionLog) => {
+     recordDiagnostic({ level: entry.level, source: entry.source, message: entry.message });
+@@ -891,14 +1121,34 @@ export const App: React.FC = () => {
+   return (
+     <div className="shell" id="pp-app-shell" data-orchestrator-id={orchestratorId || "pending"}>
+       <ActionContextMenu onPlanAction={handleContextPlanAction} onLog={recordContextAction} />
+-      <aside className="rail" id="pp-region-board-rail">
++      <button
++        id="pp-btn-toggle-repository-rail"
++        type="button"
++        className={`rail-edge-toggle${railCollapsed ? " collapsed" : ""}`}
++        onClick={toggleRailCollapsed}
++        aria-expanded={!railCollapsed}
++        aria-controls="pp-region-board-rail"
++        aria-label={railCollapsed ? "Open repository and plan rail" : "Close repository and plan rail"}
++        title={railCollapsed ? "Open repositories and plans" : "Return the full width to the planner canvas"}
++      >
++        <strong>Plans</strong>
++        <span aria-hidden="true">{railCollapsed ? "›" : "‹"}</span>
++      </button>
++      <aside
++        className={`rail${railCollapsed ? " collapsed" : ""}`}
++        id="pp-region-board-rail"
++        aria-label="Repository and plan rail"
++        aria-hidden={railCollapsed}
++      >
+         <div className="rail-head" id="pp-region-board-rail-heading">
+-          <h1>
+-            perfect <span>planning</span>
+-          </h1>
+-          <p className="rail-sub">
+-            boards on 127.0.0.1:{PORT_START}–{PORT_END}
+-          </p>
++          <div className="rail-head-copy">
++            <h1>
++              perfect <span>planning</span>
++            </h1>
++            <p className="rail-sub">
++              boards on 127.0.0.1:{PORT_START}–{PORT_END}
++            </p>
++          </div>
+         </div>
+ 
+         <div className="rail-list" id="pp-list-boards" aria-label="Running boards by repository">
+@@ -989,7 +1239,7 @@ export const App: React.FC = () => {
+                               data-context-label={`${b.number || "Unnumbered plan"} · ${b.topic || "untitled plan"}`}
+                               data-plan-path={b.planPath}
+                               className={`rail-item${b.port === activePort ? " on" : ""}${boardStalls ? " stalled" : ""}${isComplete ? " complete" : ""}`}
+-                              onClick={() => activateBoardPort(b.port)}
++                              onClick={() => activateBoard(b)}
+                               title={`Repository ${repository.callSign} · ${repository.scope.label}${hasDistinctProject ? ` · Project ${projectLabel}` : ""} · ${branch.name}\n${b.planPath}`}
+                               aria-label={`${b.number || "Unnumbered plan"} Repository ${repository.callSign} ${repository.scope.label}${hasDistinctProject ? ` Project ${projectLabel}` : ""} ${branch.name} ${b.topic || "untitled plan"}`}
+                               aria-pressed={b.port === activePort}
+@@ -1067,7 +1317,7 @@ export const App: React.FC = () => {
+           )}
+         </div>
+ 
+-        <LocalOutputWitness board={active} plan={activePlan} />
++        {!comparisonOpen ? <LocalOutputWitness board={active} plan={activePlan} /> : null}
+ 
+         <div
+           className={`alarm-panel${stalledCount ? " stalled" : ""}`}
+@@ -1081,7 +1331,7 @@ export const App: React.FC = () => {
+                   id="pp-btn-show-stalled"
+                   type="button"
+                   className="alarm-jump"
+-                  onClick={() => activateBoardPort(firstStalledBoard.port)}
++                  onClick={() => activateBoard(firstStalledBoard)}
+                   title="Show the first stalled board"
+                 >
+                   {stalledCount} stalled
+@@ -1160,7 +1410,8 @@ export const App: React.FC = () => {
+           data-repository-call-sign={activeRepositoryCallSign}
+           data-project-name={pipelineProjectLabel}
+           data-branch-name={pipelineBranchLabel}
+-          className={`orchestrator${decisionBoards.length ? " decision" : ""}${!boundPipelineSnapshot && (identityError || supervisorError) ? " identity-error" : ""}`}
++          className={`orchestrator${orchestratorMinimized ? " minimized" : ""}${decisionBoards.length ? " decision" : ""}${!boundPipelineSnapshot && (identityError || supervisorError) ? " identity-error" : ""}`}
++          data-minimized={orchestratorMinimized}
+           aria-label="Head orchestrator"
+         >
+           <div className="orchestrator-head">
+@@ -1199,14 +1450,124 @@ export const App: React.FC = () => {
+                       ? "STOPPED"
+                       : "INSPECTING SETUP"}
+             </span>
++            <span
++              className={`workspace-status workspace-status-${workspaceStatus.tone}`}
++              id="pp-status-workspace-health"
++              title={workspaceStatus.nextAction}
++            >
++              <b>{workspaceStatus.healthLabel}</b>
++              <small>{workspaceStatus.orchestrationLabel}</small>
++            </span>
++            <span
++              className={`workspace-status release-status release-status-${releaseVerdict.tone}`}
++              id="pp-status-workspace-messages"
++              data-release-verdict={releaseVerdict.label}
++              title={releaseVerdict.blockers.join(" · ") || releaseVerdict.source}
++            >
++              <b>RELEASE · {releaseVerdict.label}</b>
++              <small>{workspaceStatus.messagingLabel} · {workspaceStatus.ciLabel}</small>
++            </span>
+             <span className="head-stat" id="pp-stat-worker-reports"><b>{workerReportCount}</b> {boundPipelineSnapshot ? "nodes" : "reports"}</span>
+             <span className="head-stat" id="pp-stat-active"><b>{activeWorkers}</b> active</span>
+             <span className={`head-stat${scopedStalled ? " bad" : ""}`} id="pp-stat-held"><b>{scopedStalled}</b> {boundPipelineSnapshot ? "blocked" : "grace"}</span>
+             <span className="head-stat" id="pp-stat-completed"><b>{scopedCleared}</b> {boundPipelineSnapshot ? "done" : "cleared"}</span>
+             <span className={`head-stat${decisionBoards.length ? " needs" : ""}`}><b>{decisionBoards.length}</b> decisions</span>
++            <button
++              id="pp-btn-toggle-parallel-agents"
++              type="button"
++              className={`parallel-agents-toggle${parallelAgents ? " enabled" : ""}`}
++              role="switch"
++              aria-checked={parallelAgents}
++              data-active-run-limit={boundPipelineSnapshot?.scheduler.maxParallelWorkers ?? "none"}
++              title={`${parallelAgents ? "Allow up to four" : "Allow one"} active agent${parallelAgents ? "s" : ""} in each new run${boundPipelineSnapshot ? `. Current run limit: ${boundPipelineSnapshot.scheduler.maxParallelWorkers ?? 1}.` : "."}`}
++              onClick={() => setParallelAgents((current) => {
++                const next = !current;
++                try { localStorage.setItem(PARALLEL_AGENTS_KEY, String(next)); } catch { /* preference remains session-local */ }
++                return next;
++              })}
++            >
++              <span className="parallel-agents-switch" aria-hidden="true"><i /></span>
++              <span><b>Parallel agents</b><small>{parallelAgents ? "ON · NEW RUNS ×4" : "OFF · NEW RUNS ×1"}{boundPipelineSnapshot ? ` · ACTIVE ×${boundPipelineSnapshot.scheduler.maxParallelWorkers ?? 1}` : ""}</small></span>
++            </button>
+             <ResourceGuard state={resourceGuard} onRefresh={refreshResourceGuard} />
++            <button
++              ref={orchestratorToggleRef}
++              id="pp-btn-toggle-orchestrator"
++              type="button"
++              className="orchestrator-toggle"
++              aria-expanded={!orchestratorMinimized}
++              aria-controls="pp-panel-orchestrator-inspector"
++              aria-label={`${orchestratorMinimized ? "Open" : "Close"} orchestration inspector`}
++              title={`${orchestratorMinimized ? "Open" : "Close"} orchestration inspector`}
++              onClick={toggleOrchestratorMinimized}
++            >
++              <span aria-hidden="true">{orchestratorMinimized ? "+" : "−"}</span>
++              {orchestratorMinimized ? "Inspect" : "Close"}
++            </button>
+           </div>
++        </section>
+ 
++        <nav className="repository-scope-tabs" aria-label="Repository scope">
++          {repositoryGroups.map((repository) => {
++            const repositoryBoards = repository.branches.flatMap((branch) => branch.boards);
++            const selected = repository.scope.id === activeRepository?.id;
++            return (
++              <button
++                key={repository.scope.id}
++                id={`pp-btn-repository-tab-${stableEntityId("repository-tab", repository.scope.id)}`}
++                type="button"
++                className={selected ? "selected" : ""}
++                aria-current={selected ? "page" : undefined}
++                onClick={() => activateBoard(repositoryBoards[0] || null)}
++                title={`Show ${repository.scope.label} only`}
++              >
++                <span>{repository.callSign}</span>
++                <strong>{repository.scope.label}</strong>
++                <small>{repository.boardCount} plan{repository.boardCount === 1 ? "" : "s"}</small>
++              </button>
++            );
++          })}
++        </nav>
++
++        <aside
++          ref={orchestratorInspectorRef}
++          id="pp-panel-orchestrator-inspector"
++          className="orchestrator-inspector"
++          aria-label={`Orchestration inspector for ${pipelineRepositoryLabel} ${active?.number || "no plan"}`}
++          hidden={orchestratorMinimized}
++        >
++          <header className="orchestrator-inspector-head">
++            <div>
++              <span>SCOPED INSPECTOR · {activeRepositoryCallSign}</span>
++              <strong>{pipelineRepositoryLabel} · {active ? boardLabel(active) : "No plan selected"}</strong>
++              <small>{workspaceStatus.nextAction}</small>
++            </div>
++            <button
++              id="pp-btn-close-orchestrator-inspector"
++              type="button"
++              data-inspector-close
++              onClick={() => {
++                setOrchestratorMinimized(true);
++                window.setTimeout(() => orchestratorToggleRef.current?.focus(), 0);
++              }}
++            >
++              Close inspector
++            </button>
++          </header>
++          <OperationalTruth
++            board={active}
++            pipeline={boundPipelineSnapshot}
++            controlPlane={controlPlaneSnapshot}
++            parallelAgents={parallelAgents}
++          />
++          <div className="orchestrator-activity" role="status" aria-live="polite">
++            <span>Latest meaningful activity</span>
++            <p>{workspaceStatus.latestActivity}</p>
++          </div>
++          <div
++            id="pp-panel-orchestrator-details"
++            className="orchestrator-details"
++          >
+           <div className="worker-wire" id="pp-list-worker-reports" role="list" aria-label="Worker reports">
+             {boundPipelineSnapshot ? pipelineNodes.length ? pipelineNodes.map((node) => {
+               const completion = boundPipelineSnapshot.scheduler.completions?.[node.id];
+@@ -1252,7 +1613,7 @@ export const App: React.FC = () => {
+                   data-entity-id={assignmentId}
+                   data-worker-id={report.worker.session}
+                   data-fence={report.fence}
+-                  onClick={() => activateBoardPort(report.boardPort)}
++                  onClick={() => activateBoard(visibleBoards.find((board) => board.port === report.boardPort) || null)}
+                   title={`${report.boardLabel} · ${report.worker.session} · fence ${report.fence}`}
+                 >
+                   <span className="worker-id">{report.worker.session}</span>
+@@ -1279,7 +1640,7 @@ export const App: React.FC = () => {
+                   key={decisionId}
+                   className="decision-report"
+                   data-entity-id={decisionId}
+-                  onClick={() => activateBoardPort(board.port)}
++                  onClick={() => activateBoard(board)}
+                   title={`Decision requested by ${boardLabel(board)}`}
+                 >
+                   DECISION · {decision?.item || decision?.kind}
+@@ -1291,19 +1652,24 @@ export const App: React.FC = () => {
+             scope={controlPlaneScope}
+             orchestratorId={orchestratorId}
+             workers={controlPlaneWorkers}
++            onSnapshotChange={setControlPlaneSnapshot}
+           />
+-        </section>
++          </div>
+ 
+-        <PipelineConsole
+-          runId={pipelineScope?.runId}
+-          repositoryRoot={pipelineScope?.repositoryRoot || active?.repoRoot}
+-          planPath={active?.planPath}
+-          snapshotSeed={pipelineSnapshotSeed}
+-          onSelectRun={selectPipelineRun}
+-          onRunCreated={selectCreatedPipelineRun}
+-          onSnapshotChange={setPipelineSnapshot}
+-          onDiagnostic={recordPipelineDiagnostic}
+-        />
++        <div id="pp-panel-orchestrator-pipeline">
++          <PipelineConsole
++            runId={pipelineScope?.runId}
++            repositoryRoot={pipelineScope?.repositoryRoot || active?.repoRoot}
++            planPath={active?.planPath}
++            parallelAgents={parallelAgents}
++            snapshotSeed={pipelineSnapshotSeed}
++            onSelectRun={selectPipelineRun}
++            onRunCreated={selectCreatedPipelineRun}
++            onSnapshotChange={setPipelineSnapshot}
++            onDiagnostic={recordPipelineDiagnostic}
++          />
++        </div>
++        </aside>
+ 
+         {active ? (
+           <>
+@@ -1338,6 +1704,32 @@ export const App: React.FC = () => {
+               </span>
+               <span className="stage-actions">
+                 <span className="context-action-hint" id="pp-hint-plan-context-actions">right-click plan for actions</span>
++                <button
++                  id="pp-btn-toggle-ui-navigation-map"
++                  type="button"
++                  className={`chip${uiMapOpen ? " active" : ""}`}
++                  aria-pressed={uiMapOpen}
++                  aria-controls="pp-region-ui-navigation-map"
++                  onClick={() => {
++                    setUiMapOpen((current) => !current);
++                    setComparisonOpen(false);
++                  }}
++                >
++                  {uiMapOpen ? "close UI map" : "UI map"}
++                </button>
++                <button
++                  id="pp-btn-toggle-ui-comparison"
++                  type="button"
++                  className={`chip${comparisonOpen ? " active" : ""}`}
++                  aria-expanded={comparisonOpen}
++                  aria-controls="pp-region-ui-comparison"
++                  onClick={() => {
++                    setComparisonOpen((current) => !current);
++                    setUiMapOpen(false);
++                  }}
++                >
++                  {comparisonOpen ? "close comparison" : "compare UI"}
++                </button>
+                 <button
+                   id="pp-btn-reload-active-board"
+                   type="button"
+@@ -1362,23 +1754,40 @@ export const App: React.FC = () => {
+                 </a>
+               </span>
+             </div>
+-            <iframe
+-              id="pp-frame-active-board"
+-              key={`${active.port}:${nonce}`}
+-              ref={frameRef}
+-              className="board"
+-              src={active.url}
+-              title={boardLabel(active)}
+-            />
++            <div className={`stage-workspace${comparisonOpen ? " comparing" : ""}${uiMapOpen ? " mapping" : ""}`}>
++              {uiMapOpen ? (
++                <UiNavigationMap key={active.planPath} board={active} plan={activePlan} />
++              ) : (
++                <>
++                  <iframe
++                    id="pp-frame-active-board"
++                    key={`${active.port}:${nonce}`}
++                    ref={frameRef}
++                    className="board"
++                    src={active.url}
++                    title={boardLabel(active)}
++                  />
++                  {comparisonOpen ? <LocalOutputWitness board={active} plan={activePlan} variant="comparison" /> : null}
++                </>
++              )}
++            </div>
+           </>
+         ) : (
+           <div className="stage-empty" id="pp-region-empty-stage">
+             <div className="stage-empty-inner">
+-              <h2>Waiting for a board</h2>
+-              <p>
+-                This window is a container. It renders the board perfect-planning already
+-                serves — it does not draw its own.
+-              </p>
++              <h2>{unavailableSelection ? "Saved plan unavailable" : "Waiting for a board"}</h2>
++              {unavailableSelection ? (
++                <p>
++                  The saved repository and plan are not in the current board census. Select an
++                  available plan from the repository rail; Perfect Planner will not switch scope
++                  automatically. Saved scope: {unavailableSelection.repositoryRoot} · {unavailableSelection.planPath}
++                </p>
++              ) : (
++                <p>
++                  This window is a container. It renders the board perfect-planning already
++                  serves — it does not draw its own.
++                </p>
++              )}
+             </div>
+           </div>
+         )}
+diff --git a/src/index.css b/src/index.css
+index d7b6db6..9fda670 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -39,6 +39,7 @@ body {
+ }
+ 
+ .shell {
++  --rail-width: 308px;
+   display: flex;
+   height: 100%;
+   width: 100%;
+@@ -47,19 +48,39 @@ body {
+ /* ---------- rail ---------- */
+ 
+ .rail {
+-  width: 308px;
++  width: var(--rail-width);
+   flex: none;
+   display: flex;
+   flex-direction: column;
++  overflow: hidden;
+   background: var(--beige);
+   border-right: 1px solid #cdc6b6;
++  transition: width 160ms ease, border-color 160ms ease;
++}
++
++.rail.collapsed {
++  width: 0;
++  border-right-width: 0;
++}
++
++.rail.collapsed > * {
++  visibility: hidden;
++  pointer-events: none;
+ }
+ 
+ .rail-head {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) auto;
++  align-items: center;
++  gap: 8px;
+   padding: 14px 16px 12px;
+   border-bottom: 1px solid var(--line);
+ }
+ 
++.rail-head-copy {
++  min-width: 0;
++}
++
+ .rail-head h1 {
+   font: 700 13px/1.4 var(--mono);
+   letter-spacing: 0.5px;
+@@ -75,6 +96,46 @@ body {
+   color: var(--dim);
+ }
+ 
++.rail-edge-toggle {
++  position: fixed;
++  z-index: 4300;
++  top: 21px;
++  left: calc(var(--rail-width) - 57px);
++  display: inline-flex;
++  min-width: 52px;
++  min-height: 30px;
++  align-items: center;
++  justify-content: center;
++  gap: 6px;
++  padding: 5px 8px;
++  border: 1px solid #718277;
++  border-radius: 999px;
++  color: #eef4ef;
++  background: #24332a;
++  box-shadow: 0 3px 12px rgba(23, 32, 25, .22);
++  font: 800 8px/1 var(--mono);
++  letter-spacing: .35px;
++  cursor: pointer;
++  transition: left 160ms ease, top 160ms ease, transform 160ms ease, background 120ms ease, border-color 120ms ease;
++}
++
++.rail-edge-toggle.collapsed {
++  top: 50%;
++  left: 6px;
++  transform: translateY(-50%);
++}
++
++.rail-edge-toggle span {
++  color: #b8d4be;
++  font-size: 15px;
++  line-height: .7;
++}
++
++.rail-edge-toggle:hover {
++  border-color: #a9c7af;
++  background: #31463a;
++}
++
+ .rail-list {
+   flex: 1;
+   overflow-y: auto;
+@@ -574,6 +635,12 @@ body {
+   border-color: #cfd4da;
+ }
+ 
++.chip.active {
++  border-color: #4e8a5c;
++  color: #285936;
++  background: #e4efe6;
++}
++
+ .chip:disabled {
+   opacity: 0.55;
+   cursor: default;
+@@ -626,15 +693,365 @@ body {
+ }
+ 
+ .orchestrator-head {
++  min-height: 50px;
++  flex-wrap: nowrap;
++  gap: 10px;
++  padding: 7px 500px 7px 14px;
++}
++
++.orchestrator > .orchestrator-head .head-orchestrator-command-post,
++.orchestrator > .orchestrator-head .head-stat {
++  display: none;
++}
++
++.head-copy {
++  min-width: 0;
++  max-width: min(340px, 28vw);
++  flex: 0 1 340px;
++}
++
++.head-eyebrow,
++.head-copy strong {
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.head-lease {
++  margin-right: 0;
++  white-space: nowrap;
++}
++
++.workspace-status {
++  display: grid;
++  min-width: 120px;
++  gap: 2px;
++  padding-left: 9px;
++  border-left: 1px solid rgba(185, 209, 190, .28);
++  font-family: var(--mono);
++  white-space: nowrap;
++}
++
++.workspace-status b { color: #edf3ee; font-size: 8px; }
++.workspace-status small { color: #9fb0a3; font-size: 7px; }
++.workspace-status-healthy b { color: #9bd0a5; }
++.workspace-status-active b { color: #9dc8e6; }
++.workspace-status-waiting b { color: #e8c879; }
++.workspace-status-blocked b { color: #ff9b96; }
++.workspace-status-unknown b { color: #bac1bc; }
++.release-status-ready b { color: #9bd0a5; }
++.release-status-active b { color: #9dc8e6; }
++.release-status-warning b { color: #e8c879; }
++.release-status-blocked b { color: #ff9b96; }
++.release-status-unknown b { color: #bac1bc; }
++
++.orchestrator-head {
++  position: relative;
++  display: flex;
++  align-items: center;
++}
++
++.orchestrator-toggle {
++  position: absolute;
++  top: 10px;
++  right: 14px;
++  display: inline-flex;
++  min-width: 102px;
++  min-height: 30px;
++  align-items: center;
++  justify-content: center;
++  gap: 7px;
++  padding: 5px 9px;
++  border: 1px solid #78907d;
++  border-radius: 4px;
++  color: #eef4ef;
++  background: #1e2822;
++  font: 800 8.5px var(--mono);
++  letter-spacing: 0.55px;
++  cursor: pointer;
++}
++
++.orchestrator-toggle:hover {
++  border-color: #a7c1ac;
++  background: #334039;
++}
++
++.orchestrator-toggle > span {
++  color: #b9d1be;
++  font-size: 14px;
++  line-height: 1;
++}
++
++.parallel-agents-toggle {
++  position: absolute;
++  top: 7px;
++  right: 316px;
++  display: inline-flex;
++  min-width: 164px;
++  min-height: 36px;
++  align-items: center;
++  gap: 9px;
++  padding: 5px 10px;
++  border: 1px solid #6f7e73;
++  border-radius: 5px;
++  color: #c6cec8;
++  background: #1c251f;
++  font-family: var(--mono);
++  text-align: left;
++  cursor: pointer;
++}
++
++.parallel-agents-toggle.enabled {
++  border-color: #7bb087;
++  color: #eff8f1;
++  background: #23372a;
++  box-shadow: 0 0 0 1px rgba(123, 176, 135, .18) inset;
++}
++
++.parallel-agents-toggle > span:last-child { display: grid; gap: 1px; }
++.parallel-agents-toggle b { font-size: 8.5px; letter-spacing: .35px; }
++.parallel-agents-toggle small { color: #91a096; font-size: 6.5px; letter-spacing: .45px; }
++.parallel-agents-toggle.enabled small { color: #9fd0a9; }
++
++.parallel-agents-switch {
+   position: relative;
+-  min-height: 136px;
++  width: 34px;
++  height: 18px;
++  flex: none;
++  border: 1px solid #748078;
++  border-radius: 999px;
++  background: #111814;
++}
++
++.parallel-agents-switch i {
++  position: absolute;
++  top: 2px;
++  left: 2px;
++  width: 12px;
++  height: 12px;
++  border-radius: 50%;
++  background: #89938c;
++  transition: transform 140ms ease, background 140ms ease;
++}
++
++.parallel-agents-toggle.enabled .parallel-agents-switch i {
++  transform: translateX(16px);
++  background: #9ed3aa;
++}
++
++.resource-guard { right: 160px; }
++
++.repository-scope-tabs {
+   display: flex;
++  min-height: 36px;
++  gap: 1px;
++  padding: 0 10px;
++  overflow-x: auto;
++  border-bottom: 1px solid #c8c1b5;
++  background: #e7e2d7;
++}
++
++.repository-scope-tabs button {
++  display: inline-grid;
++  min-width: 156px;
++  grid-template-columns: auto minmax(0, 1fr) auto;
+   align-items: center;
++  gap: 7px;
++  padding: 6px 9px;
++  border: 0;
++  border-bottom: 3px solid transparent;
++  color: #686b66;
++  background: transparent;
++  font-family: var(--mono);
++  cursor: pointer;
++}
++
++.repository-scope-tabs button:hover { background: rgba(255, 255, 255, .46); }
++.repository-scope-tabs button.selected { border-bottom-color: #3f7650; color: #203627; background: #f4f1e9; }
++.repository-scope-tabs button > span { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 3px; color: #eef4ef; background: #466750; font-size: 8px; font-weight: 900; }
++.repository-scope-tabs strong { overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
++.repository-scope-tabs small { font-size: 6.5px; white-space: nowrap; }
++
++.orchestrator-inspector {
++  position: fixed;
++  z-index: 4200;
++  top: 50px;
++  right: 0;
++  bottom: 0;
++  width: min(880px, calc(100vw - 42px));
++  overflow: auto;
++  border-left: 2px solid #53725b;
++  color: #eff4f0;
++  background: #172019;
++  box-shadow: -20px 0 55px rgba(13, 19, 15, .36);
++}
++
++.orchestrator-inspector[hidden] { display: none; }
++
++.orchestrator-inspector-head {
++  position: sticky;
++  z-index: 5;
++  top: 0;
++  display: flex;
++  align-items: flex-start;
++  justify-content: space-between;
++  gap: 18px;
++  padding: 13px 15px;
++  border-bottom: 1px solid #3b5040;
++  background: #172019;
++  box-shadow: 0 5px 18px rgba(0, 0, 0, .2);
++}
++
++.orchestrator-inspector-head > div { display: grid; min-width: 0; gap: 4px; }
++.orchestrator-inspector-head span { color: #7fad89; font: 800 7px var(--mono); letter-spacing: 1px; }
++.orchestrator-inspector-head strong { overflow: hidden; font: 800 11px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
++.orchestrator-inspector-head small { color: #b8c4bb; font: 7px/1.45 var(--mono); }
++.orchestrator-inspector-head button { flex: none; padding: 7px 9px; border: 1px solid #708675; border-radius: 4px; color: #eef4ef; background: #26342b; font: 800 7px var(--mono); cursor: pointer; }
++
++.orchestrator-activity {
++  display: grid;
++  gap: 4px;
++  padding: 9px 14px;
++  border-bottom: 1px solid #324237;
++  background: #1d2921;
++  font-family: var(--mono);
++}
++
++.orchestrator-activity span { color: #82aa8c; font-size: 6.5px; font-weight: 900; letter-spacing: .9px; text-transform: uppercase; }
++.orchestrator-activity p { margin: 0; overflow-wrap: anywhere; color: #dce5de; font-size: 8px; line-height: 1.45; }
++.orchestrator-inspector .worker-wire { min-height: 42px; }
++.orchestrator-inspector .orchestrator-messenger { grid-template-columns: 1fr; align-items: start; }
++.orchestrator-inspector #pp-panel-orchestrator-pipeline { color: #20251f; }
++
++.operational-truth {
++  display: grid;
++  gap: 9px;
++  padding: 12px 14px 14px;
++  border-bottom: 1px solid #34473a;
++  background: #131b16;
++  font-family: var(--mono);
++}
++
++.operational-truth-head {
++  display: flex;
++  align-items: flex-start;
++  justify-content: space-between;
++  gap: 14px;
++}
++
++.operational-truth-head > div { display: grid; min-width: 0; gap: 3px; }
++.operational-truth-head span { color: #7fad89; font-size: 6.5px; font-weight: 900; letter-spacing: .8px; }
++.operational-truth-head h2 { color: #edf3ee; font-size: 11px; line-height: 1.35; }
++
++.truth-release-verdict {
++  flex: none;
++  padding: 7px 9px;
++  border: 1px solid #657269;
++  border-radius: 4px;
++  color: #c7ceca;
++  background: #202923;
++  font-size: 7px;
++  letter-spacing: .55px;
++}
++
++.truth-release-verdict[data-state="ready"] { border-color: #527d5d; color: #a9d8b3; background: #1c3022; }
++.truth-release-verdict[data-state="blocked"] { border-color: #995750; color: #ffaaa2; background: #38221f; }
++.truth-release-verdict[data-state="warning"] { border-color: #8c713d; color: #ebca83; background: #322b1d; }
++
++.truth-summary-grid {
++  display: grid;
++  grid-template-columns: repeat(2, minmax(0, 1fr));
++  gap: 8px;
++}
++
++.truth-summary-card {
++  display: grid;
++  align-content: start;
++  gap: 6px;
++  min-height: 142px;
++  padding: 10px;
++  border: 1px solid #34453a;
++  border-left: 3px solid #657269;
++  border-radius: 4px;
++  background: #1a241d;
++}
++
++.truth-summary-card[data-state="ready"] { border-left-color: #6ca378; }
++.truth-summary-card[data-state="active"] { border-left-color: #6d9bb8; }
++.truth-summary-card[data-state="warning"] { border-left-color: #c49a4d; }
++.truth-summary-card[data-state="blocked"] { border-left-color: #d46f65; }
++.truth-summary-card > span { color: #8fab94; font-size: 6px; font-weight: 900; letter-spacing: .7px; text-transform: uppercase; }
++.truth-summary-card > strong { color: #eff4f0; font-size: 8px; line-height: 1.35; }
++.truth-summary-card > p,
++.truth-summary-card li { color: #c2cdc5; font-size: 7px; line-height: 1.5; }
++.truth-summary-card ul { display: grid; gap: 3px; margin: 0; padding-left: 15px; }
++.truth-summary-card dl { display: grid; gap: 4px; margin-top: auto; }
++.truth-summary-card dl div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 6px; }
++.truth-summary-card dt { color: #779083; font-size: 5.8px; font-weight: 900; text-transform: uppercase; }
++.truth-summary-card dd { margin: 0; overflow-wrap: anywhere; color: #d9e0da; font-size: 6.4px; }
++
++.truth-detail {
++  border: 1px solid #33443a;
++  border-radius: 4px;
++  background: #18211b;
++}
++
++.truth-detail summary {
++  min-height: 32px;
++  padding: 8px 10px;
++  color: #dfe8e1;
++  font-size: 7px;
++  font-weight: 900;
++  cursor: pointer;
++}
++
++.truth-detail-body {
++  display: flex;
+   flex-wrap: wrap;
+-  gap: 12px;
+-  padding: 9px 230px 7px 14px;
++  gap: 6px;
++  padding: 0 10px 10px;
++}
++
++.truth-detail-body code {
++  max-width: 100%;
++  overflow-wrap: anywhere;
++  padding: 4px 6px;
++  border: 1px solid #405347;
++  border-radius: 3px;
++  color: #b9c8bd;
++  background: #111813;
++  font-size: 6px;
+ }
+ 
++.truth-evidence-wrap { overflow-x: auto; padding: 0 8px 9px; }
++.truth-evidence-table { width: 100%; min-width: 760px; border-collapse: collapse; color: #ccd6ce; font-size: 6.2px; }
++.truth-evidence-table th,
++.truth-evidence-table td { padding: 7px 6px; border-top: 1px solid #2f4035; text-align: left; vertical-align: top; }
++.truth-evidence-table thead th { color: #83a08d; font-size: 5.7px; letter-spacing: .45px; text-transform: uppercase; }
++.truth-evidence-table tbody th { display: grid; min-width: 120px; gap: 2px; }
++.truth-evidence-table tbody th b { color: #a8d0b0; }
++.truth-evidence-table tbody th span { color: #dce5de; font-weight: 500; }
++
++.truth-evidence-state {
++  display: inline-block;
++  padding: 3px 5px;
++  border: 1px solid #58645c;
++  border-radius: 999px;
++  color: #bdc5bf;
++  white-space: nowrap;
++}
++
++.truth-evidence-state[data-state="ready"] { border-color: #50775a; color: #a2d1ac; }
++.truth-evidence-state[data-state="blocked"] { border-color: #8a4e49; color: #f3a099; }
++.truth-empty { padding: 0 10px 10px; color: #9cac9f; font-size: 7px; }
++
++.truth-activity-feed { display: grid; gap: 0; padding: 0 10px 10px; list-style: none; }
++.truth-activity-feed li { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 3px 8px; padding: 8px 0; border-top: 1px solid #2d3d33; }
++.truth-activity-feed time { color: #789083; font-size: 5.8px; }
++.truth-activity-feed strong { color: #cfe0d3; font-size: 6.5px; }
++.truth-activity-feed p { grid-column: 2; margin: 0; color: #e0e8e2; font-size: 7px; line-height: 1.45; }
++.truth-activity-feed small { grid-column: 2; color: #7f9185; font-size: 5.8px; }
++
+ .head-orchestrator-command-post {
+   position: relative;
+   display: grid;
+@@ -882,7 +1299,7 @@ body {
+ .resource-guard {
+   position: absolute;
+   top: 9px;
+-  right: 14px;
++  right: 160px;
+   flex: none;
+   font-family: var(--mono);
+ }
+@@ -1153,6 +1570,7 @@ body {
+ @media (prefers-reduced-motion: reduce) {
+   .looplet-live-feed-mark::after,
+   .head-orchestrator-character { animation: none !important; }
++  .parallel-agents-switch i { transition: none; }
+ }
+ 
+ .orchestrator-messenger-title {
+@@ -1484,20 +1902,17 @@ body {
+ 
+ @media (max-width: 1050px) {
+   .orchestrator-head {
+-    align-items: flex-start;
+-    flex-wrap: wrap;
+-    padding-right: 14px;
++    padding-right: 304px;
+   }
+ 
+   .resource-guard {
+-    position: relative;
+-    top: auto;
+-    right: auto;
++    display: none;
+   }
+ 
+-  .head-orchestrator-command-post {
+-    width: min(100%, 360px);
+-  }
++  .parallel-agents-toggle { right: 126px; }
++
++  .head-copy { max-width: 240px; }
++  .workspace-status + .workspace-status { display: none; }
+ 
+   .orchestrator-messenger {
+     grid-template-columns: 1fr;
+@@ -1580,9 +1995,18 @@ input:focus-visible {
+ }
+ 
+ @media (max-width: 980px) {
+-  .rail { width: 270px; }
++  .shell { --rail-width: 270px; }
+   .scope-branch { max-width: 150px; }
+   .path { display: none; }
++  .ui-navigation-map { min-width: 760px; padding-inline: 14px; }
++  .ui-map-spine-row { grid-template-columns: minmax(190px, 1fr) 250px minmax(190px, 1fr); gap: 30px; }
++}
++
++@media (prefers-reduced-motion: reduce) {
++  .rail,
++  .rail-edge-toggle {
++    transition: none;
++  }
+ }
+ 
+ .path {
+@@ -1612,10 +2036,242 @@ input:focus-visible {
+ .board {
+   flex: 1;
+   width: 100%;
++  height: 100%;
+   border: 0;
+   background: var(--bg);
+ }
+ 
++.stage-workspace {
++  display: grid;
++  min-height: 0;
++  flex: 1;
++  grid-template-columns: minmax(0, 1fr);
++  overflow: hidden;
++}
++
++.stage-workspace.comparing {
++  grid-template-columns: minmax(0, 1fr) minmax(320px, 42%);
++  gap: 1px;
++  background: #9ea49f;
++}
++
++.stage-workspace.mapping {
++  display: block;
++  overflow: auto;
++  background: #e9e5dc;
++}
++
++.ui-navigation-map {
++  min-width: 920px;
++  min-height: 100%;
++  padding: 18px 22px 60px;
++  color: #202720;
++  background-color: #e9e5dc;
++  background-image:
++    linear-gradient(rgba(67, 87, 71, .055) 1px, transparent 1px),
++    linear-gradient(90deg, rgba(67, 87, 71, .055) 1px, transparent 1px);
++  background-size: 24px 24px;
++  font-family: var(--mono);
++}
++
++.ui-navigation-map-head {
++  display: flex;
++  align-items: flex-end;
++  justify-content: space-between;
++  gap: 24px;
++  max-width: 1360px;
++  margin: 0 auto;
++  padding: 14px 16px;
++  border: 1px solid #c5c2b9;
++  border-top: 4px solid #365642;
++  background: rgba(248, 246, 240, .94);
++  box-shadow: var(--shadow);
++}
++
++.ui-navigation-map-head > div:first-child { display: grid; gap: 4px; }
++.ui-navigation-map-head > div:first-child > span { color: #50705a; font-size: 6.5px; font-weight: 900; letter-spacing: .95px; }
++.ui-navigation-map-head h2 { font-size: 20px; line-height: 1.1; letter-spacing: -.5px; }
++.ui-navigation-map-head p { color: #6b706a; font-size: 8px; }
++
++.ui-map-counts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
++.ui-map-counts span { padding: 5px 7px; border: 1px solid #c3c8c2; border-radius: 999px; color: #5d655f; background: #fff; font-size: 6.5px; }
++.ui-map-counts b { color: #355b40; font-size: 8px; }
++.ui-map-counts span[data-state="warning"] { border-color: #c09052; color: #8b5b22; }
++
++.ui-map-disclosure {
++  max-width: 1360px;
++  margin: 8px auto 20px;
++  padding: 8px 12px;
++  border-left: 3px solid #77917d;
++  color: #5d675f;
++  background: rgba(248, 246, 240, .82);
++  font-size: 7px;
++  line-height: 1.5;
++}
++
++.ui-map-canvas {
++  position: relative;
++  display: grid;
++  max-width: 1360px;
++  gap: 18px;
++  margin: 0 auto;
++  padding: 10px 0 30px;
++}
++
++.ui-map-axis {
++  position: absolute;
++  top: 0;
++  bottom: 0;
++  left: 50%;
++  width: 4px;
++  transform: translateX(-2px);
++  border-right: 1px solid #95a69a;
++  border-left: 1px solid #95a69a;
++  background: #d8dfd9;
++}
++
++.ui-map-spine-row {
++  position: relative;
++  z-index: 1;
++  display: grid;
++  grid-template-columns: minmax(240px, 1fr) 300px minmax(240px, 1fr);
++  align-items: start;
++  gap: 42px;
++}
++
++.ui-map-spine-segment {
++  position: relative;
++  display: grid;
++  min-height: 116px;
++  align-content: center;
++  gap: 6px;
++  padding: 18px 38px;
++  border: 1px solid #9eaaa0;
++  border-radius: 32px 8px 32px 8px;
++  background: #faf9f5;
++  box-shadow: 0 7px 22px rgba(52, 66, 55, .12), 0 0 0 5px rgba(233, 229, 220, .88);
++  text-align: center;
++}
++
++.ui-map-spine-segment::before {
++  position: absolute;
++  top: 50%;
++  left: 50%;
++  z-index: -1;
++  width: 18px;
++  height: 18px;
++  transform: translate(-50%, -50%);
++  border: 4px solid #e9e5dc;
++  border-radius: 50%;
++  content: "";
++  background: #4e8a5c;
++}
++
++.ui-map-spine-id { color: #3e704b; font-size: 8px; font-weight: 900; letter-spacing: 1px; }
++.ui-map-spine-segment h3 { font-size: 11px; line-height: 1.35; }
++.ui-map-spine-segment p { color: #6d746e; font-size: 7px; line-height: 1.45; }
++
++.ui-map-branch-toggle {
++  position: absolute;
++  top: 50%;
++  display: inline-flex;
++  min-width: 38px;
++  min-height: 32px;
++  align-items: center;
++  justify-content: center;
++  gap: 4px;
++  transform: translateY(-50%);
++  border: 1px solid #697c6e;
++  border-radius: 999px;
++  color: #eef4ef;
++  background: #2b4032;
++  font: 800 8px var(--mono);
++  cursor: pointer;
++}
++
++.ui-map-branch-toggle.left { left: -20px; }
++.ui-map-branch-toggle.right { right: -20px; }
++.ui-map-branch-toggle[aria-expanded="true"] { border-color: #91bd9a; background: #406b4c; box-shadow: 0 0 0 3px rgba(78, 138, 92, .16); }
++.ui-map-branch-toggle > span[aria-hidden="true"] { font-size: 15px; line-height: 1; }
++
++.ui-map-branch {
++  position: relative;
++  display: grid;
++  gap: 8px;
++  min-width: 0;
++}
++
++.ui-map-branch.open::after {
++  position: absolute;
++  top: 56px;
++  width: 42px;
++  border-top: 2px dashed #8aa08f;
++  content: "";
++}
++
++.ui-map-branch.left::after { right: -42px; }
++.ui-map-branch.right::after { left: -42px; }
++
++.ui-map-page {
++  overflow: hidden;
++  border: 1px solid #bdc5be;
++  border-left: 4px solid #718077;
++  border-radius: 7px;
++  background: rgba(255, 255, 255, .96);
++  box-shadow: 0 4px 14px rgba(52, 66, 55, .08);
++}
++
++.ui-map-page.ui-capable { border-left-color: #4e8a5c; }
++.ui-map-page.support-work { border-left-color: #9a815d; }
++.ui-map-page summary { display: grid; min-height: 66px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; }
++.ui-map-page-id { padding: 4px 6px; border-radius: 4px; color: #f2f6f3; background: #3b5e46; font-size: 7px; font-weight: 900; }
++.ui-map-page.support-work .ui-map-page-id { background: #735f43; }
++.ui-map-page-copy { display: grid; min-width: 0; gap: 3px; }
++.ui-map-page-copy strong { color: #263129; font-size: 8px; line-height: 1.35; }
++.ui-map-page-copy small { color: #758079; font-size: 5.8px; line-height: 1.35; }
++.ui-map-page-progress { color: #657269; font-size: 6px; white-space: nowrap; }
++
++.ui-map-page-body { display: grid; gap: 10px; padding: 10px; border-top: 1px solid #d6dbd6; background: #f4f5f1; }
++.ui-map-page-body dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
++.ui-map-page-body dl div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 5px; }
++.ui-map-page-body dt,
++.ui-map-page-body h3 { color: #5a7461; font-size: 5.8px; font-weight: 900; letter-spacing: .5px; text-transform: uppercase; }
++.ui-map-page-body dd { margin: 0; color: #38423b; font-size: 6.3px; }
++.ui-map-page-body section { display: grid; gap: 4px; }
++.ui-map-page-body code { overflow-wrap: anywhere; color: #3f5946; font-size: 6px; }
++.ui-map-page-body p,
++.ui-map-page-body li { color: #6f7671; font-size: 6.2px; line-height: 1.45; }
++.ui-map-page-body ul { padding-left: 14px; }
++
++.ui-map-branch-empty {
++  margin-top: 30px;
++  padding: 12px;
++  border: 1px dashed #b1aaa0;
++  color: #756d63;
++  background: rgba(248, 246, 240, .8);
++  font-size: 7px;
++  text-align: center;
++}
++
++.ui-map-orphans {
++  max-width: 1360px;
++  margin: 16px auto 0;
++  padding: 10px 12px;
++  border: 1px solid #c28850;
++  color: #765020;
++  background: #fff7e8;
++  font-size: 7px;
++}
++
++.ui-navigation-map-empty {
++  display: grid;
++  min-width: 0;
++  min-height: 100%;
++  place-content: center;
++  gap: 8px;
++  text-align: center;
++}
++
+ /* ---------- stored localhost witness ---------- */
+ 
+ .local-output {
+@@ -1671,6 +2327,92 @@ input:focus-visible {
+   object-position: top;
+ }
+ 
++.local-output.comparison {
++  display: flex;
++  min-width: 0;
++  min-height: 0;
++  flex-direction: column;
++  padding: 12px;
++  overflow: auto;
++  border-top: 0;
++  border-left: 1px solid #bcc0bc;
++  background: #e8e3d9;
++}
++
++.local-output.comparison .local-screen {
++  min-height: 280px;
++  height: auto;
++  flex: 1;
++  align-items: start;
++  background: #111612;
++}
++
++.local-output.comparison .local-screen img {
++  width: 100%;
++  height: auto;
++  max-height: 100%;
++  object-fit: contain;
++  object-position: top center;
++}
++
++.evidence-view-switch {
++  display: grid;
++  grid-template-columns: 1fr 1fr;
++  gap: 4px;
++  margin-bottom: 8px;
++}
++
++.evidence-view-switch button {
++  display: inline-flex;
++  min-height: 32px;
++  align-items: center;
++  justify-content: center;
++  gap: 6px;
++  border: 1px solid #b6b4ad;
++  border-radius: 4px;
++  color: #5e625e;
++  background: #f4f1ea;
++  font: 800 8px var(--mono);
++  cursor: pointer;
++}
++
++.evidence-view-switch button.selected {
++  border-color: #4e7558;
++  color: #284a31;
++  background: #deeadf;
++}
++
++.code-evidence {
++  min-height: 280px;
++  flex: 1;
++  padding: 14px;
++  overflow: auto;
++  border: 1px solid #29352d;
++  border-radius: 4px;
++  color: #cbd9cf;
++  background: #111612;
++  font: 10px/1.55 var(--mono);
++  white-space: pre-wrap;
++  word-break: break-word;
++}
++
++.capture-standard {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 8px;
++  margin-top: 7px;
++  padding: 6px 8px;
++  border: 1px solid #b18a4b;
++  border-radius: 3px;
++  color: #79591f;
++  background: #f5ead4;
++  font: 7.5px var(--mono);
++}
++
++.capture-standard.verified { border-color: #729779; color: #2f6b3e; background: #e4efe6; }
++.capture-standard.failed { border-color: #bd7169; color: #8a362e; background: #f8e4e2; }
++
+ .visibility-map {
+   display: flex;
+   gap: 4px;
+@@ -2407,6 +3149,9 @@ button[data-context-kind="plan"] { cursor: pointer; }
+ .diagnostics-status-grid article strong { overflow-wrap: anywhere; font: 800 8px var(--mono); }
+ .diagnostics-status-grid article small { overflow-wrap: anywhere; color: #a4aea7; font: 6.5px/1.45 var(--mono); }
+ .diagnostics-log { padding: 10px; }
++.diagnostics-source-summary { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 80px 10px 0; }
++.diagnostics-source-summary span { padding: 4px 6px; border: 1px solid #405147; border-radius: 999px; color: #b9c9bd; background: #18221b; font: 700 5.8px var(--mono); }
++.diagnostics-source-summary span[data-state="unknown"] { border-color: #716851; color: #d1ba83; }
+ .diagnostics-log > button { float: right; padding: 6px 8px; }
+ .diagnostics-log article { display: grid; grid-template-columns: 72px 90px 1fr; gap: 7px; padding: 8px 3px; border-bottom: 1px solid #29342d; font: 7px var(--mono); }
+ .diagnostics-log article[data-level="error"] { color: #ffaca0; }
+@@ -2461,6 +3206,22 @@ button[data-context-kind="plan"] { cursor: pointer; }
+ .pipeline-console-empty dd { margin: 0; overflow-wrap: anywhere; }
+ 
+ @media (max-width: 720px) {
++  .orchestrator-head { padding-right: 220px; }
++  .head-copy { display: none; }
++  .head-lease { display: none; }
++  .workspace-status { min-width: 0; }
++  .orchestrator-toggle { right: 8px; min-width: 88px; }
++  .parallel-agents-toggle { right: 102px; min-width: 108px; padding-inline: 7px; }
++  .parallel-agents-toggle > span:last-child small { display: none; }
++  .stage-workspace.comparing { grid-template-columns: 1fr; grid-template-rows: minmax(280px, 1fr) minmax(260px, 1fr); overflow: auto; }
++  .orchestrator-inspector { width: 100vw; }
++  .truth-summary-grid { grid-template-columns: 1fr; }
++  .operational-truth-head { align-items: stretch; flex-direction: column; }
++  .truth-release-verdict { align-self: flex-start; }
++  .ui-navigation-map-head { align-items: flex-start; flex-direction: column; }
++  .ui-map-counts { justify-content: flex-start; }
++  .repository-scope-tabs { padding-inline: 4px; }
++  .repository-scope-tabs button { min-width: 136px; }
+   .diagnostics-status-grid { grid-template-columns: 1fr; }
+   .diagnostics-console { right: 6px; bottom: 6px; width: calc(100vw - 12px); }
+   .diagnostics-log article { grid-template-columns: 62px 70px 1fr; }
+diff --git a/tests/alarm_e2e.py b/tests/alarm_e2e.py
+index c6d2e92..4bf48ac 100644
+--- a/tests/alarm_e2e.py
++++ b/tests/alarm_e2e.py
+@@ -113,6 +113,10 @@ def main():
+         page.route("http://127.0.0.1:5233/", lambda route: route.fulfill(body="<html></html>"))
+         page.goto(APP_URL)
+         page.wait_for_load_state("networkidle")
++        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
++        if orchestrator_toggle.get_attribute("aria-expanded") == "false":
++            orchestrator_toggle.evaluate("element => element.click()")
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
+         expect(page.locator(".rail-num", has_text="PP-TEST")).to_be_visible()
+         assert page.locator("#pp-list-boards .rail-item").count() == 1, (
+             "duplicate servers for the same plan must collapse to one plan row"
+diff --git a/tests/approval_chat_bridge_e2e.py b/tests/approval_chat_bridge_e2e.py
+index fa4c8a1..ba829db 100644
+--- a/tests/approval_chat_bridge_e2e.py
++++ b/tests/approval_chat_bridge_e2e.py
+@@ -60,6 +60,7 @@ def main():
+         context = browser.new_context(
+             viewport={"width": 1440, "height": 900},
+             device_scale_factor=3,
++            reduced_motion="no-preference",
+         )
+         page = context.new_page()
+         console_errors = []
+@@ -152,6 +153,14 @@ def main():
+         context.route("http://127.0.0.1:5231/**", mock_board)
+         page.goto(APP_URL, wait_until="networkidle")
+ 
++        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "false")
++        # The embedded board may still be settling a routed navigation. Dispatch the
++        # semantic button click and assert the resulting state instead of coupling this
++        # shell control to Playwright's unrelated iframe-navigation wait.
++        orchestrator_toggle.evaluate("element => element.click()")
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
++
+         exact_row = page.locator('[data-board-port="5230"]')
+         blocked_row = page.locator('[data-board-port="5231"]')
+         expect(exact_row.locator('[data-approval-bridge-state="UNVERIFIED_BOARD_CLAIM"]')).to_be_visible()
+@@ -160,9 +169,14 @@ def main():
+         expect(live_mark).to_be_visible()
+         expect(live_mark).to_have_attribute("data-feed-state", "live")
+         first_frame = live_mark.locator("pre").text_content()
+-        page.wait_for_timeout(350)
++        assert first_frame, "Looplet live mark did not render"
++        page.wait_for_function(
++            """first => document.querySelector('#pp-status-looplet-live-feed pre')?.textContent !== first""",
++            arg=first_frame,
++            timeout=3_000,
++        )
+         second_frame = live_mark.locator("pre").text_content()
+-        assert first_frame and second_frame and first_frame != second_frame, "Looplet live mark did not advance"
++        assert second_frame and first_frame != second_frame, "Looplet live mark did not advance"
+         page.screenshot(path=str(BEFORE), full_page=True)
+ 
+         frame = page.frame(url=lambda url: url.startswith("http://127.0.0.1:5230/"))
+@@ -170,6 +184,10 @@ def main():
+             raise AssertionError("exact board iframe did not load")
+         frame.locator("#approve").click()
+         page.reload(wait_until="networkidle")
++        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "false")
++        orchestrator_toggle.evaluate("element => element.click()")
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
+ 
+         exact_row = page.locator('[data-board-port="5230"]')
+         blocked_row = page.locator('[data-board-port="5231"]')
+diff --git a/tests/control_plane_e2e.py b/tests/control_plane_e2e.py
+index 96693b4..d16ca83 100644
+--- a/tests/control_plane_e2e.py
++++ b/tests/control_plane_e2e.py
+@@ -127,6 +127,11 @@ def main():
+         expect(alpha).to_be_visible()
+         alpha.evaluate("element => element.click()")
+ 
++        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "false")
++        orchestrator_toggle.evaluate("element => element.click()")
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
++
+         messenger = page.locator("#pp-region-orchestrator-messenger")
+         expect(messenger).to_be_visible()
+         expect(page.locator("#pp-badge-orchestrator-inbox")).to_contain_text("0")
+@@ -150,6 +155,12 @@ def main():
+         expect(page.locator('[data-delivery-state="DELIVERED"]')).to_have_count(1)
+         expect(page.locator('[data-delivery-state="UNROUTED"]')).to_have_count(1)
+         expect(page.locator("#pp-badge-orchestrator-unrouted")).to_contain_text("1")
++        expect(page.locator("#pp-status-workspace-messages")).to_contain_text(
++            "awaiting delivery"
++        )
++        expect(page.locator(".orchestrator-activity")).to_contain_text(
++            "Provider access is blocked"
++        )
+         assert page.get_by_text("SENT", exact=True).count() == 0, (
+             "the UI claimed a delivery was sent without connector proof"
+         )
+@@ -189,9 +200,11 @@ def main():
+             }
+             """
+         )
+-        expect(page.get_by_text("Worker note: OAuth consent is required", exact=False)).to_be_visible(
+-            timeout=8_000
+-        )
++        expect(
++            page.locator("#pp-list-worker-notes").get_by_text(
++                "Worker note: OAuth consent is required", exact=False
++            )
++        ).to_be_visible(timeout=8_000)
+         incoming = page.locator(f'[data-message-id="{incoming_id}"]')
+         expect(incoming).to_have_attribute("data-delivery-state", "DELIVERED")
+         incoming.get_by_role("button", name="ACKNOWLEDGE").evaluate(
+@@ -210,6 +223,9 @@ def main():
+         beta.evaluate("element => element.click()")
+         expect(page.locator("#pp-badge-orchestrator-inbox")).to_contain_text("0")
+         expect(page.locator("#pp-badge-orchestrator-outbox")).to_contain_text("0")
++        expect(page.locator(".orchestrator-activity")).not_to_contain_text(
++            "Provider access is blocked"
++        )
+         page.locator("#pp-btn-open-worker-notes-s-worker-beta").evaluate(
+             "element => element.click()"
+         )
+diff --git a/tests/head_orchestrator_character_e2e.py b/tests/head_orchestrator_character_e2e.py
+index 632bce2..5c990b3 100644
+--- a/tests/head_orchestrator_character_e2e.py
++++ b/tests/head_orchestrator_character_e2e.py
+@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
+ APP_URL = "http://127.0.0.1:5180/"
+ PLAN_PATH = r"C:\fixtures\head-orchestrator-character.json"
+ SCREENSHOT = ROOT / "artifacts" / "head-orchestrator-character-3x.png"
++MINIMIZED_SCREENSHOT = ROOT / "artifacts" / "head-orchestrator-minimized-3x.png"
+ 
+ 
+ def main() -> None:
+@@ -93,8 +94,48 @@ def main() -> None:
+         speech = page.locator("#pp-status-head-orchestrator-speech")
+         worker_route = page.locator("#pp-list-worker-reports")
+         spinner = page.locator("#pp-status-looplet-live-feed")
++        minimize_toggle = page.locator("#pp-btn-toggle-orchestrator")
++        orchestrator_details = page.locator("#pp-panel-orchestrator-details")
++        pipeline_details = page.locator("#pp-panel-orchestrator-pipeline")
++        board_frame = page.locator("#pp-frame-active-board")
+ 
+         expect(head).to_be_visible()
++        expect(page.locator("#pp-panel-diagnostics-console")).to_be_hidden()
++        expect(minimize_toggle).to_be_visible()
++        expect(minimize_toggle).to_have_attribute("aria-expanded", "false")
++        expect(minimize_toggle).to_have_accessible_name("Expand orchestrator header")
++        expect(head).to_have_attribute("data-minimized", "true")
++        expect(orchestrator_details).to_be_hidden()
++        expect(pipeline_details).to_be_hidden()
++        expect(board_frame).to_be_visible()
++        minimized_frame_box = board_frame.bounding_box()
++        assert minimized_frame_box, "the minimized planner frame has no layout box"
++
++        minimize_toggle.evaluate("element => element.click()")
++        expect(minimize_toggle).to_have_attribute("aria-expanded", "true")
++        expect(minimize_toggle).to_have_accessible_name("Minimise orchestrator header")
++        expect(head).to_have_attribute("data-minimized", "false")
++        expect(orchestrator_details).to_be_visible()
++        expect(pipeline_details).to_be_visible()
++        expanded_frame_box = board_frame.bounding_box()
++        assert expanded_frame_box, "the expanded planner frame has no layout box"
++        assert expanded_frame_box["y"] - minimized_frame_box["y"] >= 140, (
++            "minimising the orchestrator did not move the planner viewport and right scrollbar high enough"
++        )
++
++        # Expansion is deliberately temporary: every fresh load must return the
++        # planner canvas to the high, compact starting position.
++        page.reload()
++        page.wait_for_load_state("networkidle")
++        expect(minimize_toggle).to_have_attribute("aria-expanded", "false")
++        expect(head).to_have_attribute("data-minimized", "true")
++        page.screenshot(path=str(MINIMIZED_SCREENSHOT), full_page=False)
++        minimized_image_size = MINIMIZED_SCREENSHOT.stat().st_size
++        assert minimized_image_size > 100_000, (
++            f"minimized 3x screenshot is unexpectedly small: {minimized_image_size} bytes"
++        )
++        minimize_toggle.evaluate("element => element.click()")
++
+         expect(actor).to_be_visible()
+         expect(actor).to_have_attribute("data-role", "head-orchestrator-character")
+         expect(actor).to_have_attribute("data-orchestrator-id", head.get_attribute("data-entity-id"))
+@@ -159,6 +200,7 @@ def main() -> None:
+ 
+     print("head orchestrator character e2e: 1 scenario passed")
+     print(f"screenshot: {SCREENSHOT}")
++    print(f"minimized screenshot: {MINIMIZED_SCREENSHOT}")
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/tests/live_board_smoke.py b/tests/live_board_smoke.py
+index e805f45..634cf03 100644
+--- a/tests/live_board_smoke.py
++++ b/tests/live_board_smoke.py
+@@ -36,6 +36,10 @@ def main():
+         assert target_port and target_port.isdigit(), "selected live row has no board port"
+         target.click()
+         expect(target).to_have_class(re.compile(r"\bon\b"))
++        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
++        if orchestrator_toggle.get_attribute("aria-expanded") == "false":
++            orchestrator_toggle.evaluate("element => element.click()")
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
+         expect(page.locator("iframe.board")).to_have_attribute("src", re.compile(rf":{target_port}/$"))
+         target_topic = target.locator(".rail-topic").inner_text()
+         expect(page.locator(".crumb")).to_contain_text(target_topic)
+diff --git a/tests/native_tauri_lifecycle_e2e.py b/tests/native_tauri_lifecycle_e2e.py
+index e167613..28aa941 100644
+--- a/tests/native_tauri_lifecycle_e2e.py
++++ b/tests/native_tauri_lifecycle_e2e.py
+@@ -39,6 +39,10 @@ def select_run(page) -> None:
+     card = page.locator(f'[data-board-port="{BOARD_PORT}"]')
+     expect(card).to_be_visible(timeout=15_000)
+     card.dispatch_event("click")
++    orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
++    if orchestrator_toggle.get_attribute("aria-expanded") == "false":
++        orchestrator_toggle.dispatch_event("click")
++    expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
+     expect(page.locator("#pp-orch-btn-load-runs")).to_be_visible(timeout=10_000)
+     load = page.locator("#pp-orch-btn-load-runs")
+     expect(load).to_be_enabled(timeout=15_000)
+diff --git a/tests/native_webview_cdp_e2e.py b/tests/native_webview_cdp_e2e.py
+index 2ef333f..a3597be 100644
+--- a/tests/native_webview_cdp_e2e.py
++++ b/tests/native_webview_cdp_e2e.py
+@@ -147,6 +147,13 @@ def select_run(cdp: Cdp) -> None:
+         lambda: attribute(cdp, board, "aria-pressed") == "true",
+         "exact board selection",
+     )
++    if attribute(cdp, "#pp-btn-toggle-orchestrator", "aria-expanded") == "false":
++        click(cdp, "#pp-btn-toggle-orchestrator")
++    wait_until(
++        cdp,
++        lambda: attribute(cdp, "#pp-btn-toggle-orchestrator", "aria-expanded") == "true",
++        "expanded orchestrator header",
++    )
+     if RUN_ID in text(cdp, "#pp-orch-pipeline-console"):
+         assert cdp.evaluate("Boolean(window.__TAURI_INTERNALS__)") is True
+         return
+diff --git a/tests/orchestrator_pipeline_e2e.py b/tests/orchestrator_pipeline_e2e.py
+index 292d0dc..7e42b1c 100644
+--- a/tests/orchestrator_pipeline_e2e.py
++++ b/tests/orchestrator_pipeline_e2e.py
+@@ -35,6 +35,12 @@ SCREENSHOT = (
+     / "orchestrator-pipeline"
+     / "orchestrator-pipeline-chrome.png"
+ )
++TRUTH_SCREENSHOT = (
++    ROOT
++    / "artifacts"
++    / "orchestrator-pipeline"
++    / "operational-truth-inspector.png"
++)
+ 
+ PRIMARY_REPOSITORY = "repo-looplet-crm"
+ SECONDARY_REPOSITORY = "repo-looplet-accounting"
+@@ -403,12 +409,22 @@ def pipeline_snapshot() -> dict:
+             "profile": "ui" if node["nodeId"] == "TO-02" else "headless",
+             "evidence": evidence,
+             "allowedFiles": node["allowedFiles"],
++            "verificationCommands": [
++                f"test-{node['nodeId']}",
++                f"build-{node['nodeId']}",
++                *([f"browser-smoke-{node['nodeId']}"] if node["nodeId"] == "TO-02" else []),
++            ],
+             "verification": [
+                 {
+-                    "commandId": f"verify-{node['nodeId']}",
++                    "commandId": command_id,
+                     "exitCode": 0,
+                     "outputArtifact": f"evidence/{node['nodeId']}/test.log",
+                 }
++                for command_id in [
++                    f"test-{node['nodeId']}",
++                    f"build-{node['nodeId']}",
++                    *([f"browser-smoke-{node['nodeId']}"] if node["nodeId"] == "TO-02" else []),
++                ]
+             ],
+         }
+ 
+@@ -478,6 +494,7 @@ def pipeline_snapshot() -> dict:
+ 
+     return {
+         "nowMs": 1787355000000,
++        "preflightFresh": True,
+         "run": active_summary,
+         "stages": [
+             {
+@@ -518,7 +535,7 @@ def pipeline_snapshot() -> dict:
+             "stoppedProcesses": [],
+             "reasons": active["preflight"]["reasons"],
+         },
+-        "scheduler": {"nextFence": 3, "nodes": scheduled_nodes},
++        "scheduler": {"nextFence": 3, "maxParallelWorkers": 2, "nodes": scheduled_nodes},
+         "reconciliation": {
+             "passed": False,
+             **violations,
+@@ -671,6 +688,7 @@ def assert_node_evidence_and_persistent_warnings(page: Page) -> None:
+     expect(page.locator("#pp-context-menu")).to_contain_text("evidence")
+     expect(page.locator("#pp-context-menu")).to_contain_text("Copy evidence identity")
+     page.keyboard.press("Escape")
++    expect(page.locator("#pp-context-menu")).to_have_count(0)
+ 
+     release_warning = page.locator("#pp-orch-warning-release-infra-001")
+     expect(release_warning).to_be_visible()
+@@ -684,6 +702,32 @@ def assert_node_evidence_and_persistent_warnings(page: Page) -> None:
+     expect(decision).to_have_attribute("data-decision-status", "pending")
+ 
+ 
++def assert_operational_truth(page: Page) -> None:
++    truth = page.locator("#pp-panel-operational-truth")
++    expect(truth).to_be_visible()
++    expect(page.locator("#pp-inspector-release-verdict")).to_have_text(
++        "RELEASE · NOT READY"
++    )
++    expect(page.locator("#pp-status-collision-truth")).to_have_text(
++        "BLOCKED · APPROVAL RECEIPT MISSING"
++    )
++    expect(page.locator("#pp-status-parallel-truth")).to_contain_text(
++        "CURRENT RUN · ×2"
++    )
++    expect(page.locator("#pp-list-release-blockers")).to_contain_text(
++        "infrastructure failure"
++    )
++    evidence_rows = page.locator(".truth-evidence-table tbody tr")
++    expect(evidence_rows).to_have_count(2)
++    to_02 = evidence_rows.filter(has_text="TO-02")
++    expect(to_02).to_contain_text("PASSED")
++    expect(to_02.locator("td").nth(3).locator(".truth-evidence-state")).to_have_attribute(
++        "title", "browser-smoke-TO-02"
++    )
++    expect(page.locator("#pp-list-operational-activity li")).to_have_count(5)
++    expect(truth).to_contain_text("source: native run")
++
++
+ def assert_audit_drawer(page: Page) -> None:
+     drawer = page.locator("#pp-orch-region-audit-drawer")
+     handle = page.locator("#pp-orch-control-audit-resize")
+@@ -822,6 +866,10 @@ def main() -> None:
+         )
+ 
+         page.goto(APP_URL, wait_until="networkidle")
++        orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "false")
++        orchestrator_toggle.evaluate("element => element.click()")
++        expect(orchestrator_toggle).to_have_attribute("aria-expanded", "true")
+         root = page.locator("#pp-orch-pipeline-console")
+         expect(root).to_be_visible(timeout=10_000)
+         assert page.evaluate(
+@@ -834,6 +882,15 @@ def main() -> None:
+ 
+         assert_repository_and_plan_scope(page)
+         assert_node_evidence_and_persistent_warnings(page)
++        assert_operational_truth(page)
++        page.locator("#pp-panel-orchestrator-inspector").evaluate(
++            "element => { element.scrollTop = 0; }"
++        )
++        page.screenshot(
++            path=str(TRUTH_SCREENSHOT),
++            full_page=True,
++            animations="disabled",
++        )
+         assert_audit_drawer(page)
+         assert_unique_control_ids(page)
+ 

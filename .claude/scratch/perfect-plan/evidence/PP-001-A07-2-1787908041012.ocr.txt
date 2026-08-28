@@ -1,0 +1,47 @@
+J HEAD ORCHESTRATOR - REPOSITORY .. Action required RELEASE - NOT READY .
+perfect planning LEGACY LEASE + REAPER ACTIVE [) Parallel agents @ RESOURCE GUARD UNAVAILABLE — Close
+Plans ¢ orch-81bc8b2d 2 live - run not selected 8 routed - CI unknown ON - NEW RUNS x4
+boards on 127.0.0.1:5230-5249
+B Perfect Planner Desktop 1 plan .
+. Close inspector
+REPOSITORY A Perfect Planner Desktop - PP-ORCH - Physical head orchestrator
+Open orchestration for Perfect Planner Desktop / PP-ORCH and review the interrupted or waiting work.
+Perfect Planner Desktop i
+Perfect Planner Desktop _~ featu
+@® ~ feature/head-orchestrator-character
+. . RELEASE - NOT READY
+IN PROGRESS What is proven, blocked, and still unknown
+PP-ORCH [ J
+COLLISION ADMISSION RELEASE DECISION
+[ » | PERFECT PLANNER DESKTOP
+UNKNOWN - NO VERIFIED RUN RELEASE - NOT READY
+_~ feature/head-orchestrator-character
+. No native collision census or approval receipt is bound to this repository and plan. + No exact native run is selected for this repository and plan.
+Physical head orchestrator Native preflight unavailable * Release and CI evidence have not been loaded.
+head-orchestrator-character.json - :5232 . .. i i . .
+not checked this session No native release receipt
+Select or create an exact native run for Perfect Planner Desktop / PP-ORCH / feature/head- not checked this session
+orchestrator-character, then run preflight.
+PARALLEL AUTHORITY FRESHNESS AND PROVENANCE
+CURRENT RUN - UNKNOWN OBSERVED STATE
+New runs begin at x4. Changing the header toggle does not rewrite an active run. native run not selected - message ledger pp-repo-14mré69j
+No selected native scheduler 8/28/2026, 7:07:26 PM
+Local new-run preference Perfect Planner Desktop / PP-ORCH / feature/head-orchestrator-character
+V Collision scope and affected work - 1
+Perfect Planner Desktop / PP-ORCH / feature/head-orchestrator-character
+V Task verification evidence - none loaded
+No exact native run is selected, so task verification evidence is unknown.
+» Chronological activity - none loaded
+LOCAL OUTPUT
+app URL not declared
+No messages recorded for this repository and plan.
+NO CAPTURED LOCAL SCREEN s-actor B22 LIVE s-bridge B15 LIVE DECISION - release-gate
+LOOPLET LIVE ORCHESTRATOR MESSAGES
+NE INBOX © OUTBOX © UNROUTED ©
+No phase visibility data yet. pp-orchestrator-f5630bc3-a42c-43..
+capture time not recorded
+alarm - gentle rise armed s-actor - B22 B22 LIVE oO s-bridge - B15 B15 LIVE 0
+sound on test Co —
+ACKNOWLEDGED
+CONSOLE 2 i
+a heer Cob bobobobobo bobo boob bo bobo bobob bbb bbb bb |

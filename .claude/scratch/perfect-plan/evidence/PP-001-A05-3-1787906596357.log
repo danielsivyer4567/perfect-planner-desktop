@@ -1,0 +1,72 @@
+# perfect-planning proof artifact
+item: A05:3 — Existing build, Rust tests and browser regression suite remain green
+command: npm run build && npm run test:e2e && cargo test --manifest-path src-tauri/Cargo.toml
+cwd: C:\repos\perfect-planner-tauri
+exit: 1
+duration_ms: 15750
+at: 2026-08-28T08:43:32.877Z
+git: 9f42c0189f61cf081f5a4d9548e1afa3f0ba451b (feature/tauri-orchestrator-messaging-20260821-223935, dirty)
+before_shot: PP-001-A05-baseline-1787318419532.before.png
+before_shot_note: Untouched shell before the control-plane feature: worker reports are transient buttons only; no message delivery state, chat route truth, or scoped notes are visible.
+before_shot_check: ok (4320x2700, blankScore 0.4178)
+before_ocr: PP-001-A05-baseline-1787318419532.before.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 78, 4686ms)
+before_ocr_alarms: none
+diff: PP-001-A05-3-1787906596357.diff
+diff_baseline: 6b5d52e3ce1cd6157719144fd5506d1cc15d4900
+
+## stdout
+
+> perfect-planner-desktop@1.0.0 prebuild
+> npm run security:check
+
+
+> perfect-planner-desktop@1.0.0 security:check
+> python tests/repository_security_e2e.py
+
+repository_security_e2e: PASS
+proved: build configuration is exact, bounded, declarative, and loader-free
+
+> perfect-planner-desktop@1.0.0 build
+> tsc && vite build
+
+vite v8.2.2 building client environment for production...
+transforming...
+✓ 1596 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.47 kB │ gzip:  0.31 kB
+dist/assets/index-D6GMQy1u.css   72.90 kB │ gzip: 16.24 kB
+dist/assets/core-CwxXejkd.js      0.09 kB │ gzip:  0.10 kB
+dist/assets/index-Bg1FCnGJ.js   322.52 kB │ gzip: 96.66 kB
+
+✓ built in 1.74s
+
+> perfect-planner-desktop@1.0.0 pretest:e2e
+> npm run security:check
+
+
+> perfect-planner-desktop@1.0.0 security:check
+> python tests/repository_security_e2e.py
+
+repository_security_e2e: PASS
+proved: build configuration is exact, bounded, declarative, and loader-free
+
+> perfect-planner-desktop@1.0.0 test:e2e
+> node scripts/run-e2e.mjs
+
+repository_security_e2e: PASS
+proved: build configuration is exact, bounded, declarative, and loader-free
+
+## stderr
+file:///C:/repos/perfect-planner-tauri/node_modules/vite/dist/node/chunks/node.js:11681
+			throw new Error(`Port ${port} is already in use`);
+			      ^
+
+Error: Port 5180 is already in use
+    at httpServerStart (file:///C:/repos/perfect-planner-tauri/node_modules/vite/dist/node/chunks/node.js:11681:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async startServer (file:///C:/repos/perfect-planner-tauri/node_modules/vite/dist/node/chunks/node.js:26694:30)
+    at async Object.listen (file:///C:/repos/perfect-planner-tauri/node_modules/vite/dist/node/chunks/node.js:26511:4)
+    at async file:///C:/repos/perfect-planner-tauri/scripts/run-e2e.mjs:50:3
+
+Node.js v24.20.0

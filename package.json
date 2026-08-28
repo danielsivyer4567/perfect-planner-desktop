@@ -13,6 +13,7 @@
     "build": "tsc && vite build",
     "pretest:e2e": "npm run security:check",
     "test:e2e": "node scripts/run-e2e.mjs",
+    "proof:browser": "python scripts/browser-proof.py",
     "test:live-smoke": "python tests/live_board_smoke.py",
     "test:connector": "python tests/control_connector_e2e.py",
     "pp:control": "node scripts/pp-control.mjs",

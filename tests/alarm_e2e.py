@@ -111,8 +111,7 @@ def main():
         page.route("**/board-probe/**", mock_probe)
         page.route("http://127.0.0.1:5232/", lambda route: route.fulfill(body="<html></html>"))
         page.route("http://127.0.0.1:5233/", lambda route: route.fulfill(body="<html></html>"))
-        page.goto(APP_URL)
-        page.wait_for_load_state("networkidle")
+        page.goto(APP_URL, wait_until="domcontentloaded")
         orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
         if orchestrator_toggle.get_attribute("aria-expanded") == "false":
             orchestrator_toggle.evaluate("element => element.click()")
@@ -153,8 +152,7 @@ def main():
         second_page.route(
             "http://127.0.0.1:5232/", lambda route: route.fulfill(body="<html></html>")
         )
-        second_page.goto(APP_URL)
-        second_page.wait_for_load_state("networkidle")
+        second_page.goto(APP_URL, wait_until="domcontentloaded")
         second_head = second_page.locator("#pp-entity-head-orchestrator")
         expect(second_head).to_have_attribute("data-entity-id", re.compile(r"^pp-orchestrator-"))
         assert second_head.get_attribute("data-entity-id") != first_orchestrator_id, (

@@ -1,0 +1,21 @@
+# perfect-planning proof artifact
+item: A05:0 — External workers can atomically leave scoped notes without sharing the ledger file
+command: node scripts/pp-control.mjs self-test
+cwd: C:\repos\perfect-planner-tauri
+exit: 0
+duration_ms: 214
+at: 2026-08-28T08:42:36.147Z
+git: 9f42c0189f61cf081f5a4d9548e1afa3f0ba451b (feature/tauri-orchestrator-messaging-20260821-223935, dirty)
+before_shot: PP-001-A05-baseline-1787318419532.before.png
+before_shot_note: Untouched shell before the control-plane feature: worker reports are transient buttons only; no message delivery state, chat route truth, or scoped notes are visible.
+before_shot_check: ok (4320x2700, blankScore 0.4178)
+before_ocr: PP-001-A05-baseline-1787318419532.before.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 78, 4686ms)
+before_ocr_alarms: none
+diff: PP-001-A05-0-1787906555432.diff
+diff_baseline: 6b5d52e3ce1cd6157719144fd5506d1cc15d4900
+
+## stdout
+{"ok":true,"fnv":"PASS","atomicDrop":"PASS","codexExecuted":false}
+
+## stderr
+(empty)

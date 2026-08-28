@@ -1,0 +1,14 @@
+diff --git a/.gitignore b/.gitignore
+index f08cba1..2725b07 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -10,5 +10,9 @@ src-tauri/gen/
+ .claude/scratch/perfect-plan/evidence/B*-before.png
+ .claude/scratch/orchestrator/
+ *.log
++!.claude/scratch/perfect-plan/evidence/*.log
+ .DS_Store
+ Thumbs.db
++branch_structure.json
++temp_auto_push.bat
++temp_interactive_push.bat

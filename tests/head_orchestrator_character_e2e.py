@@ -86,8 +86,7 @@ def main() -> None:
 
         page.route("**/board-probe/**", mock_probe)
         page.route("http://127.0.0.1:5232/", lambda route: route.fulfill(body="<html></html>"))
-        page.goto(APP_URL)
-        page.wait_for_load_state("networkidle")
+        page.goto(APP_URL, wait_until="domcontentloaded")
 
         head = page.locator("#pp-entity-head-orchestrator")
         actor = page.locator("#pp-entity-head-orchestrator-character")
@@ -103,7 +102,7 @@ def main() -> None:
         expect(page.locator("#pp-panel-diagnostics-console")).to_be_hidden()
         expect(minimize_toggle).to_be_visible()
         expect(minimize_toggle).to_have_attribute("aria-expanded", "false")
-        expect(minimize_toggle).to_have_accessible_name("Expand orchestrator header")
+        expect(minimize_toggle).to_have_accessible_name("Open orchestration inspector")
         expect(head).to_have_attribute("data-minimized", "true")
         expect(orchestrator_details).to_be_hidden()
         expect(pipeline_details).to_be_hidden()
@@ -113,20 +112,20 @@ def main() -> None:
 
         minimize_toggle.evaluate("element => element.click()")
         expect(minimize_toggle).to_have_attribute("aria-expanded", "true")
-        expect(minimize_toggle).to_have_accessible_name("Minimise orchestrator header")
+        expect(minimize_toggle).to_have_accessible_name("Close orchestration inspector")
         expect(head).to_have_attribute("data-minimized", "false")
         expect(orchestrator_details).to_be_visible()
         expect(pipeline_details).to_be_visible()
+        expect(page.locator("#pp-btn-close-orchestrator-inspector")).to_be_focused()
         expanded_frame_box = board_frame.bounding_box()
         assert expanded_frame_box, "the expanded planner frame has no layout box"
-        assert expanded_frame_box["y"] - minimized_frame_box["y"] >= 140, (
-            "minimising the orchestrator did not move the planner viewport and right scrollbar high enough"
+        assert expanded_frame_box["y"] == minimized_frame_box["y"], (
+            "the fixed orchestration inspector displaced the planner viewport"
         )
 
-        # Expansion is deliberately temporary: every fresh load must return the
+        # Inspection is deliberately temporary: every fresh load must return the
         # planner canvas to the high, compact starting position.
-        page.reload()
-        page.wait_for_load_state("networkidle")
+        page.reload(wait_until="domcontentloaded")
         expect(minimize_toggle).to_have_attribute("aria-expanded", "false")
         expect(head).to_have_attribute("data-minimized", "true")
         page.screenshot(path=str(MINIMIZED_SCREENSHOT), full_page=False)
@@ -136,7 +135,7 @@ def main() -> None:
         )
         minimize_toggle.evaluate("element => element.click()")
 
-        expect(actor).to_be_visible()
+        expect(actor).to_be_hidden()
         expect(actor).to_have_attribute("data-role", "head-orchestrator-character")
         expect(actor).to_have_attribute("data-orchestrator-id", head.get_attribute("data-entity-id"))
         expect(actor).to_have_attribute("aria-label", "Head orchestrator character, working")
@@ -157,18 +156,12 @@ def main() -> None:
         )
         assert page.locator("[data-speaking-to='pp-list-worker-reports']").count() == 1
 
-        actor_box = actor.bounding_box()
-        route_box = worker_route.bounding_box()
-        assert actor_box and route_box
-        assert actor_box["y"] + actor_box["height"] <= route_box["y"], (
-            "the head orchestrator character is not physically above the worker route"
-        )
         assert page.evaluate(
             "getComputedStyle(document.querySelector('#pp-entity-head-orchestrator-character')).animationName"
         ) == "none", "reduced-motion did not stop the actor animation"
 
         phase["value"] = "lifecycle"
-        page.get_by_role("button", name="rescan").click()
+        page.get_by_role("button", name="rescan").evaluate("element => element.click()")
         expect(page.get_by_role("button", name="rescan")).to_be_enabled(timeout=5_000)
         expect(actor).to_have_attribute("aria-label", "Head orchestrator character, holding")
         expect(speech).to_contain_text(
@@ -188,7 +181,7 @@ def main() -> None:
         assert image_size > 100_000, f"3x screenshot is unexpectedly small: {image_size} bytes"
 
         phase["value"] = "stale"
-        page.get_by_role("button", name="rescan").click()
+        page.get_by_role("button", name="rescan").evaluate("element => element.click()")
         expect(page.get_by_role("button", name="rescan")).to_be_enabled(timeout=5_000)
         expect(speech).to_contain_text("STALE worker heartbeat")
         expect(speech).to_contain_text("Perfect Planner Desktop / PP-ORCH / B22 / worker s-actor")

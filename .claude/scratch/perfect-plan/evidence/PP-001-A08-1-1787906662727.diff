@@ -1,0 +1,1614 @@
+diff --git a/src/App.tsx b/src/App.tsx
+index 5b274a9..50aa317 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -24,6 +24,8 @@ import { PipelineConsole } from "./components/PipelineConsole";
+ import { ResourceGuard, type ResourceGuardState } from "./components/ResourceGuard";
+ import { ActionContextMenu, type ContextActionLog } from "./components/ActionContextMenu";
+ import { DiagnosticsConsole, type DiagnosticEntry } from "./components/DiagnosticsConsole";
++import { OperationalTruth } from "./components/OperationalTruth";
++import { UiNavigationMap } from "./components/UiNavigationMap";
+ import {
+   browserOrchestratorScope,
+   OrchestratorSnapshot,
+@@ -52,6 +54,7 @@ import {
+ import { ControlPlaneScope } from "./services/controlPlane";
+ import type { ControlPlaneSnapshot } from "./services/controlPlane";
+ import { deriveWorkspaceStatus } from "./services/orchestrationWorkspace";
++import { deriveReleaseVerdict } from "./services/operationalTruth";
+ 
+ const SOUND_KEY = "perfect-planner:stall-sound";
+ const VOLUME_KEY = "perfect-planner:stall-volume";
+@@ -307,6 +310,7 @@ export const App: React.FC = () => {
+   const [parallelAgents, setParallelAgents] = useState(storedParallelAgents);
+   const [railCollapsed, setRailCollapsed] = useState(storedRailCollapsed);
+   const [comparisonOpen, setComparisonOpen] = useState(false);
++  const [uiMapOpen, setUiMapOpen] = useState(false);
+   const [resourceGuard, setResourceGuard] = useState<ResourceGuardState>({
+     status: "checking",
+     result: null,
+@@ -344,11 +348,12 @@ export const App: React.FC = () => {
+   }, []);
+ 
+   const recordDiagnostic = useCallback((entry: Omit<DiagnosticEntry, "id" | "at">) => {
+-    diagnosticSequenceRef.current += 1;
++    const sequence = ++diagnosticSequenceRef.current;
++    const recordedAt = Date.now();
+     setDiagnosticEntries((current) => [...current.slice(-199), {
+       ...entry,
+-      id: `diagnostic-${diagnosticSequenceRef.current}`,
+-      at: Date.now(),
++      id: `diagnostic-${sequence}`,
++      at: recordedAt,
+     }]);
+   }, []);
+ 
+@@ -964,6 +969,10 @@ export const App: React.FC = () => {
+     recoveryDeliveryError,
+     visibleWorkerReports,
+   ]);
++  const releaseVerdict = useMemo(
++    () => deriveReleaseVerdict(boundPipelineSnapshot, active),
++    [active, boundPipelineSnapshot],
++  );
+ 
+   useEffect(() => {
+     if (orchestratorMinimized) return;
+@@ -1112,10 +1121,24 @@ export const App: React.FC = () => {
+   return (
+     <div className="shell" id="pp-app-shell" data-orchestrator-id={orchestratorId || "pending"}>
+       <ActionContextMenu onPlanAction={handleContextPlanAction} onLog={recordContextAction} />
++      <button
++        id="pp-btn-toggle-repository-rail"
++        type="button"
++        className={`rail-edge-toggle${railCollapsed ? " collapsed" : ""}`}
++        onClick={toggleRailCollapsed}
++        aria-expanded={!railCollapsed}
++        aria-controls="pp-region-board-rail"
++        aria-label={railCollapsed ? "Open repository and plan rail" : "Close repository and plan rail"}
++        title={railCollapsed ? "Open repositories and plans" : "Return the full width to the planner canvas"}
++      >
++        <strong>Plans</strong>
++        <span aria-hidden="true">{railCollapsed ? "›" : "‹"}</span>
++      </button>
+       <aside
+         className={`rail${railCollapsed ? " collapsed" : ""}`}
+         id="pp-region-board-rail"
+         aria-label="Repository and plan rail"
++        aria-hidden={railCollapsed}
+       >
+         <div className="rail-head" id="pp-region-board-rail-heading">
+           <div className="rail-head-copy">
+@@ -1126,19 +1149,6 @@ export const App: React.FC = () => {
+               boards on 127.0.0.1:{PORT_START}–{PORT_END}
+             </p>
+           </div>
+-          <span className="rail-mark" aria-hidden="true">PP</span>
+-          <button
+-            id="pp-btn-toggle-repository-rail"
+-            type="button"
+-            className="rail-collapse-toggle"
+-            onClick={toggleRailCollapsed}
+-            aria-expanded={!railCollapsed}
+-            aria-controls="pp-list-boards"
+-            aria-label={railCollapsed ? "Expand repository rail" : "Collapse repository rail"}
+-            title={railCollapsed ? "Expand repository rail" : "Collapse repository rail"}
+-          >
+-            <span aria-hidden="true">{railCollapsed ? "→" : "←"}</span>
+-          </button>
+         </div>
+ 
+         <div className="rail-list" id="pp-list-boards" aria-label="Running boards by repository">
+@@ -1448,9 +1458,14 @@ export const App: React.FC = () => {
+               <b>{workspaceStatus.healthLabel}</b>
+               <small>{workspaceStatus.orchestrationLabel}</small>
+             </span>
+-            <span className="workspace-status" id="pp-status-workspace-messages">
+-              <b>{workspaceStatus.messagingLabel}</b>
+-              <small>{workspaceStatus.ciLabel}</small>
++            <span
++              className={`workspace-status release-status release-status-${releaseVerdict.tone}`}
++              id="pp-status-workspace-messages"
++              data-release-verdict={releaseVerdict.label}
++              title={releaseVerdict.blockers.join(" · ") || releaseVerdict.source}
++            >
++              <b>RELEASE · {releaseVerdict.label}</b>
++              <small>{workspaceStatus.messagingLabel} · {workspaceStatus.ciLabel}</small>
+             </span>
+             <span className="head-stat" id="pp-stat-worker-reports"><b>{workerReportCount}</b> {boundPipelineSnapshot ? "nodes" : "reports"}</span>
+             <span className="head-stat" id="pp-stat-active"><b>{activeWorkers}</b> active</span>
+@@ -1539,6 +1554,12 @@ export const App: React.FC = () => {
+               Close inspector
+             </button>
+           </header>
++          <OperationalTruth
++            board={active}
++            pipeline={boundPipelineSnapshot}
++            controlPlane={controlPlaneSnapshot}
++            parallelAgents={parallelAgents}
++          />
+           <div className="orchestrator-activity" role="status" aria-live="polite">
+             <span>Latest meaningful activity</span>
+             <p>{workspaceStatus.latestActivity}</p>
+@@ -1683,13 +1704,29 @@ export const App: React.FC = () => {
+               </span>
+               <span className="stage-actions">
+                 <span className="context-action-hint" id="pp-hint-plan-context-actions">right-click plan for actions</span>
++                <button
++                  id="pp-btn-toggle-ui-navigation-map"
++                  type="button"
++                  className={`chip${uiMapOpen ? " active" : ""}`}
++                  aria-pressed={uiMapOpen}
++                  aria-controls="pp-region-ui-navigation-map"
++                  onClick={() => {
++                    setUiMapOpen((current) => !current);
++                    setComparisonOpen(false);
++                  }}
++                >
++                  {uiMapOpen ? "close UI map" : "UI map"}
++                </button>
+                 <button
+                   id="pp-btn-toggle-ui-comparison"
+                   type="button"
+                   className={`chip${comparisonOpen ? " active" : ""}`}
+                   aria-expanded={comparisonOpen}
+                   aria-controls="pp-region-ui-comparison"
+-                  onClick={() => setComparisonOpen((current) => !current)}
++                  onClick={() => {
++                    setComparisonOpen((current) => !current);
++                    setUiMapOpen(false);
++                  }}
+                 >
+                   {comparisonOpen ? "close comparison" : "compare UI"}
+                 </button>
+@@ -1717,16 +1754,22 @@ export const App: React.FC = () => {
+                 </a>
+               </span>
+             </div>
+-            <div className={`stage-workspace${comparisonOpen ? " comparing" : ""}`}>
+-              <iframe
+-                id="pp-frame-active-board"
+-                key={`${active.port}:${nonce}`}
+-                ref={frameRef}
+-                className="board"
+-                src={active.url}
+-                title={boardLabel(active)}
+-              />
+-              {comparisonOpen ? <LocalOutputWitness board={active} plan={activePlan} variant="comparison" /> : null}
++            <div className={`stage-workspace${comparisonOpen ? " comparing" : ""}${uiMapOpen ? " mapping" : ""}`}>
++              {uiMapOpen ? (
++                <UiNavigationMap key={active.planPath} board={active} plan={activePlan} />
++              ) : (
++                <>
++                  <iframe
++                    id="pp-frame-active-board"
++                    key={`${active.port}:${nonce}`}
++                    ref={frameRef}
++                    className="board"
++                    src={active.url}
++                    title={boardLabel(active)}
++                  />
++                  {comparisonOpen ? <LocalOutputWitness board={active} plan={activePlan} variant="comparison" /> : null}
++                </>
++              )}
+             </div>
+           </>
+         ) : (
+diff --git a/src/components/DiagnosticsConsole.tsx b/src/components/DiagnosticsConsole.tsx
+index 8324d06..4e42ed5 100644
+--- a/src/components/DiagnosticsConsole.tsx
++++ b/src/components/DiagnosticsConsole.tsx
+@@ -35,6 +35,16 @@ export function DiagnosticsConsole({
+     () => entries.filter((entry) => entry.level !== "info").length,
+     [entries]
+   );
++  const diagnosticGroups = useMemo(() => {
++    const counts = { application: 0, messaging: 0, plan: 0 };
++    entries.forEach((entry) => {
++      const source = entry.source.toLocaleLowerCase();
++      if (/(message|control|connector|recovery|delivery)/.test(source)) counts.messaging += 1;
++      else if (/(plan|pipeline|context|board)/.test(source)) counts.plan += 1;
++      else counts.application += 1;
++    });
++    return counts;
++  }, [entries]);
+   const incompleteNodes = useMemo(() => {
+     if (!activePlan) return [];
+     return activePlan.vertebrae
+@@ -144,7 +154,7 @@ export function DiagnosticsConsole({
+           <nav role="tablist" aria-label="Console views">
+             <button id="pp-tab-diagnostics-status" type="button" role="tab" aria-selected={tab === "status"} onClick={() => setTab("status")}>STATUS</button>
+             <button id="pp-tab-diagnostics-gaps" type="button" role="tab" aria-selected={tab === "gaps"} onClick={() => setTab("gaps")}>PLAN GAPS · {incompleteNodes.length}</button>
+-            <button id="pp-tab-diagnostics-logs" type="button" role="tab" aria-selected={tab === "logs"} onClick={() => setTab("logs")}>SESSION LOGS · {entries.length}</button>
++            <button id="pp-tab-diagnostics-logs" type="button" role="tab" aria-selected={tab === "logs"} onClick={() => setTab("logs")}>DIAGNOSTIC LOGS · {entries.length}</button>
+           </nav>
+           {tab === "status" ? (
+             <div className="diagnostics-status-grid" role="tabpanel">
+@@ -159,9 +169,15 @@ export function DiagnosticsConsole({
+             <PlanGaps activePlan={activePlan || null} nodes={incompleteNodes} collisionGuarantee={collisionGuarantee} />
+           ) : (
+             <div className="diagnostics-log" role="tabpanel" aria-live="polite">
++              <div className="diagnostics-source-summary" aria-label="Diagnostic sources">
++                <span>APPLICATION · {diagnosticGroups.application}</span>
++                <span>MESSAGING · {diagnosticGroups.messaging}</span>
++                <span>PLAN / RUN · {diagnosticGroups.plan}</span>
++                <span data-state="unknown">BROWSER CONSOLE · NOT COLLECTED HERE</span>
++              </div>
+               <button type="button" id="pp-btn-diagnostics-clear" onClick={onClear}>Clear display</button>
+               {entries.length ? entries.slice().reverse().map((entry) => (
+-                <article key={entry.id} data-level={entry.level}>
++                <article key={entry.id} data-level={entry.level} data-diagnostic-id={entry.id}>
+                   <time dateTime={new Date(entry.at).toISOString()}>{new Date(entry.at).toLocaleTimeString()}</time>
+                   <strong>{entry.source}</strong>
+                   <p>{entry.message}</p>
+diff --git a/src/components/OperationalTruth.tsx b/src/components/OperationalTruth.tsx
+new file mode 100644
+index 0000000..96c6e0d
+--- /dev/null
++++ b/src/components/OperationalTruth.tsx
+@@ -0,0 +1,150 @@
++import React, { useMemo } from "react";
++import type { Board } from "../services/boards";
++import type { ControlPlaneSnapshot } from "../services/controlPlane";
++import type { OrchestratorSnapshot } from "../services/orchestratorPipeline";
++import { deriveOperationalTruth, type EvidenceCell } from "../services/operationalTruth";
++
++function timeLabel(value: number | null): string {
++  if (!value) return "not checked this session";
++  return new Date(value).toLocaleString();
++}
++
++function EvidenceState({ value }: { value: EvidenceCell }) {
++  return (
++    <span className="truth-evidence-state" data-state={value.tone} title={value.detail}>
++      {value.label}
++    </span>
++  );
++}
++
++export function OperationalTruth({
++  board,
++  pipeline,
++  controlPlane,
++  parallelAgents,
++}: {
++  board: Board | null;
++  pipeline: OrchestratorSnapshot | null;
++  controlPlane: ControlPlaneSnapshot | null;
++  parallelAgents: boolean;
++}) {
++  const truth = useMemo(
++    () => deriveOperationalTruth({ board, pipeline, controlPlane, parallelAgents }),
++    [board, controlPlane, parallelAgents, pipeline],
++  );
++
++  return (
++    <section className="operational-truth" id="pp-panel-operational-truth" aria-labelledby="pp-heading-operational-truth">
++      <header className="operational-truth-head">
++        <div>
++          <span>OPERATIONAL TRUTH · {truth.scopeLabel}</span>
++          <h2 id="pp-heading-operational-truth">What is proven, blocked, and still unknown</h2>
++        </div>
++        <strong
++          id="pp-inspector-release-verdict"
++          className="truth-release-verdict"
++          data-state={truth.release.tone}
++        >
++          RELEASE · {truth.release.label}
++        </strong>
++      </header>
++
++      <div className="truth-summary-grid">
++        <article className="truth-summary-card" data-state={truth.collision.tone}>
++          <span>Collision admission</span>
++          <strong id="pp-status-collision-truth">{truth.collision.label}</strong>
++          <p>{truth.collision.impact}</p>
++          <dl>
++            <div><dt>Source</dt><dd>{truth.collision.source}</dd></div>
++            <div><dt>Checked</dt><dd>{timeLabel(truth.collision.checkedAtMs)}</dd></div>
++            <div><dt>Safe next action</dt><dd>{truth.collision.nextAction}</dd></div>
++          </dl>
++        </article>
++        <article className="truth-summary-card" data-state={truth.release.tone}>
++          <span>Release decision</span>
++          <strong>RELEASE · {truth.release.label}</strong>
++          {truth.release.blockers.length ? (
++            <ul id="pp-list-release-blockers">
++              {truth.release.blockers.map((blocker, index) => <li key={`${index}-${blocker}`}>{blocker}</li>)}
++            </ul>
++          ) : <p>No blocking issue is recorded by the loaded native release receipt.</p>}
++          <dl>
++            <div><dt>Source</dt><dd>{truth.release.source}</dd></div>
++            <div><dt>Checked</dt><dd>{timeLabel(truth.release.checkedAtMs)}</dd></div>
++          </dl>
++        </article>
++        <article className="truth-summary-card" data-state={truth.currentRunParallelLimit === null ? "unknown" : "active"}>
++          <span>Parallel authority</span>
++          <strong id="pp-status-parallel-truth">
++            CURRENT RUN · {truth.currentRunParallelLimit === null ? "UNKNOWN" : `×${truth.currentRunParallelLimit}`}
++          </strong>
++          <p>New runs begin at ×{truth.futureRunParallelLimit}. Changing the header toggle does not rewrite an active run.</p>
++          <dl>
++            <div><dt>Current source</dt><dd>{truth.currentRunParallelLimit === null ? "No selected native scheduler" : "Native scheduler receipt"}</dd></div>
++            <div><dt>Future source</dt><dd>Local new-run preference</dd></div>
++          </dl>
++        </article>
++        <article className="truth-summary-card" data-state={truth.checkedAtMs ? "active" : "unknown"}>
++          <span>Freshness and provenance</span>
++          <strong>{truth.checkedAtMs ? "OBSERVED STATE" : "UNKNOWN · NOT LOADED"}</strong>
++          <p>{truth.provenance}</p>
++          <dl>
++            <div><dt>Last checked</dt><dd>{timeLabel(truth.checkedAtMs)}</dd></div>
++            <div><dt>Scope</dt><dd>{truth.scopeLabel}</dd></div>
++          </dl>
++        </article>
++      </div>
++
++      <details className="truth-detail" open>
++        <summary id="pp-summary-collision-scope">Collision scope and affected work · {truth.collision.affected.length}</summary>
++        <div className="truth-detail-body">
++          {truth.collision.affected.map((item) => <code key={item}>{item}</code>)}
++        </div>
++      </details>
++
++      <details className="truth-detail" open>
++        <summary id="pp-summary-task-evidence">Task verification evidence · {truth.evidence.length || "none loaded"}</summary>
++        {truth.evidence.length ? (
++          <div className="truth-evidence-wrap">
++            <table className="truth-evidence-table">
++              <thead><tr><th>Task</th><th>State</th><th>Tests</th><th>Build / typecheck</th><th>Runtime / browser</th><th>Artifacts</th><th>Unresolved risk</th></tr></thead>
++              <tbody>
++                {truth.evidence.map((row) => (
++                  <tr key={row.nodeId}>
++                    <th scope="row"><b>{row.nodeId}</b><span>{row.title}</span></th>
++                    <td>{row.status}</td>
++                    <td><EvidenceState value={row.tests} /></td>
++                    <td><EvidenceState value={row.build} /></td>
++                    <td><EvidenceState value={row.runtime} /></td>
++                    <td><EvidenceState value={row.artifacts} /></td>
++                    <td>{row.risks.length ? row.risks.join(" · ") : "None recorded"}</td>
++                  </tr>
++                ))}
++              </tbody>
++            </table>
++          </div>
++        ) : (
++          <p className="truth-empty">No exact native run is selected, so task verification evidence is unknown.</p>
++        )}
++      </details>
++
++      <details className="truth-detail">
++        <summary id="pp-summary-operational-activity">Chronological activity · {truth.activity.length || "none loaded"}</summary>
++        {truth.activity.length ? (
++          <ol className="truth-activity-feed" id="pp-list-operational-activity">
++            {truth.activity.map((entry) => (
++              <li key={entry.id}>
++                <time dateTime={new Date(entry.atMs).toISOString()}>{timeLabel(entry.atMs)}</time>
++                <strong>{entry.actor} · {entry.action}</strong>
++                <p>{entry.result}</p>
++                <small>{entry.scope} · source: {entry.source}</small>
++              </li>
++            ))}
++          </ol>
++        ) : (
++          <p className="truth-empty">No repository-and-plan-scoped run event or message has been loaded.</p>
++        )}
++      </details>
++    </section>
++  );
++}
+diff --git a/src/index.css b/src/index.css
+index 1db68af..9fda670 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -39,6 +39,7 @@ body {
+ }
+ 
+ .shell {
++  --rail-width: 308px;
+   display: flex;
+   height: 100%;
+   width: 100%;
+@@ -47,17 +48,24 @@ body {
+ /* ---------- rail ---------- */
+ 
+ .rail {
+-  width: 308px;
++  width: var(--rail-width);
+   flex: none;
+   display: flex;
+   flex-direction: column;
++  overflow: hidden;
+   background: var(--beige);
+   border-right: 1px solid #cdc6b6;
+-  transition: width 160ms ease;
++  transition: width 160ms ease, border-color 160ms ease;
+ }
+ 
+ .rail.collapsed {
+-  width: 58px;
++  width: 0;
++  border-right-width: 0;
++}
++
++.rail.collapsed > * {
++  visibility: hidden;
++  pointer-events: none;
+ }
+ 
+ .rail-head {
+@@ -88,30 +96,44 @@ body {
+   color: var(--dim);
+ }
+ 
+-.rail-mark {
+-  display: none;
+-  color: #365642;
+-  font: 850 10px/1 var(--mono);
+-  letter-spacing: -0.4px;
++.rail-edge-toggle {
++  position: fixed;
++  z-index: 4300;
++  top: 21px;
++  left: calc(var(--rail-width) - 57px);
++  display: inline-flex;
++  min-width: 52px;
++  min-height: 30px;
++  align-items: center;
++  justify-content: center;
++  gap: 6px;
++  padding: 5px 8px;
++  border: 1px solid #718277;
++  border-radius: 999px;
++  color: #eef4ef;
++  background: #24332a;
++  box-shadow: 0 3px 12px rgba(23, 32, 25, .22);
++  font: 800 8px/1 var(--mono);
++  letter-spacing: .35px;
++  cursor: pointer;
++  transition: left 160ms ease, top 160ms ease, transform 160ms ease, background 120ms ease, border-color 120ms ease;
+ }
+ 
+-.rail-collapse-toggle {
+-  display: grid;
+-  width: 26px;
+-  height: 26px;
+-  flex: none;
+-  place-items: center;
+-  border: 1px solid #c5bdad;
+-  border-radius: 7px 3px 7px 3px;
+-  background: rgba(255, 255, 255, 0.62);
+-  color: #365642;
+-  font: 800 14px/1 var(--mono);
+-  cursor: pointer;
++.rail-edge-toggle.collapsed {
++  top: 50%;
++  left: 6px;
++  transform: translateY(-50%);
+ }
+ 
+-.rail-collapse-toggle:hover {
+-  border-color: #78907d;
+-  background: #fff;
++.rail-edge-toggle span {
++  color: #b8d4be;
++  font-size: 15px;
++  line-height: .7;
++}
++
++.rail-edge-toggle:hover {
++  border-color: #a9c7af;
++  background: #31463a;
+ }
+ 
+ .rail-list {
+@@ -123,166 +145,6 @@ body {
+   gap: 12px;
+ }
+ 
+-.rail.collapsed .rail-head {
+-  grid-template-columns: 1fr;
+-  justify-items: center;
+-  gap: 7px;
+-  padding: 10px 7px 9px;
+-}
+-
+-.rail.collapsed .rail-head-copy {
+-  display: none;
+-}
+-
+-.rail.collapsed .rail-mark {
+-  display: inline;
+-}
+-
+-.rail.collapsed .rail-list {
+-  gap: 9px;
+-  padding: 8px 6px 12px;
+-  scrollbar-width: thin;
+-}
+-
+-.rail.collapsed .repo-section {
+-  overflow: visible;
+-  border: 0;
+-  border-radius: 0;
+-  background: transparent;
+-  box-shadow: none;
+-}
+-
+-.rail.collapsed .repo-heading {
+-  position: static;
+-  grid-template-columns: 1fr;
+-  justify-items: center;
+-  padding: 3px 0 6px;
+-  border: 0;
+-  background: transparent;
+-}
+-
+-.rail.collapsed .repo-call-sign {
+-  width: 34px;
+-  height: 30px;
+-  box-shadow: 1px 1px 0 #b7c3b8;
+-  font-size: 13px;
+-}
+-
+-.rail.collapsed .repo-heading-copy,
+-.rail.collapsed .branch-heading,
+-.rail.collapsed .plan-status-divider,
+-.rail.collapsed .rail-repo-repeat,
+-.rail.collapsed .rail-project-repeat,
+-.rail.collapsed .rail-branch-repeat,
+-.rail.collapsed .rail-topic,
+-.rail.collapsed .rail-meta,
+-.rail.collapsed .rail-chat-route,
+-.rail.collapsed .local-output.rail,
+-.rail.collapsed .alarm-label,
+-.rail.collapsed .alarm-controls,
+-.rail.collapsed .rail-foot .chip {
+-  display: none;
+-}
+-
+-.rail.collapsed .repo-branches {
+-  padding: 0;
+-}
+-
+-.rail.collapsed .repo-branches::before {
+-  display: none;
+-}
+-
+-.rail.collapsed .branch-group + .branch-group,
+-.rail.collapsed .plan-status-group.complete {
+-  margin-top: 5px;
+-  padding-top: 5px;
+-  border-top: 1px solid #c9c1b2;
+-}
+-
+-.rail.collapsed .branch-status-groups,
+-.rail.collapsed .branch-group [role="list"] {
+-  gap: 5px;
+-}
+-
+-.rail.collapsed .rail-item {
+-  min-height: 38px;
+-  align-items: center;
+-  justify-content: center;
+-  gap: 0;
+-  padding: 5px 4px;
+-  border-radius: 7px 3px 7px 3px;
+-}
+-
+-.rail.collapsed .rail-item-top {
+-  width: 100%;
+-  flex-direction: column;
+-  justify-content: center;
+-  gap: 4px;
+-}
+-
+-.rail.collapsed .rail-num {
+-  overflow: hidden;
+-  max-width: 38px;
+-  font-size: 9px;
+-  text-align: center;
+-  text-overflow: ellipsis;
+-  white-space: nowrap;
+-}
+-
+-.rail.collapsed .complete-flag,
+-.rail.collapsed .stall-flag {
+-  font-size: 0;
+-}
+-
+-.rail.collapsed .complete-flag::after {
+-  content: "✓";
+-  font: 850 11px/1 var(--mono);
+-}
+-
+-.rail.collapsed .stall-flag::after {
+-  content: "!";
+-  font: 900 12px/1 var(--mono);
+-}
+-
+-.rail.collapsed .rail-empty {
+-  overflow: hidden;
+-  padding: 6px 2px;
+-  font: 8px/1.3 var(--mono);
+-  text-align: center;
+-}
+-
+-.rail.collapsed .rail-empty > :not(:first-child) {
+-  display: none;
+-}
+-
+-.rail.collapsed .alarm-panel {
+-  padding: 7px 4px;
+-}
+-
+-.rail.collapsed .alarm-line {
+-  justify-content: center;
+-  margin: 0;
+-}
+-
+-.rail.collapsed .alarm-state {
+-  overflow: hidden;
+-  max-width: 48px;
+-  font-size: 8px;
+-  text-align: center;
+-  text-overflow: ellipsis;
+-  white-space: nowrap;
+-}
+-
+-.rail.collapsed .rail-foot {
+-  justify-content: center;
+-  padding: 7px 3px;
+-}
+-
+-.rail.collapsed .rail-count {
+-  font-size: 8px;
+-  text-align: center;
+-}
+-
+ .repo-section {
+   position: relative;
+   overflow: hidden;
+@@ -877,6 +739,11 @@ body {
+ .workspace-status-waiting b { color: #e8c879; }
+ .workspace-status-blocked b { color: #ff9b96; }
+ .workspace-status-unknown b { color: #bac1bc; }
++.release-status-ready b { color: #9bd0a5; }
++.release-status-active b { color: #9dc8e6; }
++.release-status-warning b { color: #e8c879; }
++.release-status-blocked b { color: #ff9b96; }
++.release-status-unknown b { color: #bac1bc; }
+ 
+ .orchestrator-head {
+   position: relative;
+@@ -1056,6 +923,135 @@ body {
+ .orchestrator-inspector .orchestrator-messenger { grid-template-columns: 1fr; align-items: start; }
+ .orchestrator-inspector #pp-panel-orchestrator-pipeline { color: #20251f; }
+ 
++.operational-truth {
++  display: grid;
++  gap: 9px;
++  padding: 12px 14px 14px;
++  border-bottom: 1px solid #34473a;
++  background: #131b16;
++  font-family: var(--mono);
++}
++
++.operational-truth-head {
++  display: flex;
++  align-items: flex-start;
++  justify-content: space-between;
++  gap: 14px;
++}
++
++.operational-truth-head > div { display: grid; min-width: 0; gap: 3px; }
++.operational-truth-head span { color: #7fad89; font-size: 6.5px; font-weight: 900; letter-spacing: .8px; }
++.operational-truth-head h2 { color: #edf3ee; font-size: 11px; line-height: 1.35; }
++
++.truth-release-verdict {
++  flex: none;
++  padding: 7px 9px;
++  border: 1px solid #657269;
++  border-radius: 4px;
++  color: #c7ceca;
++  background: #202923;
++  font-size: 7px;
++  letter-spacing: .55px;
++}
++
++.truth-release-verdict[data-state="ready"] { border-color: #527d5d; color: #a9d8b3; background: #1c3022; }
++.truth-release-verdict[data-state="blocked"] { border-color: #995750; color: #ffaaa2; background: #38221f; }
++.truth-release-verdict[data-state="warning"] { border-color: #8c713d; color: #ebca83; background: #322b1d; }
++
++.truth-summary-grid {
++  display: grid;
++  grid-template-columns: repeat(2, minmax(0, 1fr));
++  gap: 8px;
++}
++
++.truth-summary-card {
++  display: grid;
++  align-content: start;
++  gap: 6px;
++  min-height: 142px;
++  padding: 10px;
++  border: 1px solid #34453a;
++  border-left: 3px solid #657269;
++  border-radius: 4px;
++  background: #1a241d;
++}
++
++.truth-summary-card[data-state="ready"] { border-left-color: #6ca378; }
++.truth-summary-card[data-state="active"] { border-left-color: #6d9bb8; }
++.truth-summary-card[data-state="warning"] { border-left-color: #c49a4d; }
++.truth-summary-card[data-state="blocked"] { border-left-color: #d46f65; }
++.truth-summary-card > span { color: #8fab94; font-size: 6px; font-weight: 900; letter-spacing: .7px; text-transform: uppercase; }
++.truth-summary-card > strong { color: #eff4f0; font-size: 8px; line-height: 1.35; }
++.truth-summary-card > p,
++.truth-summary-card li { color: #c2cdc5; font-size: 7px; line-height: 1.5; }
++.truth-summary-card ul { display: grid; gap: 3px; margin: 0; padding-left: 15px; }
++.truth-summary-card dl { display: grid; gap: 4px; margin-top: auto; }
++.truth-summary-card dl div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 6px; }
++.truth-summary-card dt { color: #779083; font-size: 5.8px; font-weight: 900; text-transform: uppercase; }
++.truth-summary-card dd { margin: 0; overflow-wrap: anywhere; color: #d9e0da; font-size: 6.4px; }
++
++.truth-detail {
++  border: 1px solid #33443a;
++  border-radius: 4px;
++  background: #18211b;
++}
++
++.truth-detail summary {
++  min-height: 32px;
++  padding: 8px 10px;
++  color: #dfe8e1;
++  font-size: 7px;
++  font-weight: 900;
++  cursor: pointer;
++}
++
++.truth-detail-body {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 6px;
++  padding: 0 10px 10px;
++}
++
++.truth-detail-body code {
++  max-width: 100%;
++  overflow-wrap: anywhere;
++  padding: 4px 6px;
++  border: 1px solid #405347;
++  border-radius: 3px;
++  color: #b9c8bd;
++  background: #111813;
++  font-size: 6px;
++}
++
++.truth-evidence-wrap { overflow-x: auto; padding: 0 8px 9px; }
++.truth-evidence-table { width: 100%; min-width: 760px; border-collapse: collapse; color: #ccd6ce; font-size: 6.2px; }
++.truth-evidence-table th,
++.truth-evidence-table td { padding: 7px 6px; border-top: 1px solid #2f4035; text-align: left; vertical-align: top; }
++.truth-evidence-table thead th { color: #83a08d; font-size: 5.7px; letter-spacing: .45px; text-transform: uppercase; }
++.truth-evidence-table tbody th { display: grid; min-width: 120px; gap: 2px; }
++.truth-evidence-table tbody th b { color: #a8d0b0; }
++.truth-evidence-table tbody th span { color: #dce5de; font-weight: 500; }
++
++.truth-evidence-state {
++  display: inline-block;
++  padding: 3px 5px;
++  border: 1px solid #58645c;
++  border-radius: 999px;
++  color: #bdc5bf;
++  white-space: nowrap;
++}
++
++.truth-evidence-state[data-state="ready"] { border-color: #50775a; color: #a2d1ac; }
++.truth-evidence-state[data-state="blocked"] { border-color: #8a4e49; color: #f3a099; }
++.truth-empty { padding: 0 10px 10px; color: #9cac9f; font-size: 7px; }
++
++.truth-activity-feed { display: grid; gap: 0; padding: 0 10px 10px; list-style: none; }
++.truth-activity-feed li { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 3px 8px; padding: 8px 0; border-top: 1px solid #2d3d33; }
++.truth-activity-feed time { color: #789083; font-size: 5.8px; }
++.truth-activity-feed strong { color: #cfe0d3; font-size: 6.5px; }
++.truth-activity-feed p { grid-column: 2; margin: 0; color: #e0e8e2; font-size: 7px; line-height: 1.45; }
++.truth-activity-feed small { grid-column: 2; color: #7f9185; font-size: 5.8px; }
++
+ .head-orchestrator-command-post {
+   position: relative;
+   display: grid;
+@@ -1999,13 +1995,16 @@ input:focus-visible {
+ }
+ 
+ @media (max-width: 980px) {
+-  .rail { width: 270px; }
++  .shell { --rail-width: 270px; }
+   .scope-branch { max-width: 150px; }
+   .path { display: none; }
++  .ui-navigation-map { min-width: 760px; padding-inline: 14px; }
++  .ui-map-spine-row { grid-template-columns: minmax(190px, 1fr) 250px minmax(190px, 1fr); gap: 30px; }
+ }
+ 
+ @media (prefers-reduced-motion: reduce) {
+-  .rail {
++  .rail,
++  .rail-edge-toggle {
+     transition: none;
+   }
+ }
+@@ -2056,6 +2055,223 @@ input:focus-visible {
+   background: #9ea49f;
+ }
+ 
++.stage-workspace.mapping {
++  display: block;
++  overflow: auto;
++  background: #e9e5dc;
++}
++
++.ui-navigation-map {
++  min-width: 920px;
++  min-height: 100%;
++  padding: 18px 22px 60px;
++  color: #202720;
++  background-color: #e9e5dc;
++  background-image:
++    linear-gradient(rgba(67, 87, 71, .055) 1px, transparent 1px),
++    linear-gradient(90deg, rgba(67, 87, 71, .055) 1px, transparent 1px);
++  background-size: 24px 24px;
++  font-family: var(--mono);
++}
++
++.ui-navigation-map-head {
++  display: flex;
++  align-items: flex-end;
++  justify-content: space-between;
++  gap: 24px;
++  max-width: 1360px;
++  margin: 0 auto;
++  padding: 14px 16px;
++  border: 1px solid #c5c2b9;
++  border-top: 4px solid #365642;
++  background: rgba(248, 246, 240, .94);
++  box-shadow: var(--shadow);
++}
++
++.ui-navigation-map-head > div:first-child { display: grid; gap: 4px; }
++.ui-navigation-map-head > div:first-child > span { color: #50705a; font-size: 6.5px; font-weight: 900; letter-spacing: .95px; }
++.ui-navigation-map-head h2 { font-size: 20px; line-height: 1.1; letter-spacing: -.5px; }
++.ui-navigation-map-head p { color: #6b706a; font-size: 8px; }
++
++.ui-map-counts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
++.ui-map-counts span { padding: 5px 7px; border: 1px solid #c3c8c2; border-radius: 999px; color: #5d655f; background: #fff; font-size: 6.5px; }
++.ui-map-counts b { color: #355b40; font-size: 8px; }
++.ui-map-counts span[data-state="warning"] { border-color: #c09052; color: #8b5b22; }
++
++.ui-map-disclosure {
++  max-width: 1360px;
++  margin: 8px auto 20px;
++  padding: 8px 12px;
++  border-left: 3px solid #77917d;
++  color: #5d675f;
++  background: rgba(248, 246, 240, .82);
++  font-size: 7px;
++  line-height: 1.5;
++}
++
++.ui-map-canvas {
++  position: relative;
++  display: grid;
++  max-width: 1360px;
++  gap: 18px;
++  margin: 0 auto;
++  padding: 10px 0 30px;
++}
++
++.ui-map-axis {
++  position: absolute;
++  top: 0;
++  bottom: 0;
++  left: 50%;
++  width: 4px;
++  transform: translateX(-2px);
++  border-right: 1px solid #95a69a;
++  border-left: 1px solid #95a69a;
++  background: #d8dfd9;
++}
++
++.ui-map-spine-row {
++  position: relative;
++  z-index: 1;
++  display: grid;
++  grid-template-columns: minmax(240px, 1fr) 300px minmax(240px, 1fr);
++  align-items: start;
++  gap: 42px;
++}
++
++.ui-map-spine-segment {
++  position: relative;
++  display: grid;
++  min-height: 116px;
++  align-content: center;
++  gap: 6px;
++  padding: 18px 38px;
++  border: 1px solid #9eaaa0;
++  border-radius: 32px 8px 32px 8px;
++  background: #faf9f5;
++  box-shadow: 0 7px 22px rgba(52, 66, 55, .12), 0 0 0 5px rgba(233, 229, 220, .88);
++  text-align: center;
++}
++
++.ui-map-spine-segment::before {
++  position: absolute;
++  top: 50%;
++  left: 50%;
++  z-index: -1;
++  width: 18px;
++  height: 18px;
++  transform: translate(-50%, -50%);
++  border: 4px solid #e9e5dc;
++  border-radius: 50%;
++  content: "";
++  background: #4e8a5c;
++}
++
++.ui-map-spine-id { color: #3e704b; font-size: 8px; font-weight: 900; letter-spacing: 1px; }
++.ui-map-spine-segment h3 { font-size: 11px; line-height: 1.35; }
++.ui-map-spine-segment p { color: #6d746e; font-size: 7px; line-height: 1.45; }
++
++.ui-map-branch-toggle {
++  position: absolute;
++  top: 50%;
++  display: inline-flex;
++  min-width: 38px;
++  min-height: 32px;
++  align-items: center;
++  justify-content: center;
++  gap: 4px;
++  transform: translateY(-50%);
++  border: 1px solid #697c6e;
++  border-radius: 999px;
++  color: #eef4ef;
++  background: #2b4032;
++  font: 800 8px var(--mono);
++  cursor: pointer;
++}
++
++.ui-map-branch-toggle.left { left: -20px; }
++.ui-map-branch-toggle.right { right: -20px; }
++.ui-map-branch-toggle[aria-expanded="true"] { border-color: #91bd9a; background: #406b4c; box-shadow: 0 0 0 3px rgba(78, 138, 92, .16); }
++.ui-map-branch-toggle > span[aria-hidden="true"] { font-size: 15px; line-height: 1; }
++
++.ui-map-branch {
++  position: relative;
++  display: grid;
++  gap: 8px;
++  min-width: 0;
++}
++
++.ui-map-branch.open::after {
++  position: absolute;
++  top: 56px;
++  width: 42px;
++  border-top: 2px dashed #8aa08f;
++  content: "";
++}
++
++.ui-map-branch.left::after { right: -42px; }
++.ui-map-branch.right::after { left: -42px; }
++
++.ui-map-page {
++  overflow: hidden;
++  border: 1px solid #bdc5be;
++  border-left: 4px solid #718077;
++  border-radius: 7px;
++  background: rgba(255, 255, 255, .96);
++  box-shadow: 0 4px 14px rgba(52, 66, 55, .08);
++}
++
++.ui-map-page.ui-capable { border-left-color: #4e8a5c; }
++.ui-map-page.support-work { border-left-color: #9a815d; }
++.ui-map-page summary { display: grid; min-height: 66px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; }
++.ui-map-page-id { padding: 4px 6px; border-radius: 4px; color: #f2f6f3; background: #3b5e46; font-size: 7px; font-weight: 900; }
++.ui-map-page.support-work .ui-map-page-id { background: #735f43; }
++.ui-map-page-copy { display: grid; min-width: 0; gap: 3px; }
++.ui-map-page-copy strong { color: #263129; font-size: 8px; line-height: 1.35; }
++.ui-map-page-copy small { color: #758079; font-size: 5.8px; line-height: 1.35; }
++.ui-map-page-progress { color: #657269; font-size: 6px; white-space: nowrap; }
++
++.ui-map-page-body { display: grid; gap: 10px; padding: 10px; border-top: 1px solid #d6dbd6; background: #f4f5f1; }
++.ui-map-page-body dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
++.ui-map-page-body dl div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 5px; }
++.ui-map-page-body dt,
++.ui-map-page-body h3 { color: #5a7461; font-size: 5.8px; font-weight: 900; letter-spacing: .5px; text-transform: uppercase; }
++.ui-map-page-body dd { margin: 0; color: #38423b; font-size: 6.3px; }
++.ui-map-page-body section { display: grid; gap: 4px; }
++.ui-map-page-body code { overflow-wrap: anywhere; color: #3f5946; font-size: 6px; }
++.ui-map-page-body p,
++.ui-map-page-body li { color: #6f7671; font-size: 6.2px; line-height: 1.45; }
++.ui-map-page-body ul { padding-left: 14px; }
++
++.ui-map-branch-empty {
++  margin-top: 30px;
++  padding: 12px;
++  border: 1px dashed #b1aaa0;
++  color: #756d63;
++  background: rgba(248, 246, 240, .8);
++  font-size: 7px;
++  text-align: center;
++}
++
++.ui-map-orphans {
++  max-width: 1360px;
++  margin: 16px auto 0;
++  padding: 10px 12px;
++  border: 1px solid #c28850;
++  color: #765020;
++  background: #fff7e8;
++  font-size: 7px;
++}
++
++.ui-navigation-map-empty {
++  display: grid;
++  min-width: 0;
++  min-height: 100%;
++  place-content: center;
++  gap: 8px;
++  text-align: center;
++}
++
+ /* ---------- stored localhost witness ---------- */
+ 
+ .local-output {
+@@ -2933,6 +3149,9 @@ button[data-context-kind="plan"] { cursor: pointer; }
+ .diagnostics-status-grid article strong { overflow-wrap: anywhere; font: 800 8px var(--mono); }
+ .diagnostics-status-grid article small { overflow-wrap: anywhere; color: #a4aea7; font: 6.5px/1.45 var(--mono); }
+ .diagnostics-log { padding: 10px; }
++.diagnostics-source-summary { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 80px 10px 0; }
++.diagnostics-source-summary span { padding: 4px 6px; border: 1px solid #405147; border-radius: 999px; color: #b9c9bd; background: #18221b; font: 700 5.8px var(--mono); }
++.diagnostics-source-summary span[data-state="unknown"] { border-color: #716851; color: #d1ba83; }
+ .diagnostics-log > button { float: right; padding: 6px 8px; }
+ .diagnostics-log article { display: grid; grid-template-columns: 72px 90px 1fr; gap: 7px; padding: 8px 3px; border-bottom: 1px solid #29342d; font: 7px var(--mono); }
+ .diagnostics-log article[data-level="error"] { color: #ffaca0; }
+@@ -2996,6 +3215,11 @@ button[data-context-kind="plan"] { cursor: pointer; }
+   .parallel-agents-toggle > span:last-child small { display: none; }
+   .stage-workspace.comparing { grid-template-columns: 1fr; grid-template-rows: minmax(280px, 1fr) minmax(260px, 1fr); overflow: auto; }
+   .orchestrator-inspector { width: 100vw; }
++  .truth-summary-grid { grid-template-columns: 1fr; }
++  .operational-truth-head { align-items: stretch; flex-direction: column; }
++  .truth-release-verdict { align-self: flex-start; }
++  .ui-navigation-map-head { align-items: flex-start; flex-direction: column; }
++  .ui-map-counts { justify-content: flex-start; }
+   .repository-scope-tabs { padding-inline: 4px; }
+   .repository-scope-tabs button { min-width: 136px; }
+   .diagnostics-status-grid { grid-template-columns: 1fr; }
+diff --git a/src/services/operationalTruth.ts b/src/services/operationalTruth.ts
+new file mode 100644
+index 0000000..a93ad24
+--- /dev/null
++++ b/src/services/operationalTruth.ts
+@@ -0,0 +1,337 @@
++import type { Board } from "./boards";
++import type { ControlPlaneSnapshot } from "./controlPlane";
++import type {
++  EvidenceArtifact,
++  NodeCompletion,
++  OrchestratorSnapshot,
++  ScheduledNode,
++  VerificationResult,
++} from "./orchestratorPipeline";
++
++export type TruthTone = "ready" | "active" | "warning" | "blocked" | "unknown";
++
++export interface ReleaseVerdict {
++  label: "NOT READY" | "READY FOR PR" | "READY TO MERGE" | "MERGED";
++  tone: TruthTone;
++  blockers: string[];
++  source: string;
++  checkedAtMs: number | null;
++}
++
++export interface CollisionTruth {
++  label: string;
++  tone: TruthTone;
++  impact: string;
++  source: string;
++  checkedAtMs: number | null;
++  nextAction: string;
++  affected: string[];
++}
++
++export interface EvidenceCell {
++  label: "PASSED" | "FAILED" | "NOT RECORDED";
++  tone: TruthTone;
++  detail: string;
++}
++
++export interface TaskEvidenceTruth {
++  nodeId: string;
++  title: string;
++  status: string;
++  tests: EvidenceCell;
++  build: EvidenceCell;
++  runtime: EvidenceCell;
++  artifacts: EvidenceCell;
++  risks: string[];
++}
++
++export interface ActivityTruth {
++  id: string;
++  atMs: number;
++  actor: string;
++  action: string;
++  result: string;
++  scope: string;
++  source: "native run" | "message ledger";
++}
++
++export interface OperationalTruth {
++  release: ReleaseVerdict;
++  collision: CollisionTruth;
++  evidence: TaskEvidenceTruth[];
++  activity: ActivityTruth[];
++  currentRunParallelLimit: number | null;
++  futureRunParallelLimit: number;
++  scopeLabel: string;
++  provenance: string;
++  checkedAtMs: number | null;
++}
++
++function scopeLabel(board: Board | null): string {
++  if (!board) return "No repository or plan selected";
++  return `${board.repoName} / ${board.number || "unnumbered plan"} / ${board.branch}`;
++}
++
++export function deriveReleaseVerdict(
++  pipeline: OrchestratorSnapshot | null,
++  board: Board | null,
++): ReleaseVerdict {
++  if (!pipeline) {
++    return {
++      label: "NOT READY",
++      tone: "unknown",
++      blockers: board
++        ? [
++            "No exact native run is selected for this repository and plan.",
++            "Release and CI evidence have not been loaded.",
++          ]
++        : ["No repository, plan, or exact native run is selected."],
++      source: board ? "No native release receipt" : "Selection state",
++      checkedAtMs: null,
++    };
++  }
++  if (!pipeline.release) {
++    return {
++      label: "NOT READY",
++      tone: "warning",
++      blockers: ["The native release gate has not recorded a result."],
++      source: `Native run ${pipeline.run.runId}`,
++      checkedAtMs: pipeline.nowMs,
++    };
++  }
++  if (pipeline.release.merged) {
++    return {
++      label: "MERGED",
++      tone: "ready",
++      blockers: [],
++      source: `Native release receipt for ${pipeline.run.runId}`,
++      checkedAtMs: pipeline.nowMs,
++    };
++  }
++  if (pipeline.release.readyToMerge) {
++    return {
++      label: "READY TO MERGE",
++      tone: "ready",
++      blockers: [],
++      source: `Native release receipt for ${pipeline.run.runId}`,
++      checkedAtMs: pipeline.nowMs,
++    };
++  }
++  if (pipeline.release.readyForPr) {
++    return {
++      label: "READY FOR PR",
++      tone: "ready",
++      blockers: [],
++      source: `Native release receipt for ${pipeline.run.runId}`,
++      checkedAtMs: pipeline.nowMs,
++    };
++  }
++  return {
++    label: "NOT READY",
++    tone: "blocked",
++    blockers: pipeline.release.issues.map((issue) => issue.message),
++    source: `Native release receipt for ${pipeline.run.runId}`,
++    checkedAtMs: pipeline.nowMs,
++  };
++}
++
++function deriveCollisionTruth(
++  pipeline: OrchestratorSnapshot | null,
++  board: Board | null,
++): CollisionTruth {
++  const scope = scopeLabel(board);
++  if (!pipeline) {
++    return {
++      label: "UNKNOWN · NO VERIFIED RUN",
++      tone: "unknown",
++      impact: "No native collision census or approval receipt is bound to this repository and plan.",
++      source: "Native preflight unavailable",
++      checkedAtMs: null,
++      nextAction: `Select or create an exact native run for ${scope}, then run preflight.`,
++      affected: [scope],
++    };
++  }
++  const preflight = pipeline.preflight;
++  if (!preflight) {
++    return {
++      label: "BLOCKED · PREFLIGHT NOT RECORDED",
++      tone: "blocked",
++      impact: "Worker admission cannot prove repository identity, dirty state, ports, or running-process conflicts.",
++      source: `Native run ${pipeline.run.runId}`,
++      checkedAtMs: pipeline.nowMs,
++      nextAction: "Run native preflight before approving or admitting any task.",
++      affected: [scope, pipeline.run.runId],
++    };
++  }
++  const unknown = preflight.unknownConflicts.map(
++    (binding) => `port ${binding.port} · ${binding.process.executablePath || `PID ${binding.process.pid}`}`,
++  );
++  const known = preflight.conflicts.map(
++    (binding) => `port ${binding.port} · ${binding.process.executablePath || `PID ${binding.process.pid}`}`,
++  );
++  if (unknown.length) {
++    return {
++      label: "BLOCKED · UNKNOWN PROCESS CONFLICT",
++      tone: "blocked",
++      impact: `${unknown.length} running process${unknown.length === 1 ? "" : "es"} cannot be safely attributed. Admission remains blocked.`,
++      source: `Native preflight for ${pipeline.run.runId}`,
++      checkedAtMs: pipeline.nowMs,
++      nextAction: "Identify the listed process owner, then refresh preflight; do not stop it from the planner.",
++      affected: unknown,
++    };
++  }
++  if (!pipeline.preflightFresh) {
++    return {
++      label: "BLOCKED · PREFLIGHT EXPIRED",
++      tone: "blocked",
++      impact: "The recorded census may no longer match the repository, worktree, or running processes.",
++      source: `Expired native preflight for ${pipeline.run.runId}`,
++      checkedAtMs: pipeline.nowMs,
++      nextAction: "Refresh preflight and approve the new receipt before another admission.",
++      affected: [scope, ...known],
++    };
++  }
++  if (!pipeline.runApproval) {
++    return {
++      label: "BLOCKED · APPROVAL RECEIPT MISSING",
++      tone: "blocked",
++      impact: "The renderer cannot authorize work from a green-looking preflight alone.",
++      source: `Native preflight for ${pipeline.run.runId}`,
++      checkedAtMs: pipeline.nowMs,
++      nextAction: "Review this exact census and record native approval for this exact run.",
++      affected: [scope, ...known],
++    };
++  }
++  const approvedNodes = pipeline.runApproval.collisionAssessments.map(
++    (assessment) => `${assessment.nodeId} · census ${assessment.censusDigest.slice(0, 12)}…`,
++  );
++  return {
++    label: known.length ? "ENFORCED · CONFLICTS RESOLVED" : "ENFORCED · APPROVED CENSUS",
++    tone: "ready",
++    impact: known.length
++      ? `${known.length} allowlisted conflict${known.length === 1 ? " was" : "s were"} handled by native preflight; admissions remain fenced to the approved manifest.`
++      : "No port conflict was recorded and native approval is bound to the immutable run manifest.",
++    source: `Approval ${pipeline.runApproval.approvalDigest.slice(0, 12)}…`,
++    checkedAtMs: pipeline.nowMs,
++    nextAction: "Admit only dependency-ready tasks through the native control.",
++    affected: approvedNodes.length ? approvedNodes : [scope],
++  };
++}
++
++function commandEvidence(
++  commands: string[],
++  results: VerificationResult[],
++  matcher: RegExp,
++): EvidenceCell {
++  const matched = commands.filter((command) => matcher.test(command));
++  if (!matched.length) return { label: "NOT RECORDED", tone: "unknown", detail: "No matching verification command is declared." };
++  const matchedResults = results.filter((result) => matched.includes(result.commandId));
++  if (!matchedResults.length) return { label: "NOT RECORDED", tone: "unknown", detail: matched.join(", ") };
++  const failed = matchedResults.filter((result) => result.exitCode !== 0);
++  return failed.length
++    ? { label: "FAILED", tone: "blocked", detail: failed.map((result) => result.commandId).join(", ") }
++    : { label: "PASSED", tone: "ready", detail: matchedResults.map((result) => result.commandId).join(", ") };
++}
++
++function artifactEvidence(artifacts: EvidenceArtifact[]): EvidenceCell {
++  if (!artifacts.length) return { label: "NOT RECORDED", tone: "unknown", detail: "No hashed artifact receipt is attached." };
++  return {
++    label: "PASSED",
++    tone: "ready",
++    detail: `${artifacts.length} hashed artifact${artifacts.length === 1 ? "" : "s"}`,
++  };
++}
++
++function evidenceForNode(
++  node: ScheduledNode,
++  completion: NodeCompletion | undefined,
++  pipeline: OrchestratorSnapshot,
++): TaskEvidenceTruth {
++  const manifestNode = pipeline.manifest?.nodes.find((candidate) => candidate.nodeId === node.id);
++  const commands = node.verificationCommands || manifestNode?.verificationCommands || [];
++  const results = completion?.verification || node.verification || [];
++  const artifacts = completion?.artifacts || node.evidence || [];
++  const risks = pipeline.warnings
++    .filter((warning) => warning.nodeId === null || warning.nodeId === node.id)
++    .map((warning) => warning.message);
++  if (completion && !completion.gate.passed) risks.unshift("The native completion gate did not pass.");
++  return {
++    nodeId: node.id,
++    title: node.title || node.id,
++    status: node.status,
++    tests: commandEvidence(commands, results, /(test|spec|pytest|cargo test)/i),
++    build: commandEvidence(commands, results, /(build|typecheck|tsc|clippy|cargo check)/i),
++    runtime: commandEvidence(commands, results, /(smoke|browser|playwright|e2e|runtime)/i),
++    artifacts: artifactEvidence(artifacts),
++    risks,
++  };
++}
++
++function deriveActivity(
++  pipeline: OrchestratorSnapshot | null,
++  controlPlane: ControlPlaneSnapshot | null,
++  board: Board | null,
++): ActivityTruth[] {
++  const scope = scopeLabel(board);
++  const events: ActivityTruth[] = pipeline
++    ? pipeline.events.map((event, index) => ({
++        id: `run-${event.runId}-${event.ts}-${index}`,
++        atMs: Date.parse(event.ts) || pipeline.nowMs,
++        actor: event.worker || "native orchestrator",
++        action: event.type.replace(/-/g, " "),
++        result: event.msg,
++        scope: `${scope}${event.nodeId ? ` / ${event.nodeId}` : ""}`,
++        source: "native run" as const,
++      }))
++    : [];
++  if (controlPlane && board) {
++    controlPlane.messages
++      .filter((message) =>
++        message.scope.repositoryRoot === board.repoRoot && message.scope.planPath === board.planPath
++      )
++      .forEach((message) => events.push({
++        id: `message-${message.id}`,
++        atMs: message.updatedAtMs,
++        actor: message.authorId,
++        action: `${message.kind.replace(/([A-Z])/g, " $1").toLowerCase()} · ${message.state}`,
++        result: message.body,
++        scope: `${scope}${message.scope.nodeId ? ` / ${message.scope.nodeId}` : ""}`,
++        source: "message ledger",
++      }));
++  }
++  return events.sort((left, right) => right.atMs - left.atMs).slice(0, 20);
++}
++
++export function deriveOperationalTruth({
++  board,
++  pipeline,
++  controlPlane,
++  parallelAgents,
++}: {
++  board: Board | null;
++  pipeline: OrchestratorSnapshot | null;
++  controlPlane: ControlPlaneSnapshot | null;
++  parallelAgents: boolean;
++}): OperationalTruth {
++  const checkedAtMs = Math.max(pipeline?.nowMs || 0, controlPlane?.nowMs || 0) || null;
++  const sources = [
++    pipeline ? `native run ${pipeline.run.runId}` : "native run not selected",
++    controlPlane ? `message ledger ${controlPlane.repositoryId}` : "message ledger not loaded",
++  ];
++  const evidence = pipeline
++    ? Object.values(pipeline.scheduler.nodes)
++        .sort((left, right) => left.wave - right.wave || left.id.localeCompare(right.id))
++        .map((node) => evidenceForNode(node, pipeline.scheduler.completions?.[node.id], pipeline))
++    : [];
++  return {
++    release: deriveReleaseVerdict(pipeline, board),
++    collision: deriveCollisionTruth(pipeline, board),
++    evidence,
++    activity: deriveActivity(pipeline, controlPlane, board),
++    currentRunParallelLimit: pipeline?.scheduler.maxParallelWorkers ?? null,
++    futureRunParallelLimit: parallelAgents ? 4 : 1,
++    scopeLabel: scopeLabel(board),
++    provenance: sources.join(" · "),
++    checkedAtMs,
++  };
++}
+diff --git a/tests/orchestrator_pipeline_e2e.py b/tests/orchestrator_pipeline_e2e.py
+index 5268a95..7e42b1c 100644
+--- a/tests/orchestrator_pipeline_e2e.py
++++ b/tests/orchestrator_pipeline_e2e.py
+@@ -35,6 +35,12 @@ SCREENSHOT = (
+     / "orchestrator-pipeline"
+     / "orchestrator-pipeline-chrome.png"
+ )
++TRUTH_SCREENSHOT = (
++    ROOT
++    / "artifacts"
++    / "orchestrator-pipeline"
++    / "operational-truth-inspector.png"
++)
+ 
+ PRIMARY_REPOSITORY = "repo-looplet-crm"
+ SECONDARY_REPOSITORY = "repo-looplet-accounting"
+@@ -403,12 +409,22 @@ def pipeline_snapshot() -> dict:
+             "profile": "ui" if node["nodeId"] == "TO-02" else "headless",
+             "evidence": evidence,
+             "allowedFiles": node["allowedFiles"],
++            "verificationCommands": [
++                f"test-{node['nodeId']}",
++                f"build-{node['nodeId']}",
++                *([f"browser-smoke-{node['nodeId']}"] if node["nodeId"] == "TO-02" else []),
++            ],
+             "verification": [
+                 {
+-                    "commandId": f"verify-{node['nodeId']}",
++                    "commandId": command_id,
+                     "exitCode": 0,
+                     "outputArtifact": f"evidence/{node['nodeId']}/test.log",
+                 }
++                for command_id in [
++                    f"test-{node['nodeId']}",
++                    f"build-{node['nodeId']}",
++                    *([f"browser-smoke-{node['nodeId']}"] if node["nodeId"] == "TO-02" else []),
++                ]
+             ],
+         }
+ 
+@@ -478,6 +494,7 @@ def pipeline_snapshot() -> dict:
+ 
+     return {
+         "nowMs": 1787355000000,
++        "preflightFresh": True,
+         "run": active_summary,
+         "stages": [
+             {
+@@ -518,7 +535,7 @@ def pipeline_snapshot() -> dict:
+             "stoppedProcesses": [],
+             "reasons": active["preflight"]["reasons"],
+         },
+-        "scheduler": {"nextFence": 3, "nodes": scheduled_nodes},
++        "scheduler": {"nextFence": 3, "maxParallelWorkers": 2, "nodes": scheduled_nodes},
+         "reconciliation": {
+             "passed": False,
+             **violations,
+@@ -685,6 +702,32 @@ def assert_node_evidence_and_persistent_warnings(page: Page) -> None:
+     expect(decision).to_have_attribute("data-decision-status", "pending")
+ 
+ 
++def assert_operational_truth(page: Page) -> None:
++    truth = page.locator("#pp-panel-operational-truth")
++    expect(truth).to_be_visible()
++    expect(page.locator("#pp-inspector-release-verdict")).to_have_text(
++        "RELEASE · NOT READY"
++    )
++    expect(page.locator("#pp-status-collision-truth")).to_have_text(
++        "BLOCKED · APPROVAL RECEIPT MISSING"
++    )
++    expect(page.locator("#pp-status-parallel-truth")).to_contain_text(
++        "CURRENT RUN · ×2"
++    )
++    expect(page.locator("#pp-list-release-blockers")).to_contain_text(
++        "infrastructure failure"
++    )
++    evidence_rows = page.locator(".truth-evidence-table tbody tr")
++    expect(evidence_rows).to_have_count(2)
++    to_02 = evidence_rows.filter(has_text="TO-02")
++    expect(to_02).to_contain_text("PASSED")
++    expect(to_02.locator("td").nth(3).locator(".truth-evidence-state")).to_have_attribute(
++        "title", "browser-smoke-TO-02"
++    )
++    expect(page.locator("#pp-list-operational-activity li")).to_have_count(5)
++    expect(truth).to_contain_text("source: native run")
++
++
+ def assert_audit_drawer(page: Page) -> None:
+     drawer = page.locator("#pp-orch-region-audit-drawer")
+     handle = page.locator("#pp-orch-control-audit-resize")
+@@ -839,6 +882,15 @@ def main() -> None:
+ 
+         assert_repository_and_plan_scope(page)
+         assert_node_evidence_and_persistent_warnings(page)
++        assert_operational_truth(page)
++        page.locator("#pp-panel-orchestrator-inspector").evaluate(
++            "element => { element.scrollTop = 0; }"
++        )
++        page.screenshot(
++            path=str(TRUTH_SCREENSHOT),
++            full_page=True,
++            animations="disabled",
++        )
+         assert_audit_drawer(page)
+         assert_unique_control_ids(page)
+ 
+diff --git a/tests/repository_rail_e2e.py b/tests/repository_rail_e2e.py
+index 96de6aa..710dfb5 100644
+--- a/tests/repository_rail_e2e.py
++++ b/tests/repository_rail_e2e.py
+@@ -8,7 +8,7 @@ from playwright.sync_api import expect, sync_playwright
+ ROOT = Path(__file__).resolve().parents[1]
+ APP_URL = "http://127.0.0.1:5180/"
+ SCREENSHOT = ROOT / "artifacts" / "repository-rail.png"
+-COLLAPSED_SCREENSHOT = ROOT / "artifacts" / "repository-rail-collapsed.png"
++COLLAPSED_SCREENSHOT = ROOT / "artifacts" / "repository-rail-hidden.png"
+ 
+ 
+ BOARDS = {
+@@ -60,7 +60,7 @@ def main():
+     SCREENSHOT.parent.mkdir(parents=True, exist_ok=True)
+     with sync_playwright() as playwright:
+         browser = playwright.chromium.launch(headless=True)
+-        page = browser.new_page(viewport={"width": 1440, "height": 900})
++        page = browser.new_page(viewport={"width": 1440, "height": 900}, device_scale_factor=3)
+         page.set_default_timeout(10_000)
+         probe_available = {port: True for port in BOARDS}
+ 
+@@ -116,12 +116,17 @@ def main():
+         rail_toggle.evaluate("element => element.click()")
+         expect(rail_toggle).to_have_attribute("aria-expanded", "false")
+         expect(rail).to_have_class(re.compile(r"\bcollapsed\b"))
+-        expect(rail).to_have_css("width", "58px")
++        expect(rail).to_have_attribute("aria-hidden", "true")
++        expect(rail).to_have_css("width", "0px")
++        expect(rail_toggle).to_be_visible()
++        expect(rail_toggle).to_contain_text("Plans")
+         collapsed_stage_x = stage.bounding_box()["x"]
+         assert collapsed_stage_x < expanded_stage_x - 200, (
+             f"collapsed rail did not return meaningful canvas width: {expanded_stage_x} -> {collapsed_stage_x}"
+         )
+-        expect(page.get_by_role("button", name="PP-001 Repository B Perfect Planner main Desktop shell")).to_be_visible()
++        assert collapsed_stage_x <= 1, f"collapsed rail still reserves canvas width: {collapsed_stage_x}"
++        assert rail_toggle.bounding_box()["x"] <= 7, "collapsed Plans pill is not attached to the left edge"
++        expect(page.get_by_role("button", name="PP-001 Repository B Perfect Planner main Desktop shell", include_hidden=True)).to_be_hidden()
+         page.screenshot(path=str(COLLAPSED_SCREENSHOT), full_page=True)
+         assert page.evaluate(
+             "localStorage.getItem('perfect-planner:repository-rail-collapsed')"
+@@ -135,6 +140,7 @@ def main():
+         rail_toggle.evaluate("element => element.click()")
+         expect(rail_toggle).to_have_attribute("aria-expanded", "true")
+         expect(rail).to_have_class("rail")
++        expect(rail).to_have_attribute("aria-hidden", "false")
+         assert page.evaluate(
+             "localStorage.getItem('perfect-planner:repository-rail-collapsed')"
+         ) == "false"
+@@ -249,6 +255,11 @@ def main():
+         inspector = page.locator("#pp-panel-orchestrator-inspector")
+         expect(inspector).to_be_visible()
+         expect(inspector).to_contain_text("Perfect Planner")
++        expect(page.locator("#pp-inspector-release-verdict")).to_have_text("RELEASE · NOT READY")
++        expect(page.locator("#pp-status-collision-truth")).to_have_text("UNKNOWN · NO VERIFIED RUN")
++        expect(page.locator("#pp-status-parallel-truth")).to_contain_text("CURRENT RUN · UNKNOWN")
++        expect(page.locator("#pp-list-release-blockers")).to_contain_text("No exact native run")
++        expect(page.locator("#pp-panel-operational-truth")).to_contain_text("not checked this session")
+         print("repository rail: inspector scoped", flush=True)
+         frame_top_after = page.locator("#pp-frame-active-board").bounding_box()["y"]
+         assert frame_top_after == frame_top_before, (
+@@ -321,6 +332,17 @@ def main():
+             console_toggle.evaluate("element => element.click()")
+         expect(page.locator("#pp-panel-diagnostics-console")).to_contain_text("MCP runtime")
+         expect(page.locator("#pp-panel-diagnostics-console")).to_contain_text("NOT ATTESTED")
++        page.locator("#pp-tab-diagnostics-logs").evaluate("element => element.click()")
++        expect(page.locator(".diagnostics-source-summary")).to_contain_text("APPLICATION")
++        expect(page.locator(".diagnostics-source-summary")).to_contain_text("MESSAGING")
++        expect(page.locator(".diagnostics-source-summary")).to_contain_text("PLAN / RUN")
++        expect(page.locator(".diagnostics-source-summary")).to_contain_text("BROWSER CONSOLE · NOT COLLECTED HERE")
++        diagnostic_ids = page.locator("[data-diagnostic-id]").evaluate_all(
++            "nodes => nodes.map(node => node.getAttribute('data-diagnostic-id'))"
++        )
++        assert len(diagnostic_ids) == len(set(diagnostic_ids)), (
++            f"diagnostic event IDs must remain unique under batched updates: {diagnostic_ids}"
++        )
+ 
+         page.screenshot(path=str(SCREENSHOT), full_page=True)
+         print("repository rail: screenshot captured", flush=True)

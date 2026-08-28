@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from "react";
-import type { Board } from "../services/boards";
-import type { PlanSnapshot, Vertebra } from "../types/plan";
+import React, { useEffect, useMemo, useState } from "react";
+import { readBoardEvidence, type Board } from "../services/boards";
+import type { ChecklistProof, EvidenceArtifact, PlanSnapshot, Vertebra } from "../types/plan";
 
 type BranchSide = "L" | "R";
 
@@ -23,27 +23,68 @@ function progressLabel(node: Vertebra): string {
   return `${tested}/${checklist.length} proven`;
 }
 
-function PageCard({ node }: { node: Vertebra }) {
+function latestScreenshotProof(node: Vertebra): ChecklistProof | null {
+  return (node.checklist || [])
+    .map((item) => item.proof)
+    .filter((proof): proof is ChecklistProof => Boolean(proof?.screenshot) && proof?.screenshotCheck?.ok !== false)
+    .sort((left, right) => String(right.at || "").localeCompare(String(left.at || "")))[0] || null;
+}
+
+function PageCard({
+  node,
+  selected,
+  onSelect,
+  screenshot,
+  screenshotProof,
+}: {
+  node: Vertebra;
+  selected: boolean;
+  onSelect: (node: Vertebra) => void;
+  screenshot: EvidenceArtifact | null | undefined;
+  screenshotProof: ChecklistProof | null;
+}) {
   const files = frontendFiles(node);
   const uiItems = (node.checklist || []).filter((item) => item.ui);
   const uiPage = isUiPage(node);
+  const screenshotLoading = Boolean(screenshotProof) && screenshot === undefined;
   return (
     <details
-      className={`ui-map-page${uiPage ? " ui-capable" : " support-work"}`}
+      className={`ui-map-page${uiPage ? " ui-capable" : " support-work"}${selected ? " selected" : ""}`}
       id={`pp-ui-page-${domToken(node.id)}`}
       data-page-id={node.id}
       data-spine-id={node.spineId}
       data-page-side={node.side || "R"}
       data-page-kind={uiPage ? "ui-capable" : "support-work"}
+      data-selected={selected}
+      data-snapshot-state={screenshot?.dataUrl ? "attached" : screenshotLoading ? "loading" : screenshotProof ? "unavailable" : "missing"}
     >
-      <summary id={`pp-ui-page-summary-${domToken(node.id)}`}>
+      <summary
+        id={`pp-ui-page-summary-${domToken(node.id)}`}
+        aria-current={selected ? "page" : undefined}
+        onClick={() => onSelect(node)}
+      >
         <span className="ui-map-page-id">{node.id}</span>
+        <span className={`ui-map-page-thumb${screenshot?.dataUrl ? " attached" : " missing"}`}>
+          {screenshot?.dataUrl ? (
+            <img src={screenshot.dataUrl} alt={`Previous screenshot for ${node.id} ${node.title}`} />
+          ) : <i aria-hidden="true">{screenshotLoading ? "…" : "—"}</i>}
+        </span>
         <span className="ui-map-page-copy">
           <strong>{node.title}</strong>
           <small>{uiPage ? "UI-capable page/surface" : "Support work · no UI mapping recorded"}</small>
         </span>
         <span className="ui-map-page-progress">{progressLabel(node)}</span>
       </summary>
+      <div className={`ui-map-page-snapshot${screenshot?.dataUrl ? " attached" : " missing"}`}>
+        {screenshot?.dataUrl ? (
+          <img
+            src={screenshot.dataUrl}
+            alt={screenshotProof?.shotNote || `Previous UI proof for ${node.id} ${node.title}`}
+          />
+        ) : (
+          <span>{screenshotLoading ? "LOADING PREVIOUS CAPTURE" : screenshotProof ? "CAPTURE REFERENCED · FILE UNAVAILABLE" : "NO SNAPSHOT ATTACHED TO THIS NODE"}</span>
+        )}
+      </div>
       <div className="ui-map-page-body">
         <dl>
           <div><dt>Spine ID</dt><dd>{node.spineId}</dd></div>
@@ -74,6 +115,8 @@ export function UiNavigationMap({
   plan: PlanSnapshot | null | undefined;
 }) {
   const [openSides, setOpenSides] = useState<Set<string>>(() => new Set());
+  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+  const [screenshots, setScreenshots] = useState<Map<string, EvidenceArtifact | null>>(() => new Map());
   const phases = useMemo(() => {
     if (!plan) return [];
     return plan.spine.map((phase) => {
@@ -90,6 +133,30 @@ export function UiNavigationMap({
   const supportCount = allNodes.length - uiCount;
   const assignedIds = new Set((plan?.spine || []).map((phase) => phase.id));
   const orphaned = allNodes.filter((node) => !assignedIds.has(node.spineId));
+  const selectedNode = allNodes.find((node) => node.id === selectedPageId) || null;
+
+  useEffect(() => {
+    if (!plan) return;
+    setOpenSides(new Set(plan.spine.flatMap((phase) => [`${phase.id}:L`, `${phase.id}:R`])));
+    setSelectedPageId(null);
+  }, [plan]);
+
+  useEffect(() => {
+    let live = true;
+    setScreenshots(new Map());
+    if (!plan) return () => { live = false; };
+    const captures = plan.vertebrae.flatMap((node) => {
+      const proof = latestScreenshotProof(node);
+      return proof?.screenshot ? [{ nodeId: node.id, fileName: proof.screenshot }] : [];
+    });
+    void Promise.all(captures.map(async ({ nodeId, fileName }) => ({
+      nodeId,
+      artifact: await readBoardEvidence(board, fileName),
+    }))).then((results) => {
+      if (live) setScreenshots(new Map(results.map(({ nodeId, artifact }) => [nodeId, artifact])));
+    });
+    return () => { live = false; };
+  }, [board.planPath, board.port, plan]);
 
   const toggleSide = (spineId: string, side: BranchSide) => {
     const key = `${spineId}:${side}`;
@@ -98,6 +165,17 @@ export function UiNavigationMap({
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
+    });
+  };
+
+  const focusPage = (node: Vertebra) => {
+    setSelectedPageId(node.id);
+    window.requestAnimationFrame(() => {
+      document.getElementById(`pp-ui-page-${domToken(node.id)}`)?.scrollIntoView({
+        block: "center",
+        inline: "center",
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      });
     });
   };
 
@@ -117,6 +195,8 @@ export function UiNavigationMap({
       aria-labelledby="pp-heading-ui-navigation-map"
       data-plan-id={plan.meta?.number || board.number || "unassigned"}
       data-repository-root={board.repoRoot}
+      data-focus-page={selectedNode?.id || "spine"}
+      data-focus-side={selectedNode?.side === "L" ? "L" : selectedNode ? "R" : "spine"}
     >
       <header className="ui-navigation-map-head">
         <div>
@@ -135,6 +215,30 @@ export function UiNavigationMap({
         This view mirrors the loaded Perfect Plan. A node is called UI-capable only when its plan records a frontend file or a UI checklist item; it is not a runtime route crawl.
       </aside>
 
+      <section className="ui-map-proof-routing" aria-labelledby="pp-heading-browser-proof-routing">
+        <div>
+          <span>BROWSER PROOF ROUTING</span>
+          <h3 id="pp-heading-browser-proof-routing">One visual result, explicit evidence source</h3>
+        </div>
+        <dl>
+          <div data-proof-method="chrome-mcp">
+            <dt>Chrome MCP</dt><dd><b>PREFERRED</b> · host availability checked at runtime</dd>
+          </div>
+          <div data-proof-method="playwright-script">
+            <dt>Script fallback</dt><dd><b>READY</b> · full PNG + JSON logs · Chrome/Chromium · cross-platform</dd>
+          </div>
+          <div data-proof-method="last-run">
+            <dt>Last attached run</dt><dd><b>UNKNOWN</b> · no report is inferred from the plan</dd>
+          </div>
+        </dl>
+      </section>
+
+      <nav className="ui-map-path" aria-label="Selected construction path">
+        <span>CONSTRUCTION PATH</span>
+        <b>{selectedNode ? `${selectedNode.spineId} → ${selectedNode.id}` : "FULL SPINE"}</b>
+        <small>{selectedNode ? `${selectedNode.side === "L" ? "Left" : "Right"} branch · ${selectedNode.title}` : "All recorded left and right branches are visible."}</small>
+      </nav>
+
       <div className="ui-map-canvas">
         <div className="ui-map-axis" aria-hidden="true" />
         {phases.map(({ phase, left, right }, phaseIndex) => {
@@ -152,7 +256,7 @@ export function UiNavigationMap({
               style={{ "--phase-index": phaseIndex } as React.CSSProperties}
             >
               <div className={`ui-map-branch left${leftOpen ? " open" : ""}`} id={leftRegionId}>
-                {leftOpen ? left.map((node) => <PageCard key={node.id} node={node} />) : null}
+                {leftOpen ? left.map((node) => <PageCard key={node.id} node={node} selected={selectedPageId === node.id} onSelect={focusPage} screenshot={screenshots.get(node.id)} screenshotProof={latestScreenshotProof(node)} />) : null}
                 {leftOpen && !left.length ? <p className="ui-map-branch-empty">No left-side page IDs are recorded.</p> : null}
               </div>
 
@@ -185,7 +289,7 @@ export function UiNavigationMap({
               </article>
 
               <div className={`ui-map-branch right${rightOpen ? " open" : ""}`} id={rightRegionId}>
-                {rightOpen ? right.map((node) => <PageCard key={node.id} node={node} />) : null}
+                {rightOpen ? right.map((node) => <PageCard key={node.id} node={node} selected={selectedPageId === node.id} onSelect={focusPage} screenshot={screenshots.get(node.id)} screenshotProof={latestScreenshotProof(node)} />) : null}
                 {rightOpen && !right.length ? <p className="ui-map-branch-empty">No right-side page IDs are recorded.</p> : null}
               </div>
             </section>

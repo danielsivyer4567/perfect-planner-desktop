@@ -151,7 +151,7 @@ def main():
         page.route("**/board-probe/**", mock_probe)
         context.route("http://127.0.0.1:5230/**", mock_board)
         context.route("http://127.0.0.1:5231/**", mock_board)
-        page.goto(APP_URL, wait_until="networkidle")
+        page.goto(APP_URL, wait_until="domcontentloaded")
 
         orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
         expect(orchestrator_toggle).to_have_attribute("aria-expanded", "false")
@@ -183,7 +183,7 @@ def main():
         if frame is None:
             raise AssertionError("exact board iframe did not load")
         frame.locator("#approve").click()
-        page.reload(wait_until="networkidle")
+        page.reload(wait_until="domcontentloaded")
         orchestrator_toggle = page.locator("#pp-btn-toggle-orchestrator")
         expect(orchestrator_toggle).to_have_attribute("aria-expanded", "false")
         orchestrator_toggle.evaluate("element => element.click()")

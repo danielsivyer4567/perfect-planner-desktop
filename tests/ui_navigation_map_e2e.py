@@ -40,7 +40,18 @@ PLAN = {
             "title": "Repository selection page",
             "status": "done",
             "files": ["src/App.tsx"],
-            "checklist": [{"text": "Repository scope stays visible", "ui": True, "built": True, "tested": True}],
+            "checklist": [{
+                "text": "Repository scope stays visible",
+                "ui": True,
+                "built": True,
+                "tested": True,
+                "proof": {
+                    "at": "2026-08-28T00:00:00Z",
+                    "screenshot": "PP-UI-A01.png",
+                    "shotNote": "Previous repository selection screen",
+                    "screenshotCheck": {"ok": True, "width": 1440, "height": 900},
+                },
+            }],
         },
         {
             "id": "A02",
@@ -87,6 +98,16 @@ def main():
         def mock_probe(route):
             parsed = urlparse(route.request.url)
             pieces = parsed.path.strip("/").split("/")
+            if len(pieces) == 4 and pieces[:3] == ["board-probe", "5230", "evidence"]:
+                route.fulfill(
+                    status=200,
+                    json={
+                        "name": pieces[3],
+                        "mime": "image/png",
+                        "dataBase64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+                    },
+                )
+                return
             if len(pieces) != 3 or pieces[0] != "board-probe" or int(pieces[1]) != 5230:
                 route.fulfill(status=200, json={"ok": False})
                 return
@@ -102,10 +123,15 @@ def main():
 
         page.route("**/board-probe/**", mock_probe)
         page.route("http://127.0.0.1:5230/", lambda route: route.fulfill(body="<html><title>board</title></html>"))
-        page.goto(APP_URL, wait_until="networkidle")
+        page.goto(APP_URL, wait_until="domcontentloaded")
 
         mode = page.locator("#pp-btn-toggle-ui-navigation-map")
         expect(mode).to_have_attribute("aria-pressed", "false")
+        mode_box = mode.bounding_box()
+        assert mode_box and mode_box["x"] + mode_box["width"] >= 1420, (
+            f"Snapshots pill is not attached to the right edge: {mode_box}"
+        )
+        expect(mode).to_have_accessible_name("Snapshots")
         mode.evaluate("element => element.focus()")
         expect(mode).to_be_focused()
         mode.evaluate("element => element.click()")
@@ -117,35 +143,48 @@ def main():
         expect(ui_map).to_have_attribute("data-plan-id", "PP-UI")
         expect(ui_map).to_contain_text("PLAN-DERIVED PAGE INVENTORY")
         expect(ui_map).to_contain_text("not a runtime route crawl")
+        expect(page.locator('[data-proof-method="chrome-mcp"]')).to_contain_text("PREFERRED")
+        expect(page.locator('[data-proof-method="playwright-script"]')).to_contain_text("READY")
+        expect(page.locator('[data-proof-method="last-run"]')).to_contain_text("UNKNOWN")
         expect(page.locator(".ui-map-spine-row")).to_have_count(2)
         expect(page.locator(".ui-map-orphans")).to_contain_text("A99 → missing spine P9")
 
         left = page.locator("#pp-btn-ui-map-P1-left")
         right = page.locator("#pp-btn-ui-map-P1-right")
-        expect(left).to_have_attribute("aria-expanded", "false")
-        expect(right).to_have_attribute("aria-expanded", "false")
+        expect(left).to_have_attribute("aria-expanded", "true")
+        expect(right).to_have_attribute("aria-expanded", "true")
         left.evaluate("element => element.focus()")
         expect(left).to_be_focused()
-        left.evaluate("element => element.click()")
-        expect(left).to_have_attribute("aria-expanded", "true")
         left_page = page.locator("#pp-ui-page-A01")
         expect(left_page).to_be_visible()
         expect(left_page).to_have_attribute("data-spine-id", "P1")
         expect(left_page).to_have_attribute("data-page-id", "A01")
         expect(left_page).to_have_attribute("data-page-side", "L")
         expect(left_page).to_have_attribute("data-page-kind", "ui-capable")
-        expect(page.locator("#pp-ui-page-A02")).to_be_hidden()
+        expect(left_page).to_have_attribute("data-snapshot-state", "attached")
+        expect(left_page.locator(".ui-map-page-snapshot img")).to_have_attribute(
+            "alt", "Previous repository selection screen"
+        )
+        expect(left_page.locator("summary .ui-map-page-thumb img")).to_be_visible()
+        assert left_page.locator(".ui-map-page-snapshot img").evaluate(
+            "image => image.complete && image.naturalWidth > 0"
+        ), "attached node screenshot did not decode"
+        left_page.locator("summary").evaluate("element => element.click()")
+        expect(ui_map).to_have_attribute("data-focus-page", "A01")
+        expect(ui_map).to_have_attribute("data-focus-side", "L")
+        expect(left_page).to_have_attribute("data-selected", "true")
 
-        right.evaluate("element => element.click()")
-        expect(right).to_have_attribute("aria-expanded", "true")
         support_page = page.locator("#pp-ui-page-A02")
         expect(support_page).to_be_visible()
         expect(support_page).to_have_attribute("data-page-kind", "support-work")
+        expect(support_page).to_have_attribute("data-snapshot-state", "missing")
         support_page.locator("summary").evaluate("element => element.click()")
+        expect(ui_map).to_have_attribute("data-focus-page", "A02")
+        expect(ui_map).to_have_attribute("data-focus-side", "R")
         expect(support_page).to_contain_text("Unknown — no frontend file is recorded")
 
         empty_left = page.locator("#pp-btn-ui-map-P2-left")
-        empty_left.evaluate("element => element.click()")
+        expect(empty_left).to_have_attribute("aria-expanded", "true")
         expect(page.locator("#pp-ui-branch-P2-left")).to_contain_text("No left-side page IDs are recorded")
 
         page.screenshot(path=str(SCREENSHOT), full_page=True, animations="disabled")

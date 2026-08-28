@@ -1,0 +1,97 @@
+# perfect-planning proof artifact
+item: A05:3 — Existing build, Rust tests and browser regression suite remain green
+command: npm run build && npm run test:e2e && cargo test --manifest-path src-tauri/Cargo.toml
+cwd: C:\repos\perfect-planner-tauri
+exit: 1
+duration_ms: 100831
+at: 2026-08-28T09:10:35.117Z
+git: 9f42c0189f61cf081f5a4d9548e1afa3f0ba451b (feature/tauri-orchestrator-messaging-20260821-223935, dirty)
+before_shot: PP-001-A05-baseline-1787318419532.before.png
+before_shot_note: Untouched shell before the control-plane feature: worker reports are transient buttons only; no message delivery state, chat route truth, or scoped notes are visible.
+before_shot_check: ok (4320x2700, blankScore 0.4178)
+before_ocr: PP-001-A05-baseline-1787318419532.before.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 78, 4686ms)
+before_ocr_alarms: none
+diff: PP-001-A05-3-1787908133408.diff
+diff_baseline: 6b5d52e3ce1cd6157719144fd5506d1cc15d4900
+
+## stdout
+
+> perfect-planner-desktop@1.0.0 prebuild
+> npm run security:check
+
+
+> perfect-planner-desktop@1.0.0 security:check
+> python tests/repository_security_e2e.py
+
+repository_security_e2e: PASS
+proved: build configuration is exact, bounded, declarative, and loader-free
+
+> perfect-planner-desktop@1.0.0 build
+> tsc && vite build
+
+vite v8.2.2 building client environment for production...
+transforming...
+✓ 1596 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.47 kB │ gzip:  0.30 kB
+dist/assets/index-DerLipq9.css   75.95 kB │ gzip: 16.81 kB
+dist/assets/core-CwxXejkd.js      0.09 kB │ gzip:  0.10 kB
+dist/assets/index-D3HsLF7Y.js   326.02 kB │ gzip: 97.76 kB
+
+✓ built in 1.78s
+
+> perfect-planner-desktop@1.0.0 pretest:e2e
+> npm run security:check
+
+
+> perfect-planner-desktop@1.0.0 security:check
+> python tests/repository_security_e2e.py
+
+repository_security_e2e: PASS
+proved: build configuration is exact, bounded, declarative, and loader-free
+
+> perfect-planner-desktop@1.0.0 test:e2e
+> node scripts/run-e2e.mjs
+
+repository_security_e2e: PASS
+proved: build configuration is exact, bounded, declarative, and loader-free
+control_connector_e2e: PASS
+proved: FNV scope, Git isolation, atomic drops, worker notes, Codex registration, no Codex execution
+
+## stderr
+Traceback (most recent call last):
+  File "C:\repos\perfect-planner-tauri\tests\approval_chat_bridge_e2e.py", line 212, in <module>
+    main()
+  File "C:\repos\perfect-planner-tauri\tests\approval_chat_bridge_e2e.py", line 154, in main
+    page.goto(APP_URL, wait_until="load")
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\sync_api\_generated.py", line 9875, in goto
+    self._sync(
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_sync_base.py", line 115, in _sync
+    return task.result()
+           ^^^^^^^^^^^^^
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_page.py", line 560, in goto
+    return await self._main_frame.goto(**locals_to_params(locals()))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_frame.py", line 156, in goto
+    await self._channel.send(
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_connection.py", line 76, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\danie\AppData\Local\hermes\hermes-agent\venv\Lib\site-packages\playwright\_impl\_connection.py", line 632, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.TimeoutError: Page.goto: Timeout 30000ms exceeded.
+Call log:
+  - navigating to "http://127.0.0.1:5180/", waiting until "load"
+
+file:///C:/repos/perfect-planner-tauri/scripts/run-e2e.mjs:32
+      else reject(new Error(`${test} failed (${signal || `exit ${code}`})`));
+                  ^
+
+Error: tests/approval_chat_bridge_e2e.py failed (exit 1)
+    at ChildProcess.<anonymous> (file:///C:/repos/perfect-planner-tauri/scripts/run-e2e.mjs:32:19)
+    at ChildProcess.wrapper (node:events:639:12)
+    at ChildProcess.emit (node:events:514:28)
+    at ChildProcess._handle.onexit (node:internal/child_process:295:12)
+
+Node.js v24.20.0

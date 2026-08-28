@@ -110,8 +110,7 @@ def main():
         page.route("**/board-probe/**", route_probe)
         page.route("http://127.0.0.1:5230/", lambda route: route.fulfill(body="<title>board</title>"))
         page.route("http://127.0.0.1:5231/", lambda route: route.fulfill(body="<title>board</title>"))
-        page.goto(APP_URL)
-        page.wait_for_load_state("networkidle")
+        page.goto(APP_URL, wait_until="domcontentloaded")
 
         expect(page.locator("#pp-frame-active-board")).to_have_attribute("src", "http://127.0.0.1:5230/")
         expect(page.locator("#pp-region-local-output")).to_contain_text("http://127.0.0.1:4173/")
@@ -126,7 +125,7 @@ def main():
         parallel.evaluate("element => element.click()")
         expect(parallel).to_have_attribute("aria-checked", "false")
         assert page.evaluate("localStorage.getItem('perfect-planner:parallel-agents')") == "false"
-        page.reload(wait_until="networkidle")
+        page.reload(wait_until="domcontentloaded")
         parallel = page.locator("#pp-btn-toggle-parallel-agents")
         expect(parallel).to_have_attribute("aria-checked", "false")
         parallel.evaluate("element => element.click()")

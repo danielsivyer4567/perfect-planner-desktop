@@ -102,8 +102,7 @@ def main():
                 lambda route: route.fulfill(body="<html><title>board</title></html>"),
             )
 
-        page.goto(APP_URL)
-        page.wait_for_load_state("networkidle")
+        page.goto(APP_URL, wait_until="domcontentloaded")
         print("repository rail: loaded", flush=True)
 
         rail = page.locator("#pp-region-board-rail")
@@ -131,8 +130,7 @@ def main():
         assert page.evaluate(
             "localStorage.getItem('perfect-planner:repository-rail-collapsed')"
         ) == "true"
-        page.reload()
-        page.wait_for_load_state("networkidle")
+        page.reload(wait_until="domcontentloaded")
         expect(rail).to_have_class(re.compile(r"\bcollapsed\b"))
         expect(rail_toggle).to_have_attribute("aria-expanded", "false")
         rail_toggle.evaluate("element => element.focus()")
@@ -227,8 +225,7 @@ def main():
         page.locator("#pp-btn-rescan-boards").evaluate("element => element.click()")
         expect(page.locator("#pp-btn-rescan-boards")).to_have_text("rescan", timeout=10_000)
 
-        page.reload()
-        page.wait_for_load_state("networkidle")
+        page.reload(wait_until="domcontentloaded")
         print("repository rail: reloaded", flush=True)
         expect(page.locator('.repo-section[data-repository-name="Looplet CRM"]')).to_have_attribute(
             "data-repository-call-sign", "A"
@@ -289,8 +286,7 @@ def main():
             }))
             """
         )
-        page.reload()
-        page.wait_for_load_state("networkidle")
+        page.reload(wait_until="domcontentloaded")
         expect(page.locator("#pp-region-empty-stage")).to_contain_text("Saved plan unavailable")
         expect(page.locator("#pp-frame-active-board")).to_have_count(0)
         expect(page.locator(".rail-item[aria-pressed='true']")).to_have_count(0)

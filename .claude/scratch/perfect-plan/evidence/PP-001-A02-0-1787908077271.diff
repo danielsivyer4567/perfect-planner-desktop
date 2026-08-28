@@ -1,0 +1,1103 @@
+diff --git a/src-tauri/Cargo.toml b/src-tauri/Cargo.toml
+index 1daa64a..0c8b60c 100644
+--- a/src-tauri/Cargo.toml
++++ b/src-tauri/Cargo.toml
+@@ -17,3 +17,13 @@ tauri = { version = "2", features = [] }
+ serde = { version = "1", features = ["derive"] }
+ serde_json = "1"
+ base64 = "0.22"
++sha2 = "0.10"
++ed25519-dalek = { version = "=3.0.0", default-features = false, features = ["fast", "zeroize"] }
++
++[target.'cfg(windows)'.dependencies]
++windows-sys = { version = "0.61.2", features = [
++  "Win32_Foundation",
++  "Win32_Storage_FileSystem",
++  "Win32_System_SystemInformation",
++  "Win32_System_Threading",
++] }
+diff --git a/src-tauri/capabilities/main-read-only.json b/src-tauri/capabilities/main-read-only.json
+index 92148e6..85cb4b0 100644
+--- a/src-tauri/capabilities/main-read-only.json
++++ b/src-tauri/capabilities/main-read-only.json
+@@ -1,10 +1,13 @@
+ {
+   "$schema": "../gen/schemas/desktop-schema.json",
+   "identifier": "main-read-only",
+-  "description": "Validated board reads plus the app-local fenced session supervisor.",
++  "description": "Validated board reads, the app-local fenced supervisor, local repository messaging, and identity-fenced approval observation. External task routing stays native-only.",
+   "windows": ["main"],
+   "permissions": [
+     "core:default",
+-    "allow-board-discovery"
++    "allow-board-discovery",
++    "allow-collision-assessor",
++    "allow-control-plane",
++    "allow-orchestrator-pipeline"
+   ]
+ }
+diff --git a/src-tauri/permissions/control-plane.toml b/src-tauri/permissions/control-plane.toml
+new file mode 100644
+index 0000000..26216f3
+--- /dev/null
++++ b/src-tauri/permissions/control-plane.toml
+@@ -0,0 +1,4 @@
++[[permission]]
++identifier = "allow-control-plane"
++description = "Allows repository-scoped local messaging plus identity-fenced approval observation. External chat routes and receipts remain native connector authority."
++commands.allow = ["post_control_message", "control_plane_snapshot", "claim_control_deliveries", "record_control_delivery", "acknowledge_control_message", "observe_board_approval", "approval_bridge_snapshot"]
+diff --git a/src-tauri/src/control_plane_api.rs b/src-tauri/src/control_plane_api.rs
+new file mode 100644
+index 0000000..5328478
+--- /dev/null
++++ b/src-tauri/src/control_plane_api.rs
+@@ -0,0 +1,696 @@
++use crate::control_plane::{
++    self, AcknowledgeMessageRequest, ActorKind, ClaimDeliveryRequest, ControlPlaneStore,
++    DeliveryState, DestinationKind, MessageActor, MessageDestination, MessageKind, MessageScope,
++    MessageScopeFilter, MessageView, PostMessageRequest, RecordDeliveryResultRequest,
++};
++use serde::{Deserialize, Serialize};
++use std::collections::{BTreeMap, BTreeSet};
++
++const REPOSITORY_SENTINEL: &str = "__repository__";
++
++#[derive(Clone, Debug, Deserialize, Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct FrontendScope {
++    organization_id: String,
++    repository_id: String,
++    repository_root: String,
++    worktree_path: String,
++    branch: String,
++    plan_id: String,
++    plan_path: String,
++    node_id: Option<String>,
++    item_id: Option<String>,
++    worker_id: Option<String>,
++    orchestrator_id: Option<String>,
++}
++
++#[derive(Clone, Debug, Deserialize, Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct FrontendDestination {
++    registration_id: Option<String>,
++    kind: String,
++    label: String,
++    address: Option<String>,
++    enabled: bool,
++    requires_acknowledgement: bool,
++    max_attempts: u32,
++    retry_base_ms: u64,
++    registered_at_ms: Option<u64>,
++    #[serde(default)]
++    metadata: BTreeMap<String, String>,
++}
++
++#[derive(Clone, Debug, Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub struct PostControlMessageRequest {
++    idempotency_key: String,
++    correlation_id: Option<String>,
++    kind: String,
++    scope: FrontendScope,
++    author_id: String,
++    body: String,
++    destination: FrontendDestination,
++}
++
++#[derive(Clone, Debug, Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct FrontendAttempt {
++    attempt_id: String,
++    message_id: String,
++    consumer_id: String,
++    state: String,
++    attempt_number: u32,
++    claimed_at_ms: u64,
++    lease_expires_at_ms: u64,
++    completed_at_ms: Option<u64>,
++    retry_at_ms: Option<u64>,
++    error: Option<String>,
++}
++
++#[derive(Clone, Debug, Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct FrontendAcknowledgement {
++    acknowledged_by: String,
++    acknowledged_at_ms: u64,
++    note: Option<String>,
++}
++
++#[derive(Clone, Debug, Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct FrontendMessage {
++    id: String,
++    idempotency_key: String,
++    correlation_id: String,
++    kind: String,
++    scope: FrontendScope,
++    author_id: String,
++    body: String,
++    destination: FrontendDestination,
++    state: String,
++    attempts: Vec<FrontendAttempt>,
++    acknowledgement: Option<FrontendAcknowledgement>,
++    created_at_ms: u64,
++    updated_at_ms: u64,
++}
++
++#[derive(Clone, Debug, Default, Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct FrontendStateCounts {
++    unrouted: usize,
++    queued: usize,
++    claimed: usize,
++    delivered: usize,
++    acknowledged: usize,
++    dead_letter: usize,
++}
++
++#[derive(Clone, Debug, Serialize)]
++#[serde(rename_all = "camelCase")]
++pub struct FrontendSnapshot {
++    repository_id: String,
++    organization_id: Option<String>,
++    now_ms: u64,
++    messages: Vec<FrontendMessage>,
++    registrations: Vec<FrontendDestination>,
++    state_counts: FrontendStateCounts,
++    pending_acknowledgement_count: usize,
++    failed_attempt_count: usize,
++    next_retry_at_ms: Option<u64>,
++    last_updated_at_ms: Option<u64>,
++}
++
++#[derive(Clone, Debug, Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub struct ControlPlaneSnapshotRequest {
++    repository_id: String,
++    organization_id: Option<String>,
++}
++
++#[derive(Clone, Debug, Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub struct ClaimControlDeliveriesRequest {
++    repository_id: String,
++    organization_id: Option<String>,
++    consumer_id: String,
++    #[serde(default)]
++    destination_kinds: Vec<String>,
++    limit: Option<usize>,
++    lease_ms: Option<u64>,
++    filter: Option<FrontendMessageFilter>,
++}
++
++#[derive(Clone, Debug, Default, Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub struct FrontendMessageFilter {
++    branch: Option<String>,
++    plan_id: Option<String>,
++    node_id: Option<String>,
++    worker_id: Option<String>,
++    orchestrator_id: Option<String>,
++}
++
++#[derive(Clone, Debug, Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub struct RecordControlDeliveryRequest {
++    repository_id: String,
++    message_id: String,
++    attempt_id: String,
++    consumer_id: String,
++    outcome: String,
++    error: Option<String>,
++    retry_after_ms: Option<u64>,
++}
++
++#[derive(Clone, Debug, Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub struct AcknowledgeControlMessageRequest {
++    repository_id: String,
++    message_id: String,
++    acknowledged_by: String,
++    note: Option<String>,
++}
++
++fn require_text(value: &str, field: &str) -> Result<String, String> {
++    let trimmed = value.trim();
++    if trimmed.is_empty() {
++        return Err(format!("{field} is required"));
++    }
++    Ok(trimmed.to_string())
++}
++
++fn core_kind(value: &str) -> Result<MessageKind, String> {
++    match value {
++        "workerNote" => Ok(MessageKind::WorkerNote),
++        "handoff" | "orchestratorInstruction" => Ok(MessageKind::Handoff),
++        "decisionRequest" => Ok(MessageKind::DecisionRequest),
++        "decisionResponse" => Ok(MessageKind::DecisionResponse),
++        "alert" => Ok(MessageKind::Alert),
++        "status" | "workerReport" => Ok(MessageKind::Status),
++        _ => Err(format!("unsupported control message kind: {value}")),
++    }
++}
++
++fn frontend_kind(value: &MessageKind) -> &'static str {
++    match value {
++        MessageKind::WorkerNote => "workerNote",
++        MessageKind::Handoff => "handoff",
++        MessageKind::DecisionRequest => "decisionRequest",
++        MessageKind::DecisionResponse => "decisionResponse",
++        MessageKind::Alert => "alert",
++        MessageKind::Status => "status",
++    }
++}
++
++fn core_destination_kind(value: &str) -> Result<DestinationKind, String> {
++    match value {
++        "localUi" | "orchestrator" => Ok(DestinationKind::Orchestrator),
++        "worker" => Ok(DestinationKind::Worker),
++        "codexChat" => Ok(DestinationKind::Chat),
++        "ide" => Ok(DestinationKind::Ide),
++        _ => Err(format!("unsupported destination kind: {value}")),
++    }
++}
++
++fn frontend_destination_kind(value: &DestinationKind) -> &'static str {
++    match value {
++        DestinationKind::Orchestrator => "localUi",
++        DestinationKind::Worker => "worker",
++        DestinationKind::Chat => "codexChat",
++        DestinationKind::Ide => "ide",
++    }
++}
++
++fn actor_kind(scope: &FrontendScope, author_id: &str) -> ActorKind {
++    if scope.worker_id.as_deref() == Some(author_id) {
++        ActorKind::Worker
++    } else if scope.orchestrator_id.as_deref() == Some(author_id) {
++        ActorKind::Orchestrator
++    } else {
++        ActorKind::User
++    }
++}
++
++fn to_core_scope(scope: &FrontendScope) -> Result<MessageScope, String> {
++    Ok(MessageScope {
++        organization_id: require_text(&scope.organization_id, "scope.organizationId")?,
++        repository_id: require_text(&scope.repository_id, "scope.repositoryId")?,
++        repository_root: require_text(&scope.repository_root, "scope.repositoryRoot")?,
++        worktree_path: require_text(&scope.worktree_path, "scope.worktreePath")?,
++        branch_name: require_text(&scope.branch, "scope.branch")?,
++        plan_id: require_text(&scope.plan_id, "scope.planId")?,
++        plan_path: require_text(&scope.plan_path, "scope.planPath")?,
++        node_id: scope
++            .node_id
++            .clone()
++            .unwrap_or_else(|| REPOSITORY_SENTINEL.to_string()),
++        item_id: scope.item_id.clone(),
++        worker_id: scope
++            .worker_id
++            .clone()
++            .unwrap_or_else(|| REPOSITORY_SENTINEL.to_string()),
++        orchestrator_id: scope.orchestrator_id.clone(),
++    })
++}
++
++fn to_frontend_scope(scope: &MessageScope) -> FrontendScope {
++    FrontendScope {
++        organization_id: scope.organization_id.clone(),
++        repository_id: scope.repository_id.clone(),
++        repository_root: scope.repository_root.clone(),
++        worktree_path: scope.worktree_path.clone(),
++        branch: scope.branch_name.clone(),
++        plan_id: scope.plan_id.clone(),
++        plan_path: scope.plan_path.clone(),
++        node_id: (scope.node_id != REPOSITORY_SENTINEL).then(|| scope.node_id.clone()),
++        item_id: scope.item_id.clone(),
++        worker_id: (scope.worker_id != REPOSITORY_SENTINEL).then(|| scope.worker_id.clone()),
++        orchestrator_id: scope.orchestrator_id.clone(),
++    }
++}
++
++fn to_core_destination(destination: &FrontendDestination) -> Result<MessageDestination, String> {
++    let kind = core_destination_kind(&destination.kind)?;
++    if matches!(kind, DestinationKind::Chat | DestinationKind::Ide) {
++        return Err(
++            "external destinations require a fresh native route; renderer-selected task authority is forbidden"
++                .to_string(),
++        );
++    }
++    let route_is_complete = destination.enabled
++        && destination
++            .registration_id
++            .as_deref()
++            .is_some_and(|value| !value.trim().is_empty())
++        && destination
++            .address
++            .as_deref()
++            .is_some_and(|value| !value.trim().is_empty());
++    Ok(MessageDestination {
++        kind,
++        target_id: destination
++            .address
++            .clone()
++            .filter(|value| !value.trim().is_empty())
++            .unwrap_or_else(|| "unregistered".to_string()),
++        connector_id: Some(destination.kind.clone()),
++        route_id: route_is_complete
++            .then(|| destination.registration_id.clone())
++            .flatten(),
++        label: destination.label.clone(),
++        requires_acknowledgement: destination.requires_acknowledgement,
++        retry_base_ms: destination.retry_base_ms,
++        registered_at_ms: destination.registered_at_ms,
++        metadata: destination.metadata.clone(),
++    })
++}
++
++fn to_frontend_destination(view: &MessageView) -> FrontendDestination {
++    let destination = &view.message.destination;
++    FrontendDestination {
++        registration_id: view.route_id.clone(),
++        kind: frontend_destination_kind(&destination.kind).to_string(),
++        label: destination.label.clone(),
++        address: (destination.target_id != "unregistered").then(|| destination.target_id.clone()),
++        enabled: view.route_id.is_some(),
++        requires_acknowledgement: destination.requires_acknowledgement,
++        max_attempts: view.message.max_delivery_attempts,
++        retry_base_ms: destination.retry_base_ms,
++        registered_at_ms: destination.registered_at_ms,
++        metadata: destination.metadata.clone(),
++    }
++}
++
++fn state_name(state: &DeliveryState) -> &'static str {
++    match state {
++        DeliveryState::Unrouted => "unrouted",
++        DeliveryState::Queued => "queued",
++        DeliveryState::Claimed => "claimed",
++        DeliveryState::Delivered => "delivered",
++        DeliveryState::Acknowledged => "acknowledged",
++        DeliveryState::DeadLetter => "deadLetter",
++    }
++}
++
++fn to_frontend_message(view: &MessageView) -> FrontendMessage {
++    let attempts = view
++        .active_claim
++        .iter()
++        .map(|claim| FrontendAttempt {
++            attempt_id: claim.claim_id.clone(),
++            message_id: claim.message_id.clone(),
++            consumer_id: claim.claimant_id.clone(),
++            state: "claimed".to_string(),
++            attempt_number: claim.attempt,
++            claimed_at_ms: claim.claimed_at_ms,
++            lease_expires_at_ms: claim.lease_expires_at_ms,
++            completed_at_ms: None,
++            retry_at_ms: view.next_attempt_at_ms,
++            error: view.last_error.clone(),
++        })
++        .collect();
++    let acknowledgement = view.acknowledged_at_ms.map(|at| FrontendAcknowledgement {
++        acknowledged_by: view.acknowledged_by.clone().unwrap_or_default(),
++        acknowledged_at_ms: at,
++        note: view.acknowledgement_note.clone(),
++    });
++    let updated_at_ms = view
++        .acknowledged_at_ms
++        .or(view.delivered_at_ms)
++        .or_else(|| view.active_claim.as_ref().map(|claim| claim.claimed_at_ms))
++        .unwrap_or(view.message.created_at_ms);
++    FrontendMessage {
++        id: view.message.id.clone(),
++        idempotency_key: view.message.idempotency_key.clone(),
++        correlation_id: view
++            .message
++            .correlation_id
++            .clone()
++            .unwrap_or_else(|| view.message.id.clone()),
++        kind: frontend_kind(&view.message.kind).to_string(),
++        scope: to_frontend_scope(&view.message.scope),
++        author_id: view.message.sender.actor_id.clone(),
++        body: view.message.body.clone(),
++        destination: to_frontend_destination(view),
++        state: state_name(&view.state).to_string(),
++        attempts,
++        acknowledgement,
++        created_at_ms: view.message.created_at_ms,
++        updated_at_ms,
++    }
++}
++
++fn scope_filter(request: &ControlPlaneSnapshotRequest) -> Result<MessageScopeFilter, String> {
++    Ok(MessageScopeFilter {
++        organization_id: request.organization_id.clone(),
++        repository_id: Some(require_text(&request.repository_id, "repositoryId")?),
++        ..MessageScopeFilter::default()
++    })
++}
++
++fn build_snapshot(
++    request: &ControlPlaneSnapshotRequest,
++    now_ms: u64,
++    views: Vec<MessageView>,
++) -> FrontendSnapshot {
++    let mut registrations = Vec::new();
++    let mut seen_routes = BTreeSet::new();
++    let mut counts = FrontendStateCounts::default();
++    let mut pending_acknowledgement_count = 0;
++    let mut failed_attempt_count = 0;
++    let mut next_retry_at_ms: Option<u64> = None;
++    let mut last_updated_at_ms: Option<u64> = None;
++    let mut messages = Vec::with_capacity(views.len());
++    for view in views {
++        match view.state {
++            DeliveryState::Unrouted => counts.unrouted += 1,
++            DeliveryState::Queued => counts.queued += 1,
++            DeliveryState::Claimed => counts.claimed += 1,
++            DeliveryState::Delivered => {
++                counts.delivered += 1;
++                if view.message.destination.requires_acknowledgement {
++                    pending_acknowledgement_count += 1;
++                }
++            }
++            DeliveryState::Acknowledged => counts.acknowledged += 1,
++            DeliveryState::DeadLetter => counts.dead_letter += 1,
++        }
++        if view.last_error.is_some() {
++            failed_attempt_count += 1;
++        }
++        if let Some(retry_at) = view.next_attempt_at_ms {
++            next_retry_at_ms = Some(next_retry_at_ms.map_or(retry_at, |old| old.min(retry_at)));
++        }
++        let message = to_frontend_message(&view);
++        last_updated_at_ms = Some(
++            last_updated_at_ms.map_or(message.updated_at_ms, |old| old.max(message.updated_at_ms)),
++        );
++        if let Some(registration_id) = &message.destination.registration_id {
++            if seen_routes.insert(registration_id.clone()) {
++                registrations.push(message.destination.clone());
++            }
++        }
++        messages.push(message);
++    }
++    FrontendSnapshot {
++        repository_id: request.repository_id.clone(),
++        organization_id: request.organization_id.clone(),
++        now_ms,
++        messages,
++        registrations,
++        state_counts: counts,
++        pending_acknowledgement_count,
++        failed_attempt_count,
++        next_retry_at_ms,
++        last_updated_at_ms,
++    }
++}
++
++fn ensure_repository_message(
++    store: &ControlPlaneStore,
++    repository_id: &str,
++    message_id: &str,
++    now_ms: u64,
++) -> Result<MessageView, String> {
++    let filter = MessageScopeFilter {
++        repository_id: Some(require_text(repository_id, "repositoryId")?),
++        ..MessageScopeFilter::default()
++    };
++    store
++        .snapshot_filtered(Some(&filter), now_ms)?
++        .messages
++        .into_iter()
++        .find(|view| view.message.id == message_id)
++        .ok_or_else(|| "control message not found in repository".to_string())
++}
++
++fn ensure_renderer_delivery_message(
++    store: &ControlPlaneStore,
++    repository_id: &str,
++    message_id: &str,
++    now_ms: u64,
++) -> Result<MessageView, String> {
++    let view = ensure_repository_message(store, repository_id, message_id, now_ms)?;
++    if matches!(
++        view.message.destination.kind,
++        DestinationKind::Chat | DestinationKind::Ide
++    ) {
++        return Err(
++            "external delivery state is connector-owned and cannot be changed by the renderer"
++                .to_string(),
++        );
++    }
++    Ok(view)
++}
++
++#[tauri::command]
++pub fn post_control_message(
++    state: tauri::State<'_, ControlPlaneStore>,
++    request: PostControlMessageRequest,
++) -> Result<FrontendMessage, String> {
++    let sender = MessageActor {
++        kind: actor_kind(&request.scope, &request.author_id),
++        actor_id: require_text(&request.author_id, "authorId")?,
++    };
++    let destination = to_core_destination(&request.destination)?;
++    let core = PostMessageRequest {
++        scope: to_core_scope(&request.scope)?,
++        kind: core_kind(&request.kind)?,
++        sender,
++        destination,
++        subject: String::new(),
++        body: request.body,
++        idempotency_key: request.idempotency_key,
++        correlation_id: request.correlation_id,
++        reply_to_message_id: None,
++        max_delivery_attempts: request.destination.max_attempts.max(1),
++    };
++    let outcome = state.post_message(core, control_plane::unix_ms())?;
++    Ok(to_frontend_message(&outcome.message))
++}
++
++#[tauri::command]
++pub fn control_plane_snapshot(
++    state: tauri::State<'_, ControlPlaneStore>,
++    request: ControlPlaneSnapshotRequest,
++) -> Result<FrontendSnapshot, String> {
++    let now_ms = control_plane::unix_ms();
++    let filter = scope_filter(&request)?;
++    let snapshot = state.snapshot_filtered(Some(&filter), now_ms)?;
++    Ok(build_snapshot(&request, now_ms, snapshot.messages))
++}
++
++#[tauri::command]
++pub fn claim_control_deliveries(
++    state: tauri::State<'_, ControlPlaneStore>,
++    request: ClaimControlDeliveriesRequest,
++) -> Result<Vec<FrontendMessage>, String> {
++    let now_ms = control_plane::unix_ms();
++    let repository_id = require_text(&request.repository_id, "repositoryId")?;
++    let consumer_id = require_text(&request.consumer_id, "consumerId")?;
++    let destination_kinds: BTreeSet<_> = request.destination_kinds.iter().cloned().collect();
++    let filter = MessageScopeFilter {
++        organization_id: request.organization_id.clone(),
++        repository_id: Some(repository_id.clone()),
++        branch_name: request
++            .filter
++            .as_ref()
++            .and_then(|value| value.branch.clone()),
++        plan_id: request
++            .filter
++            .as_ref()
++            .and_then(|value| value.plan_id.clone()),
++        node_id: request
++            .filter
++            .as_ref()
++            .and_then(|value| value.node_id.clone()),
++        worker_id: request
++            .filter
++            .as_ref()
++            .and_then(|value| value.worker_id.clone()),
++        ..MessageScopeFilter::default()
++    };
++    let mut candidates = state.snapshot_filtered(Some(&filter), now_ms)?.messages;
++    candidates.retain(|view| {
++        if view.state != DeliveryState::Queued {
++            return false;
++        }
++        if matches!(
++            view.message.destination.kind,
++            DestinationKind::Chat | DestinationKind::Ide
++        ) {
++            return false;
++        }
++        if let Some(orchestrator_id) = request
++            .filter
++            .as_ref()
++            .and_then(|value| value.orchestrator_id.as_ref())
++        {
++            if view.message.scope.orchestrator_id.as_ref() != Some(orchestrator_id) {
++                return false;
++            }
++        }
++        destination_kinds.is_empty()
++            || destination_kinds.contains(frontend_destination_kind(&view.message.destination.kind))
++    });
++    candidates.sort_by_key(|view| (view.message.created_at_ms, view.message.id.clone()));
++    let limit = request.limit.unwrap_or(20).clamp(1, 100);
++    let lease_ms = request
++        .lease_ms
++        .unwrap_or(control_plane::DEFAULT_DELIVERY_LEASE_MS);
++    let mut claimed_ids = BTreeSet::new();
++    for view in candidates.into_iter().take(limit) {
++        state.claim_delivery(
++            ClaimDeliveryRequest {
++                message_id: view.message.id.clone(),
++                claimant_id: consumer_id.clone(),
++                lease_ms,
++            },
++            now_ms,
++        )?;
++        claimed_ids.insert(view.message.id);
++    }
++    if claimed_ids.is_empty() {
++        return Ok(Vec::new());
++    }
++    Ok(state
++        .snapshot_filtered(Some(&filter), now_ms)?
++        .messages
++        .into_iter()
++        .filter(|view| claimed_ids.contains(&view.message.id))
++        .map(|view| to_frontend_message(&view))
++        .collect())
++}
++
++#[tauri::command]
++pub fn record_control_delivery(
++    state: tauri::State<'_, ControlPlaneStore>,
++    request: RecordControlDeliveryRequest,
++) -> Result<FrontendMessage, String> {
++    let now_ms = control_plane::unix_ms();
++    ensure_renderer_delivery_message(&state, &request.repository_id, &request.message_id, now_ms)?;
++    let succeeded = match request.outcome.as_str() {
++        "delivered" => true,
++        "failed" => false,
++        value => return Err(format!("unsupported delivery outcome: {value}")),
++    };
++    let retry_at_ms = request
++        .retry_after_ms
++        .map(|delay| now_ms.saturating_add(delay));
++    let view = state.record_delivery_result(
++        RecordDeliveryResultRequest {
++            message_id: request.message_id,
++            claim_id: request.attempt_id,
++            claimant_id: request.consumer_id,
++            succeeded,
++            receipt: succeeded.then(|| "adapter-confirmed".to_string()),
++            error: request.error,
++            retry_at_ms,
++            terminal: false,
++        },
++        now_ms,
++    )?;
++    Ok(to_frontend_message(&view))
++}
++
++#[tauri::command]
++pub fn acknowledge_control_message(
++    state: tauri::State<'_, ControlPlaneStore>,
++    request: AcknowledgeControlMessageRequest,
++) -> Result<FrontendMessage, String> {
++    let now_ms = control_plane::unix_ms();
++    ensure_renderer_delivery_message(&state, &request.repository_id, &request.message_id, now_ms)?;
++    let view = state.acknowledge_message(
++        AcknowledgeMessageRequest {
++            message_id: request.message_id,
++            acknowledged_by: request.acknowledged_by,
++            note: request.note,
++        },
++        now_ms,
++    )?;
++    Ok(to_frontend_message(&view))
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn incomplete_external_routes_are_never_claimable() {
++        let destination = FrontendDestination {
++            registration_id: None,
++            kind: "codexChat".to_string(),
++            label: "Codex".to_string(),
++            address: None,
++            enabled: true,
++            requires_acknowledgement: true,
++            max_attempts: 3,
++            retry_base_ms: 5_000,
++            registered_at_ms: None,
++            metadata: BTreeMap::new(),
++        };
++        let error = to_core_destination(&destination).unwrap_err();
++        assert!(error.contains("fresh native route"));
++    }
++
++    #[test]
++    fn scope_round_trip_preserves_repository_plan_and_actor_fences() {
++        let scope = FrontendScope {
++            organization_id: "org-a".to_string(),
++            repository_id: "repo-a".to_string(),
++            repository_root: "C:/repos/a".to_string(),
++            worktree_path: "C:/repos/a-work".to_string(),
++            branch: "feature/a".to_string(),
++            plan_id: "pp-plan-a".to_string(),
++            plan_path: "C:/repos/a-work/.claude/scratch/perfect-plan/a.json".to_string(),
++            node_id: Some("A01".to_string()),
++            item_id: Some("A01:0".to_string()),
++            worker_id: Some("worker-a".to_string()),
++            orchestrator_id: Some("orch-a".to_string()),
++        };
++        let round_trip = to_frontend_scope(&to_core_scope(&scope).unwrap());
++        assert_eq!(round_trip.repository_id, scope.repository_id);
++        assert_eq!(round_trip.plan_path, scope.plan_path);
++        assert_eq!(round_trip.item_id, scope.item_id);
++        assert_eq!(round_trip.orchestrator_id, scope.orchestrator_id);
++    }
++}
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index 18df9f6..b8f3068 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -1,6 +1,6 @@
+ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+-use serde_json::Value;
+ use serde_json::json;
++use serde_json::Value;
+ use std::fs;
+ use std::io::{Read, Write};
+ use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+@@ -8,7 +8,35 @@ use std::path::Path;
+ use std::time::Duration;
+ use tauri::Manager;
+ 
++mod app_lifecycle;
++mod approval_bridge;
++pub mod collision_assessor;
++mod connectors;
++mod control_plane;
++mod control_plane_api;
++pub mod orchestrator;
+ mod supervisor;
++use app_lifecycle::AppLifecycleLog;
++use approval_bridge::{ApprovalBridgeStatus, ApprovalBridgeStore, BoardApprovalObservation};
++use collision_assessor::api::{
++    collision_assessor_collect_census, collision_assessor_issue_discovery_capability,
++    collision_assessor_revoke_discovery_capability, CensusCommandState,
++};
++use collision_assessor::capability::CapabilityStore;
++use collision_assessor::registry::PlannerRegistryStore;
++use connectors::ConnectorSupervisor;
++use control_plane::ControlPlaneStore;
++use control_plane_api::{
++    acknowledge_control_message, claim_control_deliveries, control_plane_snapshot,
++    post_control_message, record_control_delivery,
++};
++use orchestrator::api::{
++    orchestrator_admit_worker, orchestrator_approve_run, orchestrator_complete_worker,
++    orchestrator_create_run, orchestrator_fail_worker, orchestrator_pipeline_snapshot,
++    orchestrator_preflight_inspect, orchestrator_recover_workers, orchestrator_resource_probe,
++    orchestrator_run_catalog, orchestrator_validate_worker, orchestrator_worker_heartbeat,
++};
++use orchestrator::authority_runtime::SchedulerAuthorityRuntime;
+ use supervisor::{unix_ms, SessionObservation, SupervisorSnapshot, SupervisorStore};
+ 
+ /// Loopback window the app is allowed to look in. perfect-planning's default board port is
+@@ -16,6 +44,16 @@ use supervisor::{unix_ms, SessionObservation, SupervisorSnapshot, SupervisorStor
+ /// and clamping here means the webview can never talk this command into a port sweep.
+ const WINDOW_START: u16 = 5200;
+ const WINDOW_END: u16 = 5299;
++const BOARD_STATE_RESPONSE_LIMIT: u64 = 512 * 1024;
++const BOARD_PLAN_RESPONSE_LIMIT: u64 = 8 * 1024 * 1024;
++
++fn board_response_limit(path: &str) -> u64 {
++    if path == "/plan" {
++        BOARD_PLAN_RESPONSE_LIMIT
++    } else {
++        BOARD_STATE_RESPONSE_LIMIT
++    }
++}
+ 
+ /// Read one of the two explicitly allowed board endpoints.
+ ///
+@@ -39,8 +77,12 @@ fn request_json(port: u16, path: &'static str) -> Option<Value> {
+     );
+     stream.write_all(request.as_bytes()).ok()?;
+ 
++    let limit = board_response_limit(path);
+     let mut raw = Vec::new();
+-    (&mut stream).take(64 * 1024).read_to_end(&mut raw).ok()?;
++    (&mut stream).take(limit + 1).read_to_end(&mut raw).ok()?;
++    if raw.len() as u64 > limit {
++        return None;
++    }
+     parse_json_response(&raw)
+ }
+ 
+@@ -96,7 +138,13 @@ fn parse_json_response(raw: &[u8]) -> Option<Value> {
+ fn parse_json_response_any(raw: &[u8]) -> Option<(u16, Value)> {
+     let text = String::from_utf8_lossy(raw);
+     let (head, body) = text.split_once("\r\n\r\n")?;
+-    let status = head.lines().next()?.split_whitespace().nth(1)?.parse().ok()?;
++    let status = head
++        .lines()
++        .next()?
++        .split_whitespace()
++        .nth(1)?
++        .parse()
++        .ok()?;
+     Some((status, serde_json::from_str(body.trim()).ok()?))
+ }
+ 
+@@ -187,7 +235,11 @@ fn read_board_evidence(port: u16, plan_path: String, file_name: String) -> Optio
+     if identity.get("planPath").and_then(Value::as_str) != Some(plan_path.as_str()) {
+         return None;
+     }
+-    let evidence_dir = Path::new(&plan_path).parent()?.join("evidence").canonicalize().ok()?;
++    let evidence_dir = Path::new(&plan_path)
++        .parent()?
++        .join("evidence")
++        .canonicalize()
++        .ok()?;
+     let file = evidence_dir.join(&file_name).canonicalize().ok()?;
+     if file.parent()? != evidence_dir || !file.is_file() {
+         return None;
+@@ -196,7 +248,11 @@ fn read_board_evidence(port: u16, plan_path: String, file_name: String) -> Optio
+     if bytes.len() > 16 * 1024 * 1024 {
+         return None;
+     }
+-    let ext = file.extension().and_then(|value| value.to_str()).unwrap_or("").to_ascii_lowercase();
++    let ext = file
++        .extension()
++        .and_then(|value| value.to_str())
++        .unwrap_or("")
++        .to_ascii_lowercase();
+     let mime = match ext.as_str() {
+         "png" => "image/png",
+         "jpg" | "jpeg" => "image/jpeg",
+@@ -209,8 +265,59 @@ fn read_board_evidence(port: u16, plan_path: String, file_name: String) -> Optio
+     if mime.starts_with("text/") {
+         Some(json!({ "name": file_name, "mime": mime, "text": String::from_utf8_lossy(&bytes) }))
+     } else {
+-        Some(json!({ "name": file_name, "mime": mime, "dataBase64": BASE64_STANDARD.encode(bytes) }))
++        Some(
++            json!({ "name": file_name, "mime": mime, "dataBase64": BASE64_STANDARD.encode(bytes) }),
++        )
++    }
++}
++
++/// Observe approval only after the native layer re-proves the exact board process identity.
++/// The renderer cannot supply a task, route, PID, approval value, or notification body.
++#[tauri::command]
++fn observe_board_approval(
++    state: tauri::State<'_, ApprovalBridgeStore>,
++    port: u16,
++    plan_path: String,
++) -> Result<ApprovalBridgeStatus, String> {
++    if !(WINDOW_START..=WINDOW_END).contains(&port) || plan_path.trim().is_empty() {
++        return Err("invalid board approval observation target".to_string());
++    }
++    let identity =
++        probe_identity(port).ok_or_else(|| format!("board identity unavailable on port {port}"))?;
++    if identity.get("planPath").and_then(Value::as_str) != Some(plan_path.as_str()) {
++        return Err("board identity changed before approval observation".to_string());
++    }
++    let board_pid = identity
++        .get("pid")
++        .and_then(Value::as_u64)
++        .and_then(|value| u32::try_from(value).ok())
++        .filter(|value| *value > 0)
++        .ok_or_else(|| "board did not report a valid process identity".to_string())?;
++    let approved = identity
++        .get("approved")
++        .and_then(Value::as_str)
++        .unwrap_or("")
++        .to_string();
++    state.observe_board_approval(
++        BoardApprovalObservation {
++            plan_path,
++            board_port: port,
++            board_pid,
++            approved,
++        },
++        unix_ms(),
++    )
++}
++
++#[tauri::command]
++fn approval_bridge_snapshot(
++    state: tauri::State<'_, ApprovalBridgeStore>,
++    plan_path: String,
++) -> Result<ApprovalBridgeStatus, String> {
++    if plan_path.trim().is_empty() {
++        return Err("planPath is required".to_string());
+     }
++    state.status_for_plan(&plan_path, unix_ms())
+ }
+ 
+ /// Reconcile board observations into the app-local lease registry. This never edits a plan or
+@@ -245,8 +352,8 @@ fn recover_board_session(
+     if event.plan_path != plan_path {
+         return Err("session recovery event names a different plan".to_string());
+     }
+-    let identity = probe_identity(port)
+-        .ok_or_else(|| format!("board identity unavailable on port {port}"))?;
++    let identity =
++        probe_identity(port).ok_or_else(|| format!("board identity unavailable on port {port}"))?;
+     if identity.get("planPath").and_then(Value::as_str) != Some(plan_path.as_str()) {
+         return Err("board identity changed before session recovery".to_string());
+     }
+@@ -255,16 +362,44 @@ fn recover_board_session(
+ 
+ #[cfg_attr(mobile, tauri::mobile_entry_point)]
+ pub fn run() {
+-    tauri::Builder::default()
++    let app = tauri::Builder::default()
+         .setup(|app| {
+-            let ledger_path = app
++            let app_data_dir = app
+                 .path()
+                 .app_data_dir()
+-                .map_err(|error| format!("cannot resolve supervisor data directory: {error}"))?
+-                .join("session-reaper.jsonl");
++                .map_err(|error| format!("cannot resolve app data directory: {error}"))?;
++            let ledger_path = app_data_dir.join("session-reaper.jsonl");
+             let supervisor = SupervisorStore::open(ledger_path)?;
+             supervisor.spawn_reaper()?;
+             app.manage(supervisor);
++            app.manage(CapabilityStore::default());
++            let scheduler_authority = SchedulerAuthorityRuntime::open(&app_data_dir)?;
++            app.manage(scheduler_authority);
++            let collision_registry = PlannerRegistryStore::for_app_data(&app_data_dir)
++                .map_err(|error| format!("cannot bind collision registry: {error}"))?;
++            collision_registry
++                .bootstrap_registry_schema(unix_ms())
++                .map_err(|error| format!("cannot bootstrap collision registry: {error}"))?;
++            let census = CensusCommandState::native(collision_registry.clone())
++                .map_err(|_| "native collision census helper is unavailable")?;
++            app.manage(collision_registry);
++            app.manage(census);
++            let control_plane_path = app_data_dir.join("control-plane.jsonl");
++            let control_plane = ControlPlaneStore::open(control_plane_path)?;
++            let approval_bridge = ApprovalBridgeStore::open(
++                app_data_dir.join("approval-bridge.jsonl"),
++                control_plane.clone(),
++            )?;
++            let connectors = ConnectorSupervisor::open(
++                control_plane.clone(),
++                approval_bridge.clone(),
++                app_data_dir.clone(),
++            )?;
++            connectors.spawn()?;
++            app.manage(control_plane);
++            app.manage(approval_bridge);
++            let lifecycle = AppLifecycleLog::open(&app_data_dir, unix_ms())?;
++            app.manage(lifecycle);
+             Ok(())
+         })
+         .invoke_handler(tauri::generate_handler![
+@@ -272,18 +407,56 @@ pub fn run() {
+             read_board_workers,
+             read_board_plan,
+             read_board_evidence,
++            observe_board_approval,
++            approval_bridge_snapshot,
+             reconcile_session_leases,
+             supervisor_snapshot,
+-            recover_board_session
++            recover_board_session,
++            collision_assessor_issue_discovery_capability,
++            collision_assessor_collect_census,
++            collision_assessor_revoke_discovery_capability,
++            post_control_message,
++            control_plane_snapshot,
++            claim_control_deliveries,
++            record_control_delivery,
++            acknowledge_control_message,
++            orchestrator_create_run,
++            orchestrator_preflight_inspect,
++            orchestrator_approve_run,
++            orchestrator_resource_probe,
++            orchestrator_pipeline_snapshot,
++            orchestrator_run_catalog,
++            orchestrator_admit_worker,
++            orchestrator_worker_heartbeat,
++            orchestrator_complete_worker,
++            orchestrator_fail_worker,
++            orchestrator_recover_workers,
++            orchestrator_validate_worker
+         ])
+-        .run(tauri::generate_context!())
+-        .expect("error while running perfect planner desktop");
++        .build(tauri::generate_context!())
++        .expect("error while building perfect planner desktop");
++    app.run(|handle, event| {
++        if matches!(event, tauri::RunEvent::Exit) {
++            if let Some(lifecycle) = handle.try_state::<AppLifecycleLog>() {
++                if let Err(error) = lifecycle.record_exit(unix_ms()) {
++                    eprintln!("cannot persist Perfect Planner exit event: {error}");
++                }
++            }
++        }
++    });
+ }
+ 
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn large_plan_reads_stay_bounded_without_using_tiny_identity_limit() {
++        assert_eq!(board_response_limit("/whoami"), 512 * 1024);
++        assert_eq!(board_response_limit("/workers"), 512 * 1024);
++        assert_eq!(board_response_limit("/plan"), 8 * 1024 * 1024);
++    }
++
+     #[test]
+     fn whoami_requires_success_status_and_ok_identity() {
+         let good =
+@@ -308,4 +481,51 @@ mod tests {
+         assert!(discover_boards(5300, 5400).is_empty());
+         assert!(discover_boards(5000, 5100).is_empty());
+     }
++
++    #[test]
++    fn census_command_call_graph_has_no_legacy_or_renderer_selected_authority() {
++        let api = include_str!("collision_assessor/api.rs");
++        for forbidden in [
++            "discover_boards(",
++            "read_board_plan(",
++            "read_board_evidence(",
++            "request_json(",
++            "TcpStream",
++            "std::process::Command",
++            "tauri_plugin_shell",
++            "tauri_plugin_fs",
++        ] {
++            assert!(
++                !api.contains(forbidden),
++                "collision census API must not reference forbidden authority {forbidden}"
++            );
++        }
++
++        let collect_request = api
++            .split("pub struct CollectCensusRequest")
++            .nth(1)
++            .and_then(|tail| tail.split('}').next())
++            .expect("collect request source shape");
++        for renderer_selected in [
++            "path",
++            "root",
++            "url",
++            "host",
++            "port",
++            "endpoint",
++            "generation",
++            "digest",
++        ] {
++            assert!(
++                !collect_request
++                    .to_ascii_lowercase()
++                    .contains(renderer_selected),
++                "renderer must not select census authority via {renderer_selected}"
++            );
++        }
++
++        let main_capability = include_str!("../capabilities/main-read-only.json");
++        assert!(main_capability.contains("allow-board-discovery"));
++        assert!(!collect_request.contains("Board"));
++    }
+ }

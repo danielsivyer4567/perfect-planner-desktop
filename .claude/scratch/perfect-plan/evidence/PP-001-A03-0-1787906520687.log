@@ -1,0 +1,40 @@
+# perfect-planning proof artifact
+item: A03:0 — Map the Rust snapshot and commands into strict TypeScript types
+command: npm run build
+cwd: C:\repos\perfect-planner-tauri
+exit: 0
+duration_ms: 9612
+at: 2026-08-28T08:42:11.072Z
+git: 9f42c0189f61cf081f5a4d9548e1afa3f0ba451b (feature/tauri-orchestrator-messaging-20260821-223935, dirty)
+diff: PP-001-A03-0-1787906520687.diff
+diff_baseline: 6b5d52e3ce1cd6157719144fd5506d1cc15d4900
+
+## stdout
+
+> perfect-planner-desktop@1.0.0 prebuild
+> npm run security:check
+
+
+> perfect-planner-desktop@1.0.0 security:check
+> python tests/repository_security_e2e.py
+
+repository_security_e2e: PASS
+proved: build configuration is exact, bounded, declarative, and loader-free
+
+> perfect-planner-desktop@1.0.0 build
+> tsc && vite build
+
+vite v8.2.2 building client environment for production...
+transforming...
+✓ 1596 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.47 kB │ gzip:  0.31 kB
+dist/assets/index-D6GMQy1u.css   72.90 kB │ gzip: 16.24 kB
+dist/assets/core-CwxXejkd.js      0.09 kB │ gzip:  0.10 kB
+dist/assets/index-Bg1FCnGJ.js   322.52 kB │ gzip: 96.66 kB
+
+✓ built in 1.38s
+
+## stderr
+(empty)

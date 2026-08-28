@@ -1705,19 +1705,6 @@ export const App: React.FC = () => {
               <span className="stage-actions">
                 <span className="context-action-hint" id="pp-hint-plan-context-actions">right-click plan for actions</span>
                 <button
-                  id="pp-btn-toggle-ui-navigation-map"
-                  type="button"
-                  className={`chip${uiMapOpen ? " active" : ""}`}
-                  aria-pressed={uiMapOpen}
-                  aria-controls="pp-region-ui-navigation-map"
-                  onClick={() => {
-                    setUiMapOpen((current) => !current);
-                    setComparisonOpen(false);
-                  }}
-                >
-                  {uiMapOpen ? "close UI map" : "UI map"}
-                </button>
-                <button
                   id="pp-btn-toggle-ui-comparison"
                   type="button"
                   className={`chip${comparisonOpen ? " active" : ""}`}
@@ -1792,6 +1779,22 @@ export const App: React.FC = () => {
           </div>
         )}
       </main>
+      {active ? (
+        <button
+          id="pp-btn-toggle-ui-navigation-map"
+          type="button"
+          className={`snapshot-mode-pill${uiMapOpen ? " active" : ""}`}
+          aria-pressed={uiMapOpen}
+          aria-controls="pp-region-ui-navigation-map"
+          onClick={() => {
+            setUiMapOpen((current) => !current);
+            setComparisonOpen(false);
+          }}
+        >
+          <span aria-hidden="true">{uiMapOpen ? "×" : "◉"}</span>
+          {uiMapOpen ? "Close snapshots" : "Snapshots"}
+        </button>
+      ) : null}
       <DiagnosticsConsole
         activeBoard={active}
         activePlan={activePlan}
