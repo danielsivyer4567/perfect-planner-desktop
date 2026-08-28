@@ -65,6 +65,20 @@ def git(repository, *arguments):
     return result.stdout.strip()
 
 
+def windows_junction_alias(target, parent):
+    alias = parent / "repository-alpha-alias"
+    result = subprocess.run(
+        ["cmd.exe", "/d", "/c", "mklink", "/J", str(alias), str(target)],
+        text=True,
+        capture_output=True,
+        shell=False,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise AssertionError(f"cannot create Windows junction alias: {result.stderr}\n{result.stdout}")
+    return alias
+
+
 def serve_board(plan_path):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -144,22 +158,31 @@ def main():
             "codexExecuted": False,
         }
 
-        note_result = run(
-            [
-                "note",
-                "--plan",
-                str(plan_path),
-                "--node",
-                "A01",
-                "--item",
-                "A01:0",
-                "--worker",
-                "s-worker-alpha",
-                "--body",
-                "OAuth consent is required before the worker can continue.",
-            ],
-            environment,
-        )
+        plan_argument = plan_path
+        junction = None
+        if os.name == "nt":
+            junction = windows_junction_alias(repository, temporary_path)
+            plan_argument = junction / plan_path.relative_to(repository)
+        try:
+            note_result = run(
+                [
+                    "note",
+                    "--plan",
+                    str(plan_argument),
+                    "--node",
+                    "A01",
+                    "--item",
+                    "A01:0",
+                    "--worker",
+                    "s-worker-alpha",
+                    "--body",
+                    "OAuth consent is required before the worker can continue.",
+                ],
+                environment,
+            )
+        finally:
+            if junction is not None:
+                os.rmdir(junction)
         note_output = json.loads(note_result.stdout)
         assert note_output["ok"] is True
 

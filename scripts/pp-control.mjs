@@ -91,7 +91,13 @@ function canonicalRepository(worktreePath) {
 }
 
 function readPlanScope(planArgument) {
-  const planPath = path.resolve(required(planArgument, "--plan"));
+  const requestedPlanPath = path.resolve(required(planArgument, "--plan"));
+  let planPath;
+  try {
+    planPath = fs.realpathSync.native(requestedPlanPath);
+  } catch (error) {
+    fail(`cannot resolve plan path ${requestedPlanPath}: ${error.message}`);
+  }
   let plan;
   try {
     plan = JSON.parse(fs.readFileSync(planPath, "utf8"));
@@ -101,7 +107,9 @@ function readPlanScope(planArgument) {
   if (!plan || typeof plan !== "object" || Array.isArray(plan)) fail("plan must be a JSON object");
   if (!Array.isArray(plan.vertebrae)) fail("plan.vertebrae must be an array");
 
-  const worktreePath = path.resolve(git(path.dirname(planPath), "rev-parse", "--show-toplevel"));
+  const worktreePath = fs.realpathSync.native(
+    path.resolve(git(path.dirname(planPath), "rev-parse", "--show-toplevel")),
+  );
   const relativePlan = path.relative(worktreePath, planPath);
   if (relativePlan.startsWith("..") || path.isAbsolute(relativePlan)) {
     fail("plan must be inside its Git worktree");
