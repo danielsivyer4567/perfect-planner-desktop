@@ -2407,6 +2407,13 @@ input:focus-visible {
 .ui-map-proof-state span { padding: 5px 7px; border: 1px solid #d0d3d6; border-radius: 4px; color: #737980; background: #fff; font-size: 5.8px; white-space: nowrap; }
 .ui-map-proof-state b { color: #3c454d; font-weight: 900; }
 .ui-map-proof-state [data-proof-method="last-run"] b { color: #86662e; }
+.ui-map-proof-state [data-state="passed"],
+.ui-map-proof-state [data-state="ready"] { border-color: #abc8b1; color: #3f6848; background: #f2f8f3; }
+.ui-map-proof-state [data-state="partial"],
+.ui-map-proof-state [data-state="unavailable"] { border-color: #d7b2a7; color: #8d4c3e; background: #fff5f2; }
+.ui-map-proof-state [data-state="unknown"],
+.ui-map-proof-state [data-state="loading"],
+.ui-map-proof-state [data-state="not-required"] { border-color: #cfd2d5; color: #737980; background: #f5f6f7; }
 
 .ui-map-zoom-controls {
   display: inline-flex;

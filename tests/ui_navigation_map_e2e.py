@@ -124,11 +124,20 @@ def main():
                 route.fulfill(status=404, json={"ok": False})
 
         page.route("**/board-probe/**", mock_probe)
+        manifest_state = {"requiredUiNodes": ["PP-UI:A03"]}
         page.route(
             "**/build-screenshots/manifest.json",
             lambda route: route.fulfill(status=200, json={
                 "schemaVersion": 1,
                 "generatedAt": "2026-08-28T00:00:00Z",
+                "browserProof": {
+                    "runner": "playwright-script",
+                    "result": "passed",
+                    "command": "npm run build:screenshots",
+                    "captureCount": 1,
+                    "requiredUiNodeCount": len(manifest_state["requiredUiNodes"]),
+                    "requiredUiNodes": manifest_state["requiredUiNodes"],
+                },
                 "captures": [{
                     "id": "release",
                     "label": "Latest verified release page",
@@ -169,9 +178,13 @@ def main():
         expect(ui_map).to_be_visible()
         expect(ui_map).to_have_attribute("data-plan-id", "PP-UI")
         expect(ui_map).to_contain_text("SNAPSHOT CANVAS")
-        expect(page.locator('[data-proof-method="chrome-mcp"]')).to_contain_text("preferred")
-        expect(page.locator('[data-proof-method="playwright-script"]')).to_contain_text("ready")
-        expect(page.locator('[data-proof-method="last-run"]')).to_contain_text("Build captures")
+        expect(page.locator('[data-proof-method="chrome-mcp"]')).to_contain_text("not recorded")
+        expect(page.locator('[data-proof-method="chrome-mcp"]')).to_have_attribute("data-state", "unknown")
+        expect(page.locator('[data-proof-method="playwright-script"]')).to_contain_text("passed")
+        expect(page.locator('[data-proof-method="playwright-script"]')).to_have_attribute("data-state", "passed")
+        expect(page.locator('[data-proof-method="last-run"]')).to_contain_text("1/1")
+        expect(page.locator('[data-proof-method="last-run"]')).to_have_attribute("data-state", "ready")
+        expect(ui_map.locator(".ui-map-proof-state")).to_have_attribute("data-proof-status", "ready")
         p1 = page.locator('.ui-map-spine-row[data-spine-id="P1"]')
         p2 = page.locator('.ui-map-spine-row[data-spine-id="P2"]')
         orphan_row = page.locator('.ui-map-spine-row[data-spine-id="unmapped"]')
@@ -284,6 +297,17 @@ def main():
         expect(page.locator(".ui-map-artboard")).to_have_count(4)
 
         page.screenshot(path=str(SCREENSHOT), full_page=True, animations="disabled")
+
+        manifest_state["requiredUiNodes"] = ["PP-OTHER:A03"]
+        page.reload(wait_until="domcontentloaded")
+        mode.evaluate("element => element.click()")
+        expect(ui_map).to_be_visible()
+        expect(ui_map.locator(".ui-map-proof-state")).to_have_attribute(
+            "data-proof-status", "unavailable"
+        )
+        expect(ui_map.locator(".ui-map-proof-state")).to_have_attribute(
+            "title", "This plan has UI pages but is absent from the build screenshot manifest."
+        )
 
         comparison = page.locator("#pp-btn-toggle-ui-comparison")
         comparison.evaluate("element => element.click()")

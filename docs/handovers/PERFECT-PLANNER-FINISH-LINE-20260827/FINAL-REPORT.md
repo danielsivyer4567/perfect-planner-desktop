@@ -21,6 +21,13 @@ their stored limit. The workflow canvas can split into live UI and captured evid
 evidence pane between UI and attached text/code output, and refuses to label captures below
 1280x720 or without dimensions as comparison-grade.
 
+The later Snapshot-canvas hardening slice removes hard-coded browser-readiness claims. The UI now
+reads a provenance record generated only after the scripted browser capture suite passes, shows
+the exact capture time and active-plan coverage, reports partial or unavailable manifests honestly,
+and labels Chrome MCP as unrecorded when no MCP receipt exists. Packaged verification exposed that
+the original Tauri CSP blocked the bundled JSON manifest; `connect-src` now permits only `'self'`
+plus the existing native IPC endpoints, with a regression test rejecting external origins.
+
 The real integration is committed and pushed on the feature branch. Hosted Windows CI run
 `33145216487` passed the exact source commit
 `9d28edfc22de3975e6bb69ecaf10b9586d5a77b6`. The final tree passes the repository-security gate,
@@ -95,6 +102,18 @@ Latest parallel/comparison/DPI finish slice additionally changes:
 - `tests/evidence_e2e.py`
 - `docs/handovers/PERFECT-PLANNER-FINISH-LINE-20260827/WINDOWS-DISTRIBUTION.md`
 
+Latest Snapshot provenance hardening additionally changes:
+
+- `scripts/run-build-screenshots.mjs`
+- `src/services/buildScreenshots.ts`
+- `src/components/UiNavigationMap.tsx`
+- `src/index.css`
+- `src-tauri/tauri.conf.json`
+- `tests/build_screenshot_pipeline_e2e.py`
+- `tests/ui_navigation_map_e2e.py`
+- `tests/repository_security_e2e.py`
+- `tests/native_release_evidence_e2e.py`
+
 ## Durable planner state and evidence retained
 
 - `.claude/scratch/ledger.md`
@@ -138,6 +157,13 @@ The exact final committed inventory is available with `git show --name-status --
   communicates “new runs x4/x1,” opens a side-by-side live/captured UI, switches to real attached
   text/code evidence, labels a recorded 1440x900 capture comparison-grade, and records no console
   or page errors.
+- Snapshot provenance: the production build regenerated five screenshot artifacts covering all 11
+  required UI nodes and wrote a hash-bearing manifest only after every capture script passed. The
+  packaged Tauri smoke opened the Snapshot canvas and recorded `ready`, `Build captures 5/5`,
+  `Script proof passed`, and `Chrome MCP not recorded` at the active plan. The native WebView had
+  zero console errors, page errors, or unexpected failed requests. Evidence is in
+  `artifacts/native-tauri/native-snapshot-provenance.png` and
+  `artifacts/native-tauri/native-routed-message-lifecycle.json`.
 - Native lifecycle records: real run `run-mt4oo7z4` durably records preflight, approval, admission,
   heartbeat, stale-lease recovery, and evidence-gated fenced completion. The record hashes and
   timeline are in `NATIVE-EVIDENCE.md`.

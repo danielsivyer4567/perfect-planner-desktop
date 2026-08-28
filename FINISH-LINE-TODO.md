@@ -31,6 +31,9 @@ signed Windows installer has been installed and exercised successfully.
       four-agent admission, keeps existing runs unchanged, and enforces serial admission when off.
 - [x] Add a canvas-preserving two-pane live/captured UI comparison with UI/code-evidence switching,
       capture timestamps, and an explicit comparison-grade threshold of 1280x720.
+- [x] Make the Snapshot canvas read browser-proof provenance from the generated build manifest,
+      show Chrome MCP as unrecorded unless evidence exists, expose partial/unavailable states, and
+      prove the same manifest loads inside the packaged Tauri application under a network-closed CSP.
 
 ## 2. Reconcile the current working tree
 

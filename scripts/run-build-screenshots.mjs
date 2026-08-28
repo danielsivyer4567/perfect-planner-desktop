@@ -159,7 +159,19 @@ const captures = contract.captures.map((capture) => {
   };
 });
 
-const manifest = { schemaVersion: 1, generatedAt, captures };
+const manifest = {
+  schemaVersion: 1,
+  generatedAt,
+  browserProof: {
+    runner: "playwright-script",
+    result: "passed",
+    command: "npm run build:screenshots",
+    captureCount: captures.length,
+    requiredUiNodeCount: requiredUiNodes().size,
+    requiredUiNodes: [...requiredUiNodes()].sort(),
+  },
+  captures,
+};
 for (const output of [ARTIFACT_OUTPUT, DIST_OUTPUT]) {
   fs.writeFileSync(path.join(output, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 }

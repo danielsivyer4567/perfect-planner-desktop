@@ -42,6 +42,11 @@ def main() -> None:
         f"build screenshot contract mismatch; missing={sorted(required - declared)}, "
         f"unknown={sorted(declared - required)}"
     )
+    runner_source = (ROOT / "scripts" / "run-build-screenshots.mjs").read_text(encoding="utf-8")
+    assert 'runner: "playwright-script"' in runner_source
+    assert 'result: "passed"' in runner_source
+    assert "requiredUiNodeCount" in runner_source
+    assert "requiredUiNodes:" in runner_source
     print("build_screenshot_pipeline_e2e: PASS")
     print(f"proved: {len(required)} UI nodes have mandatory build captures")
 

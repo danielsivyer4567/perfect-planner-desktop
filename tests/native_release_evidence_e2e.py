@@ -230,8 +230,10 @@ def main() -> None:
     result: dict | None = None
     physical_keyboard: dict | None = None
     windows_display_scale: dict | None = None
+    snapshot_provenance: dict | None = None
     screenshot = ARTIFACTS / "native-routed-message-lifecycle.png"
     keyboard_screenshot = ARTIFACTS / "native-physical-keyboard.png"
+    snapshot_screenshot = ARTIFACTS / "native-snapshot-provenance.png"
     try:
         wait_for_cdp(process)
         with sync_playwright() as playwright:
@@ -254,6 +256,37 @@ def main() -> None:
                 "document.readyState === 'complete' && Boolean(window.__TAURI_INTERNALS__)"
             )
             windows_display_scale = collect_windows_display_scale(process.pid, page)
+            snapshot_toggle = page.locator("#pp-btn-toggle-ui-navigation-map")
+            snapshot_toggle.click()
+            snapshot_map = page.locator("#pp-region-ui-navigation-map")
+            expect(snapshot_map).to_be_visible()
+            expect(snapshot_map.locator('[data-proof-method="chrome-mcp"]')).to_contain_text(
+                "not recorded"
+            )
+            expect(snapshot_map.locator('[data-proof-method="playwright-script"]')).to_contain_text(
+                "passed"
+            )
+            expect(snapshot_map.locator(".ui-map-proof-state")).to_have_attribute(
+                "data-proof-status", "ready"
+            )
+            last_run = snapshot_map.locator('[data-proof-method="last-run"]')
+            expect(last_run).not_to_contain_text("not recorded")
+            snapshot_provenance = {
+                "status": snapshot_map.locator(".ui-map-proof-state").get_attribute(
+                    "data-proof-status"
+                ),
+                "chromeMcp": snapshot_map.locator(
+                    '[data-proof-method="chrome-mcp"]'
+                ).inner_text(),
+                "scriptProof": snapshot_map.locator(
+                    '[data-proof-method="playwright-script"]'
+                ).inner_text(),
+                "lastRun": last_run.inner_text(),
+                "screenshot": str(snapshot_screenshot),
+            }
+            page.screenshot(path=str(snapshot_screenshot), full_page=True)
+            snapshot_toggle.click()
+            expect(snapshot_map).to_have_count(0)
             toggle = page.locator("#pp-btn-toggle-orchestrator")
             toggle.click()
             inspector = page.locator("#pp-panel-orchestrator-inspector")
@@ -429,6 +462,7 @@ def main() -> None:
         "processId": process.pid,
         "messageLifecycle": result,
         "physicalKeyboard": physical_keyboard,
+        "snapshotProvenance": snapshot_provenance,
         "windowsDisplayScale": windows_display_scale,
         "appLifecycle": lifecycle_pair,
         "lifecycleLedger": str(LIFECYCLE_LEDGER),

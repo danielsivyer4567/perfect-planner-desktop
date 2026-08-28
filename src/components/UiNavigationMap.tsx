@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readBoardEvidence, type Board } from "../services/boards";
-import { readBuildScreenshots, type BuildScreenshotCapture } from "../services/buildScreenshots";
+import {
+  readBuildScreenshotState,
+  type BuildScreenshotCapture,
+  type BuildScreenshotState,
+} from "../services/buildScreenshots";
 import type { ChecklistProof, EvidenceArtifact, PlanSnapshot, SpinePhase, Vertebra } from "../types/plan";
 
 type BranchSide = "L" | "R";
@@ -147,7 +151,15 @@ export function UiNavigationMap({
   const [openSides, setOpenSides] = useState<Set<string>>(() => new Set());
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [screenshots, setScreenshots] = useState<Map<string, EvidenceArtifact | null>>(() => new Map());
-  const [buildScreenshots, setBuildScreenshots] = useState<Map<string, BuildScreenshotCapture>>(() => new Map());
+  const [buildScreenshotState, setBuildScreenshotState] = useState<BuildScreenshotState>(() => ({
+    status: "loading",
+    generatedAt: null,
+    captures: new Map(),
+    proof: null,
+    requiredForPlan: 0,
+    message: "Reading build screenshot provenance.",
+  }));
+  const buildScreenshots = buildScreenshotState.captures;
 
   const phases = useMemo(() => {
     if (!plan) return [];
@@ -242,12 +254,26 @@ export function UiNavigationMap({
 
   useEffect(() => {
     let live = true;
-    setBuildScreenshots(new Map());
-    void readBuildScreenshots(planNumber).then((captures) => {
-      if (live) setBuildScreenshots(captures);
+    setBuildScreenshotState({
+      status: "loading",
+      generatedAt: null,
+      captures: new Map(),
+      proof: null,
+      requiredForPlan: 0,
+      message: "Reading build screenshot provenance.",
+    });
+    void readBuildScreenshotState(planNumber, uiCount).then((state) => {
+      if (live) setBuildScreenshotState(state);
     });
     return () => { live = false; };
-  }, [planNumber]);
+  }, [planNumber, uiCount]);
+
+  const buildProofTime = useMemo(() => {
+    if (!buildScreenshotState.generatedAt) return "not recorded";
+    const timestamp = new Date(buildScreenshotState.generatedAt);
+    if (Number.isNaN(timestamp.getTime())) return "invalid timestamp";
+    return timestamp.toLocaleString();
+  }, [buildScreenshotState.generatedAt]);
 
   const focusPage = (node: Vertebra) => {
     setSelectedPageId(node.id);
@@ -327,10 +353,22 @@ export function UiNavigationMap({
           <h2 id="pp-heading-ui-navigation-map">{board.repoName}</h2>
           <p>{plan.meta?.number || board.number || "unnumbered plan"} · {selectedNode ? `${selectedNode.spineId} / ${selectedNode.id} / ${selectedNode.title}` : `${plan.spine.length} phases · ${uiCount} UI pages · ${allNodes.length - uiCount} support nodes`}</p>
         </div>
-        <div className="ui-map-proof-state" aria-label="Browser proof routing">
-          <span data-proof-method="chrome-mcp"><b>Chrome MCP</b> preferred</span>
-          <span data-proof-method="playwright-script"><b>Script proof</b> ready</span>
-          <span data-proof-method="last-run"><b>Build captures</b> {buildScreenshots.size}/{uiCount}</span>
+        <div
+          className="ui-map-proof-state"
+          aria-label="Browser proof status"
+          data-proof-status={buildScreenshotState.status}
+          title={buildScreenshotState.message}
+        >
+          <span data-proof-method="chrome-mcp" data-state="unknown"><b>Chrome MCP</b> not recorded</span>
+          <span
+            data-proof-method="playwright-script"
+            data-state={buildScreenshotState.proof ? "passed" : buildScreenshotState.status}
+          >
+            <b>Script proof</b> {buildScreenshotState.proof ? "passed" : buildScreenshotState.status}
+          </span>
+          <span data-proof-method="last-run" data-state={buildScreenshotState.status}>
+            <b>Build captures</b> {buildScreenshots.size}/{buildScreenshotState.requiredForPlan} · {buildProofTime}
+          </span>
         </div>
         <div className="ui-map-zoom-controls" role="group" aria-label="Snapshot canvas zoom">
           <button id="pp-btn-ui-map-zoom-out" type="button" aria-label="Zoom out" disabled={!layoutReady} onClick={() => changeZoom(zoom - ZOOM_STEP)}>−</button>
