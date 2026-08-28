@@ -47,6 +47,9 @@ jobs:
           python -m pip install --disable-pip-version-check playwright
           python -m playwright install chromium
 
+      - name: Reject executable or obfuscated build configuration
+        run: npm run security:check
+
       - name: Frontend typecheck and production build
         run: npm run build
 

@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import process from "node:process";
-import { createServer } from "vite";
 
 const tests = [
   "tests/control_connector_e2e.py",
@@ -31,6 +30,10 @@ function runPython(test) {
     });
   });
 }
+
+// Keep all Vite/PostCSS imports behind the declarative build-config gate.
+await runPython("tests/repository_security_e2e.py");
+const { createServer } = await import("vite");
 
 const server = await createServer({
   root: process.cwd(),

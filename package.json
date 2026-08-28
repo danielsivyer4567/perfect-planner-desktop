@@ -4,14 +4,21 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "security:check": "python tests/repository_security_e2e.py",
+    "predev": "npm run security:check",
     "dev": "vite --port 5180",
+    "predev:host": "npm run security:check",
     "dev:host": "vite --host --port 5180",
+    "prebuild": "npm run security:check",
     "build": "tsc && vite build",
+    "pretest:e2e": "npm run security:check",
     "test:e2e": "node scripts/run-e2e.mjs",
     "test:live-smoke": "python tests/live_board_smoke.py",
     "test:connector": "python tests/control_connector_e2e.py",
     "pp:control": "node scripts/pp-control.mjs",
+    "prepreview": "npm run security:check",
     "preview": "vite preview --port 5180",
+    "pretauri": "npm run security:check",
     "tauri": "tauri"
   },
   "dependencies": {
