@@ -58,6 +58,7 @@ const VOLUME_KEY = "perfect-planner:stall-volume";
 const PARALLEL_AGENTS_KEY = "perfect-planner:parallel-agents";
 const DISMISSED_BOARDS_KEY = "perfect-planner:dismissed-plans";
 const ACTIVE_BOARD_KEY = "perfect-planner:active-board";
+const RAIL_COLLAPSED_KEY = "perfect-planner:repository-rail-collapsed";
 
 interface ActiveBoardIdentity {
   repositoryRoot: string;
@@ -82,6 +83,14 @@ function storedParallelAgents(): boolean {
     return stored === null ? true : stored === "true";
   } catch {
     return true;
+  }
+}
+
+function storedRailCollapsed(): boolean {
+  try {
+    return localStorage.getItem(RAIL_COLLAPSED_KEY) === "true";
+  } catch {
+    return false;
   }
 }
 
@@ -296,6 +305,7 @@ export const App: React.FC = () => {
   const [unavailableSelection, setUnavailableSelection] = useState<ActiveBoardIdentity | null>(null);
   const [orchestratorMinimized, setOrchestratorMinimized] = useState(true);
   const [parallelAgents, setParallelAgents] = useState(storedParallelAgents);
+  const [railCollapsed, setRailCollapsed] = useState(storedRailCollapsed);
   const [comparisonOpen, setComparisonOpen] = useState(false);
   const [resourceGuard, setResourceGuard] = useState<ResourceGuardState>({
     status: "checking",
@@ -1072,6 +1082,18 @@ export const App: React.FC = () => {
     setOrchestratorMinimized((current) => !current);
   };
 
+  const toggleRailCollapsed = () => {
+    setRailCollapsed((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem(RAIL_COLLAPSED_KEY, String(next));
+      } catch {
+        // The rail still changes for this session when storage is unavailable.
+      }
+      return next;
+    });
+  };
+
   const handleContextPlanAction = useCallback((action: "select" | "remove" | "open", planPath: string) => {
     const board = boards.find((candidate) => candidate.planPath === planPath);
     if (!board) {
@@ -1090,14 +1112,33 @@ export const App: React.FC = () => {
   return (
     <div className="shell" id="pp-app-shell" data-orchestrator-id={orchestratorId || "pending"}>
       <ActionContextMenu onPlanAction={handleContextPlanAction} onLog={recordContextAction} />
-      <aside className="rail" id="pp-region-board-rail">
+      <aside
+        className={`rail${railCollapsed ? " collapsed" : ""}`}
+        id="pp-region-board-rail"
+        aria-label="Repository and plan rail"
+      >
         <div className="rail-head" id="pp-region-board-rail-heading">
-          <h1>
-            perfect <span>planning</span>
-          </h1>
-          <p className="rail-sub">
-            boards on 127.0.0.1:{PORT_START}–{PORT_END}
-          </p>
+          <div className="rail-head-copy">
+            <h1>
+              perfect <span>planning</span>
+            </h1>
+            <p className="rail-sub">
+              boards on 127.0.0.1:{PORT_START}–{PORT_END}
+            </p>
+          </div>
+          <span className="rail-mark" aria-hidden="true">PP</span>
+          <button
+            id="pp-btn-toggle-repository-rail"
+            type="button"
+            className="rail-collapse-toggle"
+            onClick={toggleRailCollapsed}
+            aria-expanded={!railCollapsed}
+            aria-controls="pp-list-boards"
+            aria-label={railCollapsed ? "Expand repository rail" : "Collapse repository rail"}
+            title={railCollapsed ? "Expand repository rail" : "Collapse repository rail"}
+          >
+            <span aria-hidden="true">{railCollapsed ? "→" : "←"}</span>
+          </button>
         </div>
 
         <div className="rail-list" id="pp-list-boards" aria-label="Running boards by repository">

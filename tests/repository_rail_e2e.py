@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -7,6 +8,7 @@ from playwright.sync_api import expect, sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 APP_URL = "http://127.0.0.1:5180/"
 SCREENSHOT = ROOT / "artifacts" / "repository-rail.png"
+COLLAPSED_SCREENSHOT = ROOT / "artifacts" / "repository-rail-collapsed.png"
 
 
 BOARDS = {
@@ -103,6 +105,40 @@ def main():
         page.goto(APP_URL)
         page.wait_for_load_state("networkidle")
         print("repository rail: loaded", flush=True)
+
+        rail = page.locator("#pp-region-board-rail")
+        rail_toggle = page.locator("#pp-btn-toggle-repository-rail")
+        stage = page.locator("#pp-region-command-stage")
+        expect(rail_toggle).to_have_attribute("aria-expanded", "true")
+        expanded_stage_x = stage.bounding_box()["x"]
+        rail_toggle.evaluate("element => element.focus()")
+        expect(rail_toggle).to_be_focused()
+        rail_toggle.evaluate("element => element.click()")
+        expect(rail_toggle).to_have_attribute("aria-expanded", "false")
+        expect(rail).to_have_class(re.compile(r"\bcollapsed\b"))
+        expect(rail).to_have_css("width", "58px")
+        collapsed_stage_x = stage.bounding_box()["x"]
+        assert collapsed_stage_x < expanded_stage_x - 200, (
+            f"collapsed rail did not return meaningful canvas width: {expanded_stage_x} -> {collapsed_stage_x}"
+        )
+        expect(page.get_by_role("button", name="PP-001 Repository B Perfect Planner main Desktop shell")).to_be_visible()
+        page.screenshot(path=str(COLLAPSED_SCREENSHOT), full_page=True)
+        assert page.evaluate(
+            "localStorage.getItem('perfect-planner:repository-rail-collapsed')"
+        ) == "true"
+        page.reload()
+        page.wait_for_load_state("networkidle")
+        expect(rail).to_have_class(re.compile(r"\bcollapsed\b"))
+        expect(rail_toggle).to_have_attribute("aria-expanded", "false")
+        rail_toggle.evaluate("element => element.focus()")
+        expect(rail_toggle).to_be_focused()
+        rail_toggle.evaluate("element => element.click()")
+        expect(rail_toggle).to_have_attribute("aria-expanded", "true")
+        expect(rail).to_have_class("rail")
+        assert page.evaluate(
+            "localStorage.getItem('perfect-planner:repository-rail-collapsed')"
+        ) == "false"
+        print("repository rail: collapse verified", flush=True)
 
         repositories = page.locator("[data-repository-id]")
         expect(repositories).to_have_count(2)

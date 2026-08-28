@@ -53,11 +53,24 @@ body {
   flex-direction: column;
   background: var(--beige);
   border-right: 1px solid #cdc6b6;
+  transition: width 160ms ease;
+}
+
+.rail.collapsed {
+  width: 58px;
 }
 
 .rail-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
   padding: 14px 16px 12px;
   border-bottom: 1px solid var(--line);
+}
+
+.rail-head-copy {
+  min-width: 0;
 }
 
 .rail-head h1 {
@@ -75,6 +88,32 @@ body {
   color: var(--dim);
 }
 
+.rail-mark {
+  display: none;
+  color: #365642;
+  font: 850 10px/1 var(--mono);
+  letter-spacing: -0.4px;
+}
+
+.rail-collapse-toggle {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  place-items: center;
+  border: 1px solid #c5bdad;
+  border-radius: 7px 3px 7px 3px;
+  background: rgba(255, 255, 255, 0.62);
+  color: #365642;
+  font: 800 14px/1 var(--mono);
+  cursor: pointer;
+}
+
+.rail-collapse-toggle:hover {
+  border-color: #78907d;
+  background: #fff;
+}
+
 .rail-list {
   flex: 1;
   overflow-y: auto;
@@ -82,6 +121,166 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.rail.collapsed .rail-head {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  gap: 7px;
+  padding: 10px 7px 9px;
+}
+
+.rail.collapsed .rail-head-copy {
+  display: none;
+}
+
+.rail.collapsed .rail-mark {
+  display: inline;
+}
+
+.rail.collapsed .rail-list {
+  gap: 9px;
+  padding: 8px 6px 12px;
+  scrollbar-width: thin;
+}
+
+.rail.collapsed .repo-section {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.rail.collapsed .repo-heading {
+  position: static;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  padding: 3px 0 6px;
+  border: 0;
+  background: transparent;
+}
+
+.rail.collapsed .repo-call-sign {
+  width: 34px;
+  height: 30px;
+  box-shadow: 1px 1px 0 #b7c3b8;
+  font-size: 13px;
+}
+
+.rail.collapsed .repo-heading-copy,
+.rail.collapsed .branch-heading,
+.rail.collapsed .plan-status-divider,
+.rail.collapsed .rail-repo-repeat,
+.rail.collapsed .rail-project-repeat,
+.rail.collapsed .rail-branch-repeat,
+.rail.collapsed .rail-topic,
+.rail.collapsed .rail-meta,
+.rail.collapsed .rail-chat-route,
+.rail.collapsed .local-output.rail,
+.rail.collapsed .alarm-label,
+.rail.collapsed .alarm-controls,
+.rail.collapsed .rail-foot .chip {
+  display: none;
+}
+
+.rail.collapsed .repo-branches {
+  padding: 0;
+}
+
+.rail.collapsed .repo-branches::before {
+  display: none;
+}
+
+.rail.collapsed .branch-group + .branch-group,
+.rail.collapsed .plan-status-group.complete {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid #c9c1b2;
+}
+
+.rail.collapsed .branch-status-groups,
+.rail.collapsed .branch-group [role="list"] {
+  gap: 5px;
+}
+
+.rail.collapsed .rail-item {
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 5px 4px;
+  border-radius: 7px 3px 7px 3px;
+}
+
+.rail.collapsed .rail-item-top {
+  width: 100%;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
+.rail.collapsed .rail-num {
+  overflow: hidden;
+  max-width: 38px;
+  font-size: 9px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail.collapsed .complete-flag,
+.rail.collapsed .stall-flag {
+  font-size: 0;
+}
+
+.rail.collapsed .complete-flag::after {
+  content: "✓";
+  font: 850 11px/1 var(--mono);
+}
+
+.rail.collapsed .stall-flag::after {
+  content: "!";
+  font: 900 12px/1 var(--mono);
+}
+
+.rail.collapsed .rail-empty {
+  overflow: hidden;
+  padding: 6px 2px;
+  font: 8px/1.3 var(--mono);
+  text-align: center;
+}
+
+.rail.collapsed .rail-empty > :not(:first-child) {
+  display: none;
+}
+
+.rail.collapsed .alarm-panel {
+  padding: 7px 4px;
+}
+
+.rail.collapsed .alarm-line {
+  justify-content: center;
+  margin: 0;
+}
+
+.rail.collapsed .alarm-state {
+  overflow: hidden;
+  max-width: 48px;
+  font-size: 8px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail.collapsed .rail-foot {
+  justify-content: center;
+  padding: 7px 3px;
+}
+
+.rail.collapsed .rail-count {
+  font-size: 8px;
+  text-align: center;
 }
 
 .repo-section {
@@ -1803,6 +2002,12 @@ input:focus-visible {
   .rail { width: 270px; }
   .scope-branch { max-width: 150px; }
   .path { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail {
+    transition: none;
+  }
 }
 
 .path {
