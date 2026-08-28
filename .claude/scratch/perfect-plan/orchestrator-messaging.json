@@ -4583,17 +4583,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-28T08:44:58.067Z",
-            "model": null,
+            "at": "2026-08-28T09:36:14.504Z",
+            "model": "gpt-5",
             "user": "danielsivyer4567",
-            "session": "s-d4c2d89b",
-            "note": "reverify of: A separate UI map mode replaces the embedded board without disturbing repository scope, comparison mode, or the persistent command header",
-            "log": "PP-001-A09-0-1787906693149.log",
-            "sha256": "55c676c638b775826df4de461bab22e0253959e44cbe6bda66dd8b77a24be212",
+            "session": "s-7bca30a4",
+            "note": "The separate Snapshots mode now replaces only the embedded board with a Figma-style artboard canvas while repository scope, command header, and comparison mode remain intact.",
+            "log": "PP-001-A09-0-1787909769062.log",
+            "sha256": "67a4e2f3e0335572d3a1f64d2d20a3ecf0efc09b57bae6b952d8d7601d53e985",
             "exit": 0,
-            "durationMs": 4503,
+            "durationMs": 4942,
             "git": {
-              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
+              "sha": "312b7bfceb115274ec175021cea71c1d4c5f9dda",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -4652,37 +4652,6 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A09-0-1787906693149.diff",
-            "diffSha256": "18db23ebaf7d78694e592aa3d7e85c17856cf35270fa2f3a4e46b1801b36bc7e",
-            "diffBaseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
-            "diffFiles": [
-              "scripts/run-e2e.mjs",
-              "src/App.tsx",
-              "src/components/DiagnosticsConsole.tsx",
-              "src/components/UiNavigationMap.tsx",
-              "src/index.css",
-              "tests/repository_rail_e2e.py",
-              "tests/ui_navigation_map_e2e.py"
-            ],
-            "screenshot": "PP-001-A09-0-1787905792886.png",
-            "screenshotSha256": "104a90ad1ab8f98aecaec765bf54f1922423b15bb05fca1d62e6bd547929bc46",
-            "screenshotCheck": {
-              "ok": true,
-              "width": 4320,
-              "height": 2700,
-              "bitDepth": 8,
-              "colorType": 2,
-              "blankScore": 0.4298,
-              "uniqueColors": 423,
-              "stddev": {
-                "r": 57.477,
-                "g": 53.804,
-                "b": 54.63
-              },
-              "reason": null,
-              "samples": 42848
-            },
-            "shotNote": "Viewed the 4320x2700 capture: UI map is a separate active mode under the unchanged command header and repository scope; the embedded board is replaced only inside the workspace and comparison remains a separate control.",
             "screenshotOcr": {
               "status": "clear",
               "role": "derived-warning-only",
@@ -4696,33 +4665,64 @@
               "runtime": "one-shot-subprocess",
               "resident": false,
               "network": "disabled-local-model-only",
-              "shot": "PP-001-A09-0-1787905792886.png",
-              "textArtifact": "PP-001-A09-0-1787905792886.ocr.txt",
-              "textSha256": "8556de2c60ef2972026d7aca6ec63a4288d10761b6a0fbbd9963b279b0ce9ace",
-              "confidence": 82,
-              "durationMs": 3228,
-              "rssStartBytes": 62468096,
-              "rssEndBytes": 204939264,
+              "shot": "PP-001-A09-0-1787909769062.png",
+              "textArtifact": "PP-001-A09-0-1787909769062.ocr.txt",
+              "textSha256": "fff4e69b5747b86ec37c455d61dce3fd8ed100e994373ff9c242896990ca2671",
+              "confidence": 78,
+              "durationMs": 5076,
+              "rssStartBytes": 62386176,
+              "rssEndBytes": 246394880,
               "workerTerminated": true,
               "expectedText": [],
               "alarms": []
             },
-            "tokensEst": 900,
+            "diff": "PP-001-A09-0-1787909769062.diff",
+            "diffSha256": "b2656a81229d9dc11f68f1187603f611dff8cc95cb32ae4818ab50dbec24615a",
+            "diffBaseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+            "diffFiles": [
+              "scripts/run-e2e.mjs",
+              "src/App.tsx",
+              "src/components/DiagnosticsConsole.tsx",
+              "src/components/UiNavigationMap.tsx",
+              "src/index.css",
+              "tests/repository_rail_e2e.py",
+              "tests/ui_navigation_map_e2e.py"
+            ],
+            "screenshot": "PP-001-A09-0-1787909769062.png",
+            "screenshotSha256": "c79d3ae3607ed891620c5c38ad0c5014d8573b3d7810570546b835429e777bf0",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.4268,
+              "uniqueColors": 327,
+              "stddev": {
+                "r": 63.626,
+                "g": 60.924,
+                "b": 61.589
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed the 4320x2700 capture: the command header and repository rail remain present while Snapshots replaces the board with a full-height grey canvas of horizontally aligned white/silver artboards and a visible zoom toolbar.",
+            "tokensEst": 3000,
             "loc": {
               "baseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
               "scope": "files",
-              "added": 641,
-              "removed": 15,
+              "added": 1253,
+              "removed": 23,
               "dirty": true,
               "files": [
                 {
                   "file": "scripts/run-e2e.mjs",
-                  "added": 1,
+                  "added": 3,
                   "removed": 0
                 },
                 {
                   "file": "src/App.tsx",
-                  "added": 39,
+                  "added": 42,
                   "removed": 14
                 },
                 {
@@ -4731,26 +4731,24 @@
                   "removed": 1
                 },
                 {
+                  "file": "src/components/UiNavigationMap.tsx",
+                  "added": 362,
+                  "removed": 0
+                },
+                {
                   "file": "src/index.css",
-                  "added": 221,
+                  "added": 610,
                   "removed": 0
                 },
                 {
                   "file": "tests/repository_rail_e2e.py",
-                  "added": 6,
-                  "removed": 0
-                },
-                {
-                  "file": "src/components/UiNavigationMap.tsx",
-                  "added": 204,
-                  "removed": 0,
-                  "untracked": true
+                  "added": 10,
+                  "removed": 8
                 },
                 {
                   "file": "tests/ui_navigation_map_e2e.py",
-                  "added": 169,
-                  "removed": 0,
-                  "untracked": true
+                  "added": 225,
+                  "removed": 0
                 }
               ],
               "fileCount": 7,
@@ -5085,17 +5083,17 @@
           },
           "proof": {
             "by": "prove",
-            "at": "2026-08-28T08:45:15.918Z",
-            "model": null,
+            "at": "2026-08-28T09:36:34.695Z",
+            "model": "gpt-5",
             "user": "danielsivyer4567",
-            "session": "s-d4c2d89b",
-            "note": "reverify of: The map distinguishes UI-capable pages from support work, names missing mappings honestly, and remains keyboard, focus, reduced-motion, and narrow-screen usable",
-            "log": "PP-001-A09-2-1787906704458.log",
-            "sha256": "268bf3c10e2ec7b2fd21a1e63997099fb70b1ebb6338703ace5ff7a85c87feae",
+            "session": "s-7bca30a4",
+            "note": "Fresh build and visual proof of honest attached/missing states, keyboard focus, responsive artboards, reduced-motion behavior, and explicit zoom controls.",
+            "log": "PP-001-A09-2-1787909784537.log",
+            "sha256": "c95ba1a85d35599167ea517fe6e62c00e63747242cae3763ae2f5576247e68e5",
             "exit": 0,
-            "durationMs": 10982,
+            "durationMs": 9724,
             "git": {
-              "sha": "9f42c0189f61cf081f5a4d9548e1afa3f0ba451b",
+              "sha": "312b7bfceb115274ec175021cea71c1d4c5f9dda",
               "branch": "feature/tauri-orchestrator-messaging-20260821-223935",
               "dirty": true
             },
@@ -5154,37 +5152,6 @@
               "expectedText": [],
               "alarms": []
             },
-            "diff": "PP-001-A09-2-1787906704458.diff",
-            "diffSha256": "18db23ebaf7d78694e592aa3d7e85c17856cf35270fa2f3a4e46b1801b36bc7e",
-            "diffBaseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
-            "diffFiles": [
-              "scripts/run-e2e.mjs",
-              "src/App.tsx",
-              "src/components/DiagnosticsConsole.tsx",
-              "src/components/UiNavigationMap.tsx",
-              "src/index.css",
-              "tests/repository_rail_e2e.py",
-              "tests/ui_navigation_map_e2e.py"
-            ],
-            "screenshot": "PP-001-A09-2-1787905819857.png",
-            "screenshotSha256": "84b1510d7a33ccf62306e0d484eaa48add1c889c9459f575ee6999304ee553b9",
-            "screenshotCheck": {
-              "ok": true,
-              "width": 4320,
-              "height": 2700,
-              "bitDepth": 8,
-              "colorType": 2,
-              "blankScore": 0.4298,
-              "uniqueColors": 421,
-              "stddev": {
-                "r": 57.483,
-                "g": 53.81,
-                "b": 54.635
-              },
-              "reason": null,
-              "samples": 42848
-            },
-            "shotNote": "Viewed the 4320x2700 capture: UI-capable and support work use both text and distinct structural labels, the unmapped A99/P9 identity is explicit, branch targets exceed 24px, and the map remains horizontally navigable without collapsing its left/right meaning.",
             "screenshotOcr": {
               "status": "clear",
               "role": "derived-warning-only",
@@ -5198,64 +5165,73 @@
               "runtime": "one-shot-subprocess",
               "resident": false,
               "network": "disabled-local-model-only",
-              "shot": "PP-001-A09-2-1787905819857.png",
-              "textArtifact": "PP-001-A09-2-1787905819857.ocr.txt",
-              "textSha256": "419be49716a25d355ceb606de88c5332f6cc48c38dfae25f3b0a809cf10a983b",
-              "confidence": 82,
-              "durationMs": 3359,
-              "rssStartBytes": 62377984,
-              "rssEndBytes": 202481664,
+              "shot": "PP-001-A09-2-1787909784537.png",
+              "textArtifact": "PP-001-A09-2-1787909784537.ocr.txt",
+              "textSha256": "fff4e69b5747b86ec37c455d61dce3fd8ed100e994373ff9c242896990ca2671",
+              "confidence": 78,
+              "durationMs": 4627,
+              "rssStartBytes": 62484480,
+              "rssEndBytes": 203468800,
               "workerTerminated": true,
               "expectedText": [],
               "alarms": []
             },
-            "tokensEst": 2200,
+            "diff": "PP-001-A09-2-1787909784537.diff",
+            "diffSha256": "b2656a81229d9dc11f68f1187603f611dff8cc95cb32ae4818ab50dbec24615a",
+            "diffBaseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+            "diffFiles": [
+              "scripts/run-e2e.mjs",
+              "src/App.tsx",
+              "src/components/DiagnosticsConsole.tsx",
+              "src/components/UiNavigationMap.tsx",
+              "src/index.css",
+              "tests/repository_rail_e2e.py",
+              "tests/ui_navigation_map_e2e.py"
+            ],
+            "screenshot": "PP-001-A09-2-1787909784537.png",
+            "screenshotSha256": "c79d3ae3607ed891620c5c38ad0c5014d8573b3d7810570546b835429e777bf0",
+            "screenshotCheck": {
+              "ok": true,
+              "width": 4320,
+              "height": 2700,
+              "bitDepth": 8,
+              "colorType": 2,
+              "blankScore": 0.4268,
+              "uniqueColors": 328,
+              "stddev": {
+                "r": 63.634,
+                "g": 60.934,
+                "b": 61.594
+              },
+              "reason": null,
+              "samples": 42848
+            },
+            "shotNote": "Viewed the 4320x2700 capture: attached and empty frames are structurally distinct, unmapped work has its own labelled group, Fit/100%/slider/minus/plus controls are visible, and the selected artboard has a non-colour-only outline.",
+            "tokensEst": 2500,
             "loc": {
-              "baseline": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+              "baseline": "312b7bfceb115274ec175021cea71c1d4c5f9dda",
               "scope": "files",
-              "added": 641,
-              "removed": 15,
+              "added": 562,
+              "removed": 198,
               "dirty": true,
               "files": [
                 {
-                  "file": "scripts/run-e2e.mjs",
-                  "added": 1,
-                  "removed": 0
-                },
-                {
-                  "file": "src/App.tsx",
-                  "added": 39,
-                  "removed": 14
-                },
-                {
-                  "file": "src/components/DiagnosticsConsole.tsx",
-                  "added": 1,
-                  "removed": 1
+                  "file": "src/components/UiNavigationMap.tsx",
+                  "added": 228,
+                  "removed": 174
                 },
                 {
                   "file": "src/index.css",
-                  "added": 221,
+                  "added": 293,
                   "removed": 0
-                },
-                {
-                  "file": "tests/repository_rail_e2e.py",
-                  "added": 6,
-                  "removed": 0
-                },
-                {
-                  "file": "src/components/UiNavigationMap.tsx",
-                  "added": 204,
-                  "removed": 0,
-                  "untracked": true
                 },
                 {
                   "file": "tests/ui_navigation_map_e2e.py",
-                  "added": 169,
-                  "removed": 0,
-                  "untracked": true
+                  "added": 41,
+                  "removed": 24
                 }
               ],
-              "fileCount": 7,
+              "fileCount": 3,
               "filesTruncated": false,
               "untrackedCapped": false
             }
@@ -5325,7 +5301,7 @@
         "session": "s-b4b3da34",
         "at": "2026-08-28T08:24:00.180Z"
       },
-      "lastStampSha": "8316d934a569ff7732039e11d3b8e4dc29b317fe",
+      "lastStampSha": "312b7bfceb115274ec175021cea71c1d4c5f9dda",
       "doneAt": "2026-08-28T08:30:33.791Z",
       "doneBy": {
         "model": "gpt-5.6-sol",

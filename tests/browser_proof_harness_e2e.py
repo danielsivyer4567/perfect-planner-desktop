@@ -19,14 +19,18 @@ def main() -> None:
         str(OUTPUT),
         "--name",
         "ui-snapshots-fallback",
+        "--height",
+        "1000",
         "--click",
         "#pp-btn-toggle-ui-navigation-map",
+        "--click",
+        "#pp-btn-ui-map-actual",
         "--expect",
         "#pp-region-ui-navigation-map",
         "--expect",
-        ".ui-map-spine-row",
+        ".ui-map-artboard",
         "--expand-scroll",
-        ".stage-workspace.mapping",
+        ".ui-map-viewport",
     ]
     completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, timeout=90)
     assert completed.returncode == 0, f"{completed.stdout}\n{completed.stderr}"

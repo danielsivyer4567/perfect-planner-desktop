@@ -1,8 +1,14 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readBoardEvidence, type Board } from "../services/boards";
-import type { ChecklistProof, EvidenceArtifact, PlanSnapshot, Vertebra } from "../types/plan";
+import type { ChecklistProof, EvidenceArtifact, PlanSnapshot, SpinePhase, Vertebra } from "../types/plan";
 
-type BranchSide = "L" | "R";
+const MIN_ZOOM = 0.18;
+const MAX_ZOOM = 1.4;
+const ZOOM_STEP = 0.1;
+
+function clampZoom(value: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value * 100) / 100));
+}
 
 function domToken(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "-");
@@ -30,80 +36,79 @@ function latestScreenshotProof(node: Vertebra): ChecklistProof | null {
     .sort((left, right) => String(right.at || "").localeCompare(String(left.at || "")))[0] || null;
 }
 
-function PageCard({
+function Artboard({
   node,
+  phase,
   selected,
-  onSelect,
   screenshot,
   screenshotProof,
+  onSelect,
 }: {
   node: Vertebra;
+  phase: SpinePhase | null;
   selected: boolean;
-  onSelect: (node: Vertebra) => void;
   screenshot: EvidenceArtifact | null | undefined;
   screenshotProof: ChecklistProof | null;
+  onSelect: (node: Vertebra) => void;
 }) {
-  const files = frontendFiles(node);
-  const uiItems = (node.checklist || []).filter((item) => item.ui);
-  const uiPage = isUiPage(node);
   const screenshotLoading = Boolean(screenshotProof) && screenshot === undefined;
+  const snapshotState = screenshot?.dataUrl
+    ? "attached"
+    : screenshotLoading
+      ? "loading"
+      : screenshotProof
+        ? "unavailable"
+        : "missing";
+  const width = screenshotProof?.screenshotCheck?.width || 1440;
+  const height = screenshotProof?.screenshotCheck?.height || 1000;
+  const pageKind = isUiPage(node) ? "ui-capable" : "support-work";
+
   return (
-    <details
-      className={`ui-map-page${uiPage ? " ui-capable" : " support-work"}${selected ? " selected" : ""}`}
+    <article
+      className={`ui-map-artboard ${pageKind}${selected ? " selected" : ""}`}
       id={`pp-ui-page-${domToken(node.id)}`}
       data-page-id={node.id}
       data-spine-id={node.spineId}
       data-page-side={node.side || "R"}
-      data-page-kind={uiPage ? "ui-capable" : "support-work"}
+      data-page-kind={pageKind}
       data-selected={selected}
-      data-snapshot-state={screenshot?.dataUrl ? "attached" : screenshotLoading ? "loading" : screenshotProof ? "unavailable" : "missing"}
+      data-snapshot-state={snapshotState}
+      style={{ "--artboard-ratio": `${width} / ${height}` } as React.CSSProperties}
     >
-      <summary
-        id={`pp-ui-page-summary-${domToken(node.id)}`}
+      <button
+        type="button"
+        className="ui-map-artboard-select"
         aria-current={selected ? "page" : undefined}
+        aria-label={`Focus ${node.id}, ${node.title}`}
         onClick={() => onSelect(node)}
       >
-        <span className="ui-map-page-id">{node.id}</span>
-        <span className={`ui-map-page-thumb${screenshot?.dataUrl ? " attached" : " missing"}`}>
+        <span className="ui-map-artboard-frame">
+          <span className="ui-map-artboard-index">{node.id}</span>
           {screenshot?.dataUrl ? (
-            <img src={screenshot.dataUrl} alt={`Previous screenshot for ${node.id} ${node.title}`} />
-          ) : <i aria-hidden="true">{screenshotLoading ? "…" : "—"}</i>}
+            <img
+              src={screenshot.dataUrl}
+              alt={screenshotProof?.shotNote || `Previous UI proof for ${node.id} ${node.title}`}
+            />
+          ) : (
+            <span className="ui-map-artboard-empty">
+              <i aria-hidden="true">{screenshotLoading ? "···" : "□"}</i>
+              <b>{screenshotLoading ? "Loading capture" : screenshotProof ? "Capture unavailable" : "No screenshot yet"}</b>
+              <small>{screenshotProof?.screenshot || "This node has no visual proof attached."}</small>
+            </span>
+          )}
         </span>
-        <span className="ui-map-page-copy">
-          <strong>{node.title}</strong>
-          <small>{uiPage ? "UI-capable page/surface" : "Support work · no UI mapping recorded"}</small>
+        <span className="ui-map-artboard-caption">
+          <span>
+            <b>{node.title}</b>
+            <small>{phase?.title || `Missing spine ${node.spineId}`}</small>
+          </span>
+          <span className="ui-map-artboard-meta">
+            <i>{node.side === "L" ? "←" : "→"}</i>
+            <em>{progressLabel(node)}</em>
+          </span>
         </span>
-        <span className="ui-map-page-progress">{progressLabel(node)}</span>
-      </summary>
-      <div className={`ui-map-page-snapshot${screenshot?.dataUrl ? " attached" : " missing"}`}>
-        {screenshot?.dataUrl ? (
-          <img
-            src={screenshot.dataUrl}
-            alt={screenshotProof?.shotNote || `Previous UI proof for ${node.id} ${node.title}`}
-          />
-        ) : (
-          <span>{screenshotLoading ? "LOADING PREVIOUS CAPTURE" : screenshotProof ? "CAPTURE REFERENCED · FILE UNAVAILABLE" : "NO SNAPSHOT ATTACHED TO THIS NODE"}</span>
-        )}
-      </div>
-      <div className="ui-map-page-body">
-        <dl>
-          <div><dt>Spine ID</dt><dd>{node.spineId}</dd></div>
-          <div><dt>Page / node ID</dt><dd>{node.id}</dd></div>
-          <div><dt>Recorded side</dt><dd>{node.side || "R (default)"}</dd></div>
-          <div><dt>Status</dt><dd>{node.status || "unknown"}</dd></div>
-        </dl>
-        <section>
-          <h3>UI files</h3>
-          {files.length ? files.map((file) => <code key={file}>{file}</code>) : <p>Unknown — no frontend file is recorded for this node.</p>}
-        </section>
-        <section>
-          <h3>UI outcomes</h3>
-          {uiItems.length ? (
-            <ul>{uiItems.map((item, index) => <li key={item.id || `${node.id}-${index}`}>{item.text}</li>)}</ul>
-          ) : <p>Unknown — no checklist item is marked as a UI outcome.</p>}
-        </section>
-      </div>
-    </details>
+      </button>
+    </article>
   );
 }
 
@@ -114,32 +119,65 @@ export function UiNavigationMap({
   board: Board;
   plan: PlanSnapshot | null | undefined;
 }) {
-  const [openSides, setOpenSides] = useState<Set<string>>(() => new Set());
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const worldRef = useRef<HTMLDivElement | null>(null);
+  const panRef = useRef({ active: false, pointerId: 0, x: 0, y: 0, left: 0, top: 0 });
+  const [zoom, setZoom] = useState(0.5);
+  const [panning, setPanning] = useState(false);
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [screenshots, setScreenshots] = useState<Map<string, EvidenceArtifact | null>>(() => new Map());
+
   const phases = useMemo(() => {
     if (!plan) return [];
-    return plan.spine.map((phase) => {
-      const nodes = plan.vertebrae.filter((node) => node.spineId === phase.id);
-      return {
-        phase,
-        left: nodes.filter((node) => node.side === "L"),
-        right: nodes.filter((node) => node.side !== "L"),
-      };
-    });
+    return plan.spine.map((phase) => ({
+      phase,
+      nodes: plan.vertebrae.filter((node) => node.spineId === phase.id),
+    }));
   }, [plan]);
   const allNodes = plan?.vertebrae || [];
-  const uiCount = allNodes.filter(isUiPage).length;
-  const supportCount = allNodes.length - uiCount;
   const assignedIds = new Set((plan?.spine || []).map((phase) => phase.id));
   const orphaned = allNodes.filter((node) => !assignedIds.has(node.spineId));
+  const uiCount = allNodes.filter(isUiPage).length;
   const selectedNode = allNodes.find((node) => node.id === selectedPageId) || null;
 
+  const changeZoom = useCallback((requested: number) => {
+    const next = clampZoom(requested);
+    const viewport = viewportRef.current;
+    if (!viewport) {
+      setZoom(next);
+      return;
+    }
+    const contentX = (viewport.scrollLeft + viewport.clientWidth / 2) / zoom;
+    const contentY = (viewport.scrollTop + viewport.clientHeight / 2) / zoom;
+    setZoom(next);
+    window.requestAnimationFrame(() => {
+      viewport.scrollLeft = Math.max(0, contentX * next - viewport.clientWidth / 2);
+      viewport.scrollTop = Math.max(0, contentY * next - viewport.clientHeight / 2);
+    });
+  }, [zoom]);
+
+  const fitToView = useCallback(() => {
+    const viewport = viewportRef.current;
+    const world = worldRef.current;
+    if (!viewport || !world) return;
+    const baseWidth = world.scrollWidth;
+    const baseHeight = world.scrollHeight;
+    if (!baseWidth || !baseHeight) return;
+    const next = clampZoom(Math.min(
+      (viewport.clientWidth - 72) / baseWidth,
+      (viewport.clientHeight - 72) / baseHeight,
+      1,
+    ));
+    setZoom(next);
+    window.requestAnimationFrame(() => viewport.scrollTo({ left: 0, top: 0, behavior: "auto" }));
+  }, []);
+
   useEffect(() => {
-    if (!plan) return;
-    setOpenSides(new Set(plan.spine.flatMap((phase) => [`${phase.id}:L`, `${phase.id}:R`])));
     setSelectedPageId(null);
-  }, [plan]);
+    setZoom(0.5);
+    const frame = window.requestAnimationFrame(() => fitToView());
+    return () => window.cancelAnimationFrame(frame);
+  }, [fitToView, plan]);
 
   useEffect(() => {
     let live = true;
@@ -158,16 +196,6 @@ export function UiNavigationMap({
     return () => { live = false; };
   }, [board.planPath, board.port, plan]);
 
-  const toggleSide = (spineId: string, side: BranchSide) => {
-    const key = `${spineId}:${side}`;
-    setOpenSides((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
-
   const focusPage = (node: Vertebra) => {
     setSelectedPageId(node.id);
     window.requestAnimationFrame(() => {
@@ -179,10 +207,40 @@ export function UiNavigationMap({
     });
   };
 
+  const beginPan = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || (event.target as HTMLElement).closest("button, input, .ui-map-artboard")) return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    panRef.current = {
+      active: true,
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      left: viewport.scrollLeft,
+      top: viewport.scrollTop,
+    };
+    viewport.setPointerCapture(event.pointerId);
+    setPanning(true);
+  };
+
+  const movePan = (event: React.PointerEvent<HTMLDivElement>) => {
+    const pan = panRef.current;
+    const viewport = viewportRef.current;
+    if (!pan.active || pan.pointerId !== event.pointerId || !viewport) return;
+    viewport.scrollLeft = pan.left - (event.clientX - pan.x);
+    viewport.scrollTop = pan.top - (event.clientY - pan.y);
+  };
+
+  const endPan = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (panRef.current.pointerId !== event.pointerId) return;
+    panRef.current.active = false;
+    setPanning(false);
+  };
+
   if (!plan) {
     return (
       <section className="ui-navigation-map ui-navigation-map-empty" id="pp-region-ui-navigation-map">
-        <strong>UI MAP · NOT AVAILABLE</strong>
+        <strong>SNAPSHOT CANVAS · NOT AVAILABLE</strong>
         <p>The plan snapshot for {board.repoName} / {board.number || "unnumbered plan"} is not loaded. Perfect Planner will not invent page IDs.</p>
       </section>
     );
@@ -195,114 +253,110 @@ export function UiNavigationMap({
       aria-labelledby="pp-heading-ui-navigation-map"
       data-plan-id={plan.meta?.number || board.number || "unassigned"}
       data-repository-root={board.repoRoot}
-      data-focus-page={selectedNode?.id || "spine"}
-      data-focus-side={selectedNode?.side === "L" ? "L" : selectedNode ? "R" : "spine"}
+      data-focus-page={selectedNode?.id || "canvas"}
+      data-focus-side={selectedNode?.side === "L" ? "L" : selectedNode ? "R" : "canvas"}
+      data-zoom={Math.round(zoom * 100)}
     >
-      <header className="ui-navigation-map-head">
-        <div>
-          <span>SEPARATE MODE · PLAN-DERIVED PAGE INVENTORY</span>
-          <h2 id="pp-heading-ui-navigation-map">UI navigation spine</h2>
-          <p>{board.repoName} · {plan.meta?.number || board.number || "unnumbered plan"} · {board.branch}</p>
+      <header className="ui-map-toolbar">
+        <div className="ui-map-toolbar-title">
+          <span>SNAPSHOT CANVAS</span>
+          <h2 id="pp-heading-ui-navigation-map">{board.repoName}</h2>
+          <p>{plan.meta?.number || board.number || "unnumbered plan"} · {selectedNode ? `${selectedNode.spineId} / ${selectedNode.id} / ${selectedNode.title}` : `${plan.spine.length} phases · ${allNodes.length} pages`}</p>
         </div>
-        <div className="ui-map-counts" aria-label="UI mapping totals">
-          <span><b>{plan.spine.length}</b> spine segments</span>
-          <span><b>{uiCount}</b> UI-capable</span>
-          <span><b>{supportCount}</b> support</span>
-          <span data-state={orphaned.length ? "warning" : "ready"}><b>{orphaned.length}</b> unmapped</span>
+        <div className="ui-map-proof-state" aria-label="Browser proof routing">
+          <span data-proof-method="chrome-mcp"><b>Chrome MCP</b> preferred</span>
+          <span data-proof-method="playwright-script"><b>Script proof</b> ready</span>
+          <span data-proof-method="last-run"><b>Attached run</b> unknown</span>
+        </div>
+        <div className="ui-map-zoom-controls" role="group" aria-label="Snapshot canvas zoom">
+          <button id="pp-btn-ui-map-zoom-out" type="button" aria-label="Zoom out" onClick={() => changeZoom(zoom - ZOOM_STEP)}>−</button>
+          <label>
+            <span className="sr-only">Canvas zoom percentage</span>
+            <input
+              id="pp-input-ui-map-zoom"
+              type="range"
+              min={MIN_ZOOM * 100}
+              max={MAX_ZOOM * 100}
+              step="1"
+              value={Math.round(zoom * 100)}
+              onChange={(event) => changeZoom(Number(event.target.value) / 100)}
+            />
+          </label>
+          <output htmlFor="pp-input-ui-map-zoom">{Math.round(zoom * 100)}%</output>
+          <button id="pp-btn-ui-map-zoom-in" type="button" aria-label="Zoom in" onClick={() => changeZoom(zoom + ZOOM_STEP)}>+</button>
+          <button id="pp-btn-ui-map-fit" type="button" onClick={fitToView}>Fit</button>
+          <button id="pp-btn-ui-map-actual" type="button" onClick={() => changeZoom(1)}>100%</button>
         </div>
       </header>
-      <aside className="ui-map-disclosure" role="note">
-        This view mirrors the loaded Perfect Plan. A node is called UI-capable only when its plan records a frontend file or a UI checklist item; it is not a runtime route crawl.
-      </aside>
 
-      <section className="ui-map-proof-routing" aria-labelledby="pp-heading-browser-proof-routing">
-        <div>
-          <span>BROWSER PROOF ROUTING</span>
-          <h3 id="pp-heading-browser-proof-routing">One visual result, explicit evidence source</h3>
-        </div>
-        <dl>
-          <div data-proof-method="chrome-mcp">
-            <dt>Chrome MCP</dt><dd><b>PREFERRED</b> · host availability checked at runtime</dd>
-          </div>
-          <div data-proof-method="playwright-script">
-            <dt>Script fallback</dt><dd><b>READY</b> · full PNG + JSON logs · Chrome/Chromium · cross-platform</dd>
-          </div>
-          <div data-proof-method="last-run">
-            <dt>Last attached run</dt><dd><b>UNKNOWN</b> · no report is inferred from the plan</dd>
-          </div>
-        </dl>
-      </section>
-
-      <nav className="ui-map-path" aria-label="Selected construction path">
-        <span>CONSTRUCTION PATH</span>
-        <b>{selectedNode ? `${selectedNode.spineId} → ${selectedNode.id}` : "FULL SPINE"}</b>
-        <small>{selectedNode ? `${selectedNode.side === "L" ? "Left" : "Right"} branch · ${selectedNode.title}` : "All recorded left and right branches are visible."}</small>
-      </nav>
-
-      <div className="ui-map-canvas">
-        <div className="ui-map-axis" aria-hidden="true" />
-        {phases.map(({ phase, left, right }, phaseIndex) => {
-          const leftKey = `${phase.id}:L`;
-          const rightKey = `${phase.id}:R`;
-          const leftOpen = openSides.has(leftKey);
-          const rightOpen = openSides.has(rightKey);
-          const leftRegionId = `pp-ui-branch-${domToken(phase.id)}-left`;
-          const rightRegionId = `pp-ui-branch-${domToken(phase.id)}-right`;
-          return (
-            <section
-              className="ui-map-spine-row"
-              key={phase.id}
-              data-spine-id={phase.id}
-              style={{ "--phase-index": phaseIndex } as React.CSSProperties}
-            >
-              <div className={`ui-map-branch left${leftOpen ? " open" : ""}`} id={leftRegionId}>
-                {leftOpen ? left.map((node) => <PageCard key={node.id} node={node} selected={selectedPageId === node.id} onSelect={focusPage} screenshot={screenshots.get(node.id)} screenshotProof={latestScreenshotProof(node)} />) : null}
-                {leftOpen && !left.length ? <p className="ui-map-branch-empty">No left-side page IDs are recorded.</p> : null}
-              </div>
-
-              <article className="ui-map-spine-segment">
-                <button
-                  id={`pp-btn-ui-map-${domToken(phase.id)}-left`}
-                  type="button"
-                  className="ui-map-branch-toggle left"
-                  aria-expanded={leftOpen}
-                  aria-controls={leftRegionId}
-                  onClick={() => toggleSide(phase.id, "L")}
-                  title={`Show ${left.length} left-side page${left.length === 1 ? "" : "s"} for ${phase.id}`}
-                >
-                  <span aria-hidden="true">‹</span><b>{left.length}</b><span className="sr-only"> left-side pages</span>
-                </button>
-                <span className="ui-map-spine-id">{phase.id}</span>
+      <div
+        ref={viewportRef}
+        className={`ui-map-viewport${panning ? " panning" : ""}`}
+        tabIndex={0}
+        aria-label="Scrollable snapshot canvas. Hold Control and use the mouse wheel to zoom. Drag empty canvas space to pan."
+        onPointerDown={beginPan}
+        onPointerMove={movePan}
+        onPointerUp={endPan}
+        onPointerCancel={endPan}
+        onWheel={(event) => {
+          if (!event.ctrlKey && !event.metaKey) return;
+          event.preventDefault();
+          changeZoom(zoom + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
+        }}
+      >
+        <div className="ui-map-world" ref={worldRef} style={{ zoom }}>
+          {phases.map(({ phase, nodes }, phaseIndex) => (
+            <section className="ui-map-phase" key={phase.id} data-spine-id={phase.id}>
+              <header>
+                <span>{String(phaseIndex + 1).padStart(2, "0")} · {phase.id}</span>
                 <h3>{phase.title}</h3>
                 <p>{phase.summary || "No phase summary is recorded."}</p>
-                <button
-                  id={`pp-btn-ui-map-${domToken(phase.id)}-right`}
-                  type="button"
-                  className="ui-map-branch-toggle right"
-                  aria-expanded={rightOpen}
-                  aria-controls={rightRegionId}
-                  onClick={() => toggleSide(phase.id, "R")}
-                  title={`Show ${right.length} right-side page${right.length === 1 ? "" : "s"} for ${phase.id}`}
-                >
-                  <b>{right.length}</b><span aria-hidden="true">›</span><span className="sr-only"> right-side pages</span>
-                </button>
-              </article>
-
-              <div className={`ui-map-branch right${rightOpen ? " open" : ""}`} id={rightRegionId}>
-                {rightOpen ? right.map((node) => <PageCard key={node.id} node={node} selected={selectedPageId === node.id} onSelect={focusPage} screenshot={screenshots.get(node.id)} screenshotProof={latestScreenshotProof(node)} />) : null}
-                {rightOpen && !right.length ? <p className="ui-map-branch-empty">No right-side page IDs are recorded.</p> : null}
+              </header>
+              <div className="ui-map-artboards">
+                {nodes.length ? nodes.map((node) => (
+                  <Artboard
+                    key={node.id}
+                    node={node}
+                    phase={phase}
+                    selected={selectedPageId === node.id}
+                    screenshot={screenshots.get(node.id)}
+                    screenshotProof={latestScreenshotProof(node)}
+                    onSelect={focusPage}
+                  />
+                )) : (
+                  <div className="ui-map-empty-phase"><b>No pages recorded</b><span>The phase exists, but it has no page or task nodes.</span></div>
+                )}
               </div>
             </section>
-          );
-        })}
+          ))}
+
+          {orphaned.length ? (
+            <section className="ui-map-phase ui-map-orphan-phase" data-spine-id="unmapped">
+              <header><span>UNMAPPED</span><h3>Nodes outside the spine</h3><p>These IDs reference a phase that is not present in the loaded plan.</p></header>
+              <div className="ui-map-artboards">
+                {orphaned.map((node) => (
+                  <Artboard
+                    key={node.id}
+                    node={node}
+                    phase={null}
+                    selected={selectedPageId === node.id}
+                    screenshot={screenshots.get(node.id)}
+                    screenshotProof={latestScreenshotProof(node)}
+                    onSelect={focusPage}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </div>
       </div>
 
-      {orphaned.length ? (
-        <aside className="ui-map-orphans" role="status">
-          <strong>UNMAPPED NODE IDs</strong>
-          <p>{orphaned.map((node) => `${node.id} → missing spine ${node.spineId}`).join(" · ")}</p>
-        </aside>
-      ) : null}
+      <footer className="ui-map-statusbar">
+        <span><b>{uiCount}</b> UI pages</span>
+        <span><b>{allNodes.length - uiCount}</b> support nodes</span>
+        <span data-state={orphaned.length ? "warning" : "ready"}><b>{orphaned.length}</b> unmapped</span>
+        <span>Drag to pan · Ctrl/⌘ + wheel to zoom</span>
+      </footer>
     </section>
   );
 }

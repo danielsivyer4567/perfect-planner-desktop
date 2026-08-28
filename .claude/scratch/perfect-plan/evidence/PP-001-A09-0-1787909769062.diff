@@ -1,0 +1,1427 @@
+diff --git a/scripts/run-e2e.mjs b/scripts/run-e2e.mjs
+index 16d5d52..6edd0a3 100644
+--- a/scripts/run-e2e.mjs
++++ b/scripts/run-e2e.mjs
+@@ -5,7 +5,10 @@ const tests = [
+   "tests/control_connector_e2e.py",
+   "tests/approval_chat_bridge_e2e.py",
+   "tests/alarm_e2e.py",
++  "tests/head_orchestrator_character_e2e.py",
+   "tests/repository_rail_e2e.py",
++  "tests/ui_navigation_map_e2e.py",
++  "tests/browser_proof_harness_e2e.py",
+   "tests/evidence_e2e.py",
+   "tests/control_plane_e2e.py",
+   "tests/orchestration_workspace_e2e.py",
+diff --git a/src/App.tsx b/src/App.tsx
+index d351889..0e7e0ae 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -25,6 +25,7 @@ import { ResourceGuard, type ResourceGuardState } from "./components/ResourceGua
+ import { ActionContextMenu, type ContextActionLog } from "./components/ActionContextMenu";
+ import { DiagnosticsConsole, type DiagnosticEntry } from "./components/DiagnosticsConsole";
+ import { OperationalTruth } from "./components/OperationalTruth";
++import { UiNavigationMap } from "./components/UiNavigationMap";
+ import {
+   browserOrchestratorScope,
+   OrchestratorSnapshot,
+@@ -309,6 +310,7 @@ export const App: React.FC = () => {
+   const [parallelAgents, setParallelAgents] = useState(storedParallelAgents);
+   const [railCollapsed, setRailCollapsed] = useState(storedRailCollapsed);
+   const [comparisonOpen, setComparisonOpen] = useState(false);
++  const [uiMapOpen, setUiMapOpen] = useState(false);
+   const [resourceGuard, setResourceGuard] = useState<ResourceGuardState>({
+     status: "checking",
+     result: null,
+@@ -346,11 +348,12 @@ export const App: React.FC = () => {
+   }, []);
+ 
+   const recordDiagnostic = useCallback((entry: Omit<DiagnosticEntry, "id" | "at">) => {
+-    diagnosticSequenceRef.current += 1;
++    const sequence = ++diagnosticSequenceRef.current;
++    const recordedAt = Date.now();
+     setDiagnosticEntries((current) => [...current.slice(-199), {
+       ...entry,
+-      id: `diagnostic-${diagnosticSequenceRef.current}`,
+-      at: Date.now(),
++      id: `diagnostic-${sequence}`,
++      at: recordedAt,
+     }]);
+   }, []);
+ 
+@@ -1707,7 +1710,10 @@ export const App: React.FC = () => {
+                   className={`chip${comparisonOpen ? " active" : ""}`}
+                   aria-expanded={comparisonOpen}
+                   aria-controls="pp-region-ui-comparison"
+-                  onClick={() => setComparisonOpen((current) => !current)}
++                  onClick={() => {
++                    setComparisonOpen((current) => !current);
++                    setUiMapOpen(false);
++                  }}
+                 >
+                   {comparisonOpen ? "close comparison" : "compare UI"}
+                 </button>
+@@ -1735,16 +1741,22 @@ export const App: React.FC = () => {
+                 </a>
+               </span>
+             </div>
+-            <div className={`stage-workspace${comparisonOpen ? " comparing" : ""}`}>
+-              <iframe
+-                id="pp-frame-active-board"
+-                key={`${active.port}:${nonce}`}
+-                ref={frameRef}
+-                className="board"
+-                src={active.url}
+-                title={boardLabel(active)}
+-              />
+-              {comparisonOpen ? <LocalOutputWitness board={active} plan={activePlan} variant="comparison" /> : null}
++            <div className={`stage-workspace${comparisonOpen ? " comparing" : ""}${uiMapOpen ? " mapping" : ""}`}>
++              {uiMapOpen ? (
++                <UiNavigationMap key={active.planPath} board={active} plan={activePlan} />
++              ) : (
++                <>
++                  <iframe
++                    id="pp-frame-active-board"
++                    key={`${active.port}:${nonce}`}
++                    ref={frameRef}
++                    className="board"
++                    src={active.url}
++                    title={boardLabel(active)}
++                  />
++                  {comparisonOpen ? <LocalOutputWitness board={active} plan={activePlan} variant="comparison" /> : null}
++                </>
++              )}
+             </div>
+           </>
+         ) : (
+@@ -1767,6 +1779,22 @@ export const App: React.FC = () => {
+           </div>
+         )}
+       </main>
++      {active ? (
++        <button
++          id="pp-btn-toggle-ui-navigation-map"
++          type="button"
++          className={`snapshot-mode-pill${uiMapOpen ? " active" : ""}`}
++          aria-pressed={uiMapOpen}
++          aria-controls="pp-region-ui-navigation-map"
++          onClick={() => {
++            setUiMapOpen((current) => !current);
++            setComparisonOpen(false);
++          }}
++        >
++          <span aria-hidden="true">{uiMapOpen ? "×" : "◉"}</span>
++          {uiMapOpen ? "Close snapshots" : "Snapshots"}
++        </button>
++      ) : null}
+       <DiagnosticsConsole
+         activeBoard={active}
+         activePlan={activePlan}
+diff --git a/src/components/DiagnosticsConsole.tsx b/src/components/DiagnosticsConsole.tsx
+index 196b3ef..4e42ed5 100644
+--- a/src/components/DiagnosticsConsole.tsx
++++ b/src/components/DiagnosticsConsole.tsx
+@@ -177,7 +177,7 @@ export function DiagnosticsConsole({
+               </div>
+               <button type="button" id="pp-btn-diagnostics-clear" onClick={onClear}>Clear display</button>
+               {entries.length ? entries.slice().reverse().map((entry) => (
+-                <article key={entry.id} data-level={entry.level}>
++                <article key={entry.id} data-level={entry.level} data-diagnostic-id={entry.id}>
+                   <time dateTime={new Date(entry.at).toISOString()}>{new Date(entry.at).toLocaleTimeString()}</time>
+                   <strong>{entry.source}</strong>
+                   <p>{entry.message}</p>
+diff --git a/src/components/UiNavigationMap.tsx b/src/components/UiNavigationMap.tsx
+new file mode 100644
+index 0000000..9d7e7bd
+--- /dev/null
++++ b/src/components/UiNavigationMap.tsx
+@@ -0,0 +1,362 @@
++import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
++import { readBoardEvidence, type Board } from "../services/boards";
++import type { ChecklistProof, EvidenceArtifact, PlanSnapshot, SpinePhase, Vertebra } from "../types/plan";
++
++const MIN_ZOOM = 0.18;
++const MAX_ZOOM = 1.4;
++const ZOOM_STEP = 0.1;
++
++function clampZoom(value: number): number {
++  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value * 100) / 100));
++}
++
++function domToken(value: string): string {
++  return value.replace(/[^a-zA-Z0-9_-]/g, "-");
++}
++
++function frontendFiles(node: Vertebra): string[] {
++  return (node.files || []).filter((file) => /\.(tsx?|jsx?|vue|svelte|html|css|scss)$/i.test(file));
++}
++
++function isUiPage(node: Vertebra): boolean {
++  return frontendFiles(node).length > 0 || (node.checklist || []).some((item) => item.ui);
++}
++
++function progressLabel(node: Vertebra): string {
++  const checklist = node.checklist || [];
++  if (!checklist.length) return (node.status || "unknown").toUpperCase();
++  const tested = checklist.filter((item) => item.tested).length;
++  return `${tested}/${checklist.length} proven`;
++}
++
++function latestScreenshotProof(node: Vertebra): ChecklistProof | null {
++  return (node.checklist || [])
++    .map((item) => item.proof)
++    .filter((proof): proof is ChecklistProof => Boolean(proof?.screenshot) && proof?.screenshotCheck?.ok !== false)
++    .sort((left, right) => String(right.at || "").localeCompare(String(left.at || "")))[0] || null;
++}
++
++function Artboard({
++  node,
++  phase,
++  selected,
++  screenshot,
++  screenshotProof,
++  onSelect,
++}: {
++  node: Vertebra;
++  phase: SpinePhase | null;
++  selected: boolean;
++  screenshot: EvidenceArtifact | null | undefined;
++  screenshotProof: ChecklistProof | null;
++  onSelect: (node: Vertebra) => void;
++}) {
++  const screenshotLoading = Boolean(screenshotProof) && screenshot === undefined;
++  const snapshotState = screenshot?.dataUrl
++    ? "attached"
++    : screenshotLoading
++      ? "loading"
++      : screenshotProof
++        ? "unavailable"
++        : "missing";
++  const width = screenshotProof?.screenshotCheck?.width || 1440;
++  const height = screenshotProof?.screenshotCheck?.height || 1000;
++  const pageKind = isUiPage(node) ? "ui-capable" : "support-work";
++
++  return (
++    <article
++      className={`ui-map-artboard ${pageKind}${selected ? " selected" : ""}`}
++      id={`pp-ui-page-${domToken(node.id)}`}
++      data-page-id={node.id}
++      data-spine-id={node.spineId}
++      data-page-side={node.side || "R"}
++      data-page-kind={pageKind}
++      data-selected={selected}
++      data-snapshot-state={snapshotState}
++      style={{ "--artboard-ratio": `${width} / ${height}` } as React.CSSProperties}
++    >
++      <button
++        type="button"
++        className="ui-map-artboard-select"
++        aria-current={selected ? "page" : undefined}
++        aria-label={`Focus ${node.id}, ${node.title}`}
++        onClick={() => onSelect(node)}
++      >
++        <span className="ui-map-artboard-frame">
++          <span className="ui-map-artboard-index">{node.id}</span>
++          {screenshot?.dataUrl ? (
++            <img
++              src={screenshot.dataUrl}
++              alt={screenshotProof?.shotNote || `Previous UI proof for ${node.id} ${node.title}`}
++            />
++          ) : (
++            <span className="ui-map-artboard-empty">
++              <i aria-hidden="true">{screenshotLoading ? "···" : "□"}</i>
++              <b>{screenshotLoading ? "Loading capture" : screenshotProof ? "Capture unavailable" : "No screenshot yet"}</b>
++              <small>{screenshotProof?.screenshot || "This node has no visual proof attached."}</small>
++            </span>
++          )}
++        </span>
++        <span className="ui-map-artboard-caption">
++          <span>
++            <b>{node.title}</b>
++            <small>{phase?.title || `Missing spine ${node.spineId}`}</small>
++          </span>
++          <span className="ui-map-artboard-meta">
++            <i>{node.side === "L" ? "←" : "→"}</i>
++            <em>{progressLabel(node)}</em>
++          </span>
++        </span>
++      </button>
++    </article>
++  );
++}
++
++export function UiNavigationMap({
++  board,
++  plan,
++}: {
++  board: Board;
++  plan: PlanSnapshot | null | undefined;
++}) {
++  const viewportRef = useRef<HTMLDivElement | null>(null);
++  const worldRef = useRef<HTMLDivElement | null>(null);
++  const panRef = useRef({ active: false, pointerId: 0, x: 0, y: 0, left: 0, top: 0 });
++  const [zoom, setZoom] = useState(0.5);
++  const [panning, setPanning] = useState(false);
++  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
++  const [screenshots, setScreenshots] = useState<Map<string, EvidenceArtifact | null>>(() => new Map());
++
++  const phases = useMemo(() => {
++    if (!plan) return [];
++    return plan.spine.map((phase) => ({
++      phase,
++      nodes: plan.vertebrae.filter((node) => node.spineId === phase.id),
++    }));
++  }, [plan]);
++  const allNodes = plan?.vertebrae || [];
++  const assignedIds = new Set((plan?.spine || []).map((phase) => phase.id));
++  const orphaned = allNodes.filter((node) => !assignedIds.has(node.spineId));
++  const uiCount = allNodes.filter(isUiPage).length;
++  const selectedNode = allNodes.find((node) => node.id === selectedPageId) || null;
++
++  const changeZoom = useCallback((requested: number) => {
++    const next = clampZoom(requested);
++    const viewport = viewportRef.current;
++    if (!viewport) {
++      setZoom(next);
++      return;
++    }
++    const contentX = (viewport.scrollLeft + viewport.clientWidth / 2) / zoom;
++    const contentY = (viewport.scrollTop + viewport.clientHeight / 2) / zoom;
++    setZoom(next);
++    window.requestAnimationFrame(() => {
++      viewport.scrollLeft = Math.max(0, contentX * next - viewport.clientWidth / 2);
++      viewport.scrollTop = Math.max(0, contentY * next - viewport.clientHeight / 2);
++    });
++  }, [zoom]);
++
++  const fitToView = useCallback(() => {
++    const viewport = viewportRef.current;
++    const world = worldRef.current;
++    if (!viewport || !world) return;
++    const baseWidth = world.scrollWidth;
++    const baseHeight = world.scrollHeight;
++    if (!baseWidth || !baseHeight) return;
++    const next = clampZoom(Math.min(
++      (viewport.clientWidth - 72) / baseWidth,
++      (viewport.clientHeight - 72) / baseHeight,
++      1,
++    ));
++    setZoom(next);
++    window.requestAnimationFrame(() => viewport.scrollTo({ left: 0, top: 0, behavior: "auto" }));
++  }, []);
++
++  useEffect(() => {
++    setSelectedPageId(null);
++    setZoom(0.5);
++    const frame = window.requestAnimationFrame(() => fitToView());
++    return () => window.cancelAnimationFrame(frame);
++  }, [fitToView, plan]);
++
++  useEffect(() => {
++    let live = true;
++    setScreenshots(new Map());
++    if (!plan) return () => { live = false; };
++    const captures = plan.vertebrae.flatMap((node) => {
++      const proof = latestScreenshotProof(node);
++      return proof?.screenshot ? [{ nodeId: node.id, fileName: proof.screenshot }] : [];
++    });
++    void Promise.all(captures.map(async ({ nodeId, fileName }) => ({
++      nodeId,
++      artifact: await readBoardEvidence(board, fileName),
++    }))).then((results) => {
++      if (live) setScreenshots(new Map(results.map(({ nodeId, artifact }) => [nodeId, artifact])));
++    });
++    return () => { live = false; };
++  }, [board.planPath, board.port, plan]);
++
++  const focusPage = (node: Vertebra) => {
++    setSelectedPageId(node.id);
++    window.requestAnimationFrame(() => {
++      document.getElementById(`pp-ui-page-${domToken(node.id)}`)?.scrollIntoView({
++        block: "center",
++        inline: "center",
++        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
++      });
++    });
++  };
++
++  const beginPan = (event: React.PointerEvent<HTMLDivElement>) => {
++    if (event.button !== 0 || (event.target as HTMLElement).closest("button, input, .ui-map-artboard")) return;
++    const viewport = viewportRef.current;
++    if (!viewport) return;
++    panRef.current = {
++      active: true,
++      pointerId: event.pointerId,
++      x: event.clientX,
++      y: event.clientY,
++      left: viewport.scrollLeft,
++      top: viewport.scrollTop,
++    };
++    viewport.setPointerCapture(event.pointerId);
++    setPanning(true);
++  };
++
++  const movePan = (event: React.PointerEvent<HTMLDivElement>) => {
++    const pan = panRef.current;
++    const viewport = viewportRef.current;
++    if (!pan.active || pan.pointerId !== event.pointerId || !viewport) return;
++    viewport.scrollLeft = pan.left - (event.clientX - pan.x);
++    viewport.scrollTop = pan.top - (event.clientY - pan.y);
++  };
++
++  const endPan = (event: React.PointerEvent<HTMLDivElement>) => {
++    if (panRef.current.pointerId !== event.pointerId) return;
++    panRef.current.active = false;
++    setPanning(false);
++  };
++
++  if (!plan) {
++    return (
++      <section className="ui-navigation-map ui-navigation-map-empty" id="pp-region-ui-navigation-map">
++        <strong>SNAPSHOT CANVAS · NOT AVAILABLE</strong>
++        <p>The plan snapshot for {board.repoName} / {board.number || "unnumbered plan"} is not loaded. Perfect Planner will not invent page IDs.</p>
++      </section>
++    );
++  }
++
++  return (
++    <section
++      className="ui-navigation-map"
++      id="pp-region-ui-navigation-map"
++      aria-labelledby="pp-heading-ui-navigation-map"
++      data-plan-id={plan.meta?.number || board.number || "unassigned"}
++      data-repository-root={board.repoRoot}
++      data-focus-page={selectedNode?.id || "canvas"}
++      data-focus-side={selectedNode?.side === "L" ? "L" : selectedNode ? "R" : "canvas"}
++      data-zoom={Math.round(zoom * 100)}
++    >
++      <header className="ui-map-toolbar">
++        <div className="ui-map-toolbar-title">
++          <span>SNAPSHOT CANVAS</span>
++          <h2 id="pp-heading-ui-navigation-map">{board.repoName}</h2>
++          <p>{plan.meta?.number || board.number || "unnumbered plan"} · {selectedNode ? `${selectedNode.spineId} / ${selectedNode.id} / ${selectedNode.title}` : `${plan.spine.length} phases · ${allNodes.length} pages`}</p>
++        </div>
++        <div className="ui-map-proof-state" aria-label="Browser proof routing">
++          <span data-proof-method="chrome-mcp"><b>Chrome MCP</b> preferred</span>
++          <span data-proof-method="playwright-script"><b>Script proof</b> ready</span>
++          <span data-proof-method="last-run"><b>Attached run</b> unknown</span>
++        </div>
++        <div className="ui-map-zoom-controls" role="group" aria-label="Snapshot canvas zoom">
++          <button id="pp-btn-ui-map-zoom-out" type="button" aria-label="Zoom out" onClick={() => changeZoom(zoom - ZOOM_STEP)}>−</button>
++          <label>
++            <span className="sr-only">Canvas zoom percentage</span>
++            <input
++              id="pp-input-ui-map-zoom"
++              type="range"
++              min={MIN_ZOOM * 100}
++              max={MAX_ZOOM * 100}
++              step="1"
++              value={Math.round(zoom * 100)}
++              onChange={(event) => changeZoom(Number(event.target.value) / 100)}
++            />
++          </label>
++          <output htmlFor="pp-input-ui-map-zoom">{Math.round(zoom * 100)}%</output>
++          <button id="pp-btn-ui-map-zoom-in" type="button" aria-label="Zoom in" onClick={() => changeZoom(zoom + ZOOM_STEP)}>+</button>
++          <button id="pp-btn-ui-map-fit" type="button" onClick={fitToView}>Fit</button>
++          <button id="pp-btn-ui-map-actual" type="button" onClick={() => changeZoom(1)}>100%</button>
++        </div>
++      </header>
++
++      <div
++        ref={viewportRef}
++        className={`ui-map-viewport${panning ? " panning" : ""}`}
++        tabIndex={0}
++        aria-label="Scrollable snapshot canvas. Hold Control and use the mouse wheel to zoom. Drag empty canvas space to pan."
++        onPointerDown={beginPan}
++        onPointerMove={movePan}
++        onPointerUp={endPan}
++        onPointerCancel={endPan}
++        onWheel={(event) => {
++          if (!event.ctrlKey && !event.metaKey) return;
++          event.preventDefault();
++          changeZoom(zoom + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
++        }}
++      >
++        <div className="ui-map-world" ref={worldRef} style={{ zoom }}>
++          {phases.map(({ phase, nodes }, phaseIndex) => (
++            <section className="ui-map-phase" key={phase.id} data-spine-id={phase.id}>
++              <header>
++                <span>{String(phaseIndex + 1).padStart(2, "0")} · {phase.id}</span>
++                <h3>{phase.title}</h3>
++                <p>{phase.summary || "No phase summary is recorded."}</p>
++              </header>
++              <div className="ui-map-artboards">
++                {nodes.length ? nodes.map((node) => (
++                  <Artboard
++                    key={node.id}
++                    node={node}
++                    phase={phase}
++                    selected={selectedPageId === node.id}
++                    screenshot={screenshots.get(node.id)}
++                    screenshotProof={latestScreenshotProof(node)}
++                    onSelect={focusPage}
++                  />
++                )) : (
++                  <div className="ui-map-empty-phase"><b>No pages recorded</b><span>The phase exists, but it has no page or task nodes.</span></div>
++                )}
++              </div>
++            </section>
++          ))}
++
++          {orphaned.length ? (
++            <section className="ui-map-phase ui-map-orphan-phase" data-spine-id="unmapped">
++              <header><span>UNMAPPED</span><h3>Nodes outside the spine</h3><p>These IDs reference a phase that is not present in the loaded plan.</p></header>
++              <div className="ui-map-artboards">
++                {orphaned.map((node) => (
++                  <Artboard
++                    key={node.id}
++                    node={node}
++                    phase={null}
++                    selected={selectedPageId === node.id}
++                    screenshot={screenshots.get(node.id)}
++                    screenshotProof={latestScreenshotProof(node)}
++                    onSelect={focusPage}
++                  />
++                ))}
++              </div>
++            </section>
++          ) : null}
++        </div>
++      </div>
++
++      <footer className="ui-map-statusbar">
++        <span><b>{uiCount}</b> UI pages</span>
++        <span><b>{allNodes.length - uiCount}</b> support nodes</span>
++        <span data-state={orphaned.length ? "warning" : "ready"}><b>{orphaned.length}</b> unmapped</span>
++        <span>Drag to pan · Ctrl/⌘ + wheel to zoom</span>
++      </footer>
++    </section>
++  );
++}
+diff --git a/src/index.css b/src/index.css
+index 5d03e8e..9c22d70 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -1998,6 +1998,8 @@ input:focus-visible {
+   .shell { --rail-width: 270px; }
+   .scope-branch { max-width: 150px; }
+   .path { display: none; }
++  .ui-navigation-map { min-width: 760px; padding-inline: 14px; }
++  .ui-map-spine-row { grid-template-columns: minmax(190px, 1fr) 250px minmax(190px, 1fr); gap: 30px; }
+ }
+ 
+ @media (prefers-reduced-motion: reduce) {
+@@ -2053,6 +2055,603 @@ input:focus-visible {
+   background: #9ea49f;
+ }
+ 
++.stage-workspace.mapping {
++  display: block;
++  overflow: auto;
++  background: #e9e5dc;
++}
++
++.snapshot-mode-pill {
++  position: fixed;
++  z-index: 4100;
++  top: 50%;
++  right: 12px;
++  display: inline-flex;
++  min-width: 108px;
++  min-height: 38px;
++  align-items: center;
++  justify-content: center;
++  gap: 7px;
++  transform: translateY(-50%);
++  border: 1px solid #56715e;
++  border-radius: 999px;
++  color: #edf4ef;
++  background: #203027;
++  box-shadow: 0 9px 28px rgba(19, 29, 22, .28);
++  font: 900 8px var(--mono);
++  letter-spacing: .55px;
++  cursor: pointer;
++}
++
++.snapshot-mode-pill:hover,
++.snapshot-mode-pill.active { border-color: #9ac5a3; background: #31513b; }
++.snapshot-mode-pill > span { font-size: 12px; }
++
++.ui-navigation-map {
++  min-width: 920px;
++  min-height: 100%;
++  padding: 18px 22px 60px;
++  color: #202720;
++  background-color: #e9e5dc;
++  background-image:
++    linear-gradient(rgba(67, 87, 71, .055) 1px, transparent 1px),
++    linear-gradient(90deg, rgba(67, 87, 71, .055) 1px, transparent 1px);
++  background-size: 24px 24px;
++  font-family: var(--mono);
++}
++
++.ui-navigation-map-head {
++  display: flex;
++  align-items: flex-end;
++  justify-content: space-between;
++  gap: 24px;
++  max-width: 1360px;
++  margin: 0 auto;
++  padding: 14px 16px;
++  border: 1px solid #c5c2b9;
++  border-top: 4px solid #365642;
++  background: rgba(248, 246, 240, .94);
++  box-shadow: var(--shadow);
++}
++
++.ui-navigation-map-head > div:first-child { display: grid; gap: 4px; }
++.ui-navigation-map-head > div:first-child > span { color: #50705a; font-size: 6.5px; font-weight: 900; letter-spacing: .95px; }
++.ui-navigation-map-head h2 { font-size: 20px; line-height: 1.1; letter-spacing: -.5px; }
++.ui-navigation-map-head p { color: #6b706a; font-size: 8px; }
++
++.ui-map-counts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
++.ui-map-counts span { padding: 5px 7px; border: 1px solid #c3c8c2; border-radius: 999px; color: #5d655f; background: #fff; font-size: 6.5px; }
++.ui-map-counts b { color: #355b40; font-size: 8px; }
++.ui-map-counts span[data-state="warning"] { border-color: #c09052; color: #8b5b22; }
++
++.ui-map-disclosure {
++  max-width: 1360px;
++  margin: 8px auto 20px;
++  padding: 8px 12px;
++  border-left: 3px solid #77917d;
++  color: #5d675f;
++  background: rgba(248, 246, 240, .82);
++  font-size: 7px;
++  line-height: 1.5;
++}
++
++.ui-map-proof-routing {
++  display: flex;
++  max-width: 1360px;
++  align-items: center;
++  justify-content: space-between;
++  gap: 18px;
++  margin: 0 auto 12px;
++  padding: 9px 12px;
++  border: 1px solid #b8c3ba;
++  background: rgba(244, 246, 241, .9);
++}
++
++.ui-map-proof-routing > div { display: grid; gap: 2px; }
++.ui-map-proof-routing span { color: #55705d; font-size: 5.5px; font-weight: 900; letter-spacing: .8px; }
++.ui-map-proof-routing h3 { font-size: 8px; }
++.ui-map-proof-routing dl { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
++.ui-map-proof-routing dl div { display: grid; gap: 2px; padding: 5px 7px; border: 1px solid #c7cec8; border-radius: 4px; background: #fff; }
++.ui-map-proof-routing dt { color: #69736b; font-size: 5.5px; font-weight: 900; text-transform: uppercase; }
++.ui-map-proof-routing dd { margin: 0; color: #687069; font-size: 5.8px; }
++.ui-map-proof-routing dd b { color: #365b41; }
++.ui-map-proof-routing [data-proof-method="last-run"] dd b { color: #8a6a32; }
++
++.ui-map-path {
++  position: sticky;
++  z-index: 4;
++  top: 8px;
++  display: grid;
++  width: fit-content;
++  max-width: min(720px, calc(100vw - 80px));
++  gap: 2px;
++  margin: 0 auto 14px;
++  padding: 8px 14px;
++  border: 1px solid #9daf9f;
++  border-radius: 999px;
++  color: #27392d;
++  background: rgba(248, 246, 240, .96);
++  box-shadow: 0 5px 18px rgba(52, 66, 55, .11);
++  text-align: center;
++}
++
++.ui-map-path span { color: #68806f; font-size: 5.5px; font-weight: 900; letter-spacing: .9px; }
++.ui-map-path b { font-size: 8px; }
++.ui-map-path small { overflow: hidden; color: #6d746e; font-size: 6.2px; text-overflow: ellipsis; white-space: nowrap; }
++
++.ui-map-canvas {
++  position: relative;
++  display: grid;
++  max-width: 1360px;
++  gap: 18px;
++  margin: 0 auto;
++  padding: 10px 0 30px;
++}
++
++.ui-map-axis {
++  position: absolute;
++  top: 0;
++  bottom: 0;
++  left: 50%;
++  width: 4px;
++  transform: translateX(-2px);
++  border-right: 1px solid #95a69a;
++  border-left: 1px solid #95a69a;
++  background: #d8dfd9;
++}
++
++.ui-map-spine-row {
++  position: relative;
++  z-index: 1;
++  display: grid;
++  grid-template-columns: minmax(240px, 1fr) 300px minmax(240px, 1fr);
++  align-items: start;
++  gap: 42px;
++}
++
++.ui-map-spine-segment {
++  position: relative;
++  display: grid;
++  min-height: 116px;
++  align-content: center;
++  gap: 6px;
++  padding: 18px 38px;
++  border: 1px solid #9eaaa0;
++  border-radius: 32px 8px 32px 8px;
++  background: #faf9f5;
++  box-shadow: 0 7px 22px rgba(52, 66, 55, .12), 0 0 0 5px rgba(233, 229, 220, .88);
++  text-align: center;
++}
++
++.ui-map-spine-segment::before {
++  position: absolute;
++  top: 50%;
++  left: 50%;
++  z-index: -1;
++  width: 18px;
++  height: 18px;
++  transform: translate(-50%, -50%);
++  border: 4px solid #e9e5dc;
++  border-radius: 50%;
++  content: "";
++  background: #4e8a5c;
++}
++
++.ui-map-spine-id { color: #3e704b; font-size: 8px; font-weight: 900; letter-spacing: 1px; }
++.ui-map-spine-segment h3 { font-size: 11px; line-height: 1.35; }
++.ui-map-spine-segment p { color: #6d746e; font-size: 7px; line-height: 1.45; }
++
++.ui-map-branch-toggle {
++  position: absolute;
++  top: 50%;
++  display: inline-flex;
++  min-width: 38px;
++  min-height: 32px;
++  align-items: center;
++  justify-content: center;
++  gap: 4px;
++  transform: translateY(-50%);
++  border: 1px solid #697c6e;
++  border-radius: 999px;
++  color: #eef4ef;
++  background: #2b4032;
++  font: 800 8px var(--mono);
++  cursor: pointer;
++}
++
++.ui-map-branch-toggle.left { left: -20px; }
++.ui-map-branch-toggle.right { right: -20px; }
++.ui-map-branch-toggle[aria-expanded="true"] { border-color: #91bd9a; background: #406b4c; box-shadow: 0 0 0 3px rgba(78, 138, 92, .16); }
++.ui-map-branch-toggle > span[aria-hidden="true"] { font-size: 15px; line-height: 1; }
++
++.ui-map-branch {
++  position: relative;
++  display: grid;
++  gap: 8px;
++  min-width: 0;
++}
++
++.ui-map-branch.open::after {
++  position: absolute;
++  top: 56px;
++  width: 42px;
++  border-top: 2px dashed #8aa08f;
++  content: "";
++}
++
++.ui-map-branch.left::after { right: -42px; }
++.ui-map-branch.right::after { left: -42px; }
++
++.ui-map-page {
++  overflow: hidden;
++  border: 1px solid #bdc5be;
++  border-left: 4px solid #718077;
++  border-radius: 7px;
++  background: rgba(255, 255, 255, .96);
++  box-shadow: 0 4px 14px rgba(52, 66, 55, .08);
++}
++
++.ui-map-page.ui-capable { border-left-color: #4e8a5c; }
++.ui-map-page.support-work { border-left-color: #9a815d; }
++.ui-map-page.selected { border-color: #477b54; box-shadow: 0 0 0 4px rgba(78, 138, 92, .18), 0 10px 26px rgba(52, 66, 55, .15); }
++.ui-map-page summary { display: grid; min-height: 66px; grid-template-columns: auto 54px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 9px 10px; cursor: pointer; }
++.ui-map-page-id { padding: 4px 6px; border-radius: 4px; color: #f2f6f3; background: #3b5e46; font-size: 7px; font-weight: 900; }
++.ui-map-page.support-work .ui-map-page-id { background: #735f43; }
++.ui-map-page-thumb { display: grid; width: 54px; height: 34px; place-items: center; overflow: hidden; border: 1px solid #c5cdc6; border-radius: 3px; color: #8c968e; background: #1a211c; }
++.ui-map-page-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top center; }
++.ui-map-page-thumb i { font-size: 8px; font-style: normal; }
++.ui-map-page-copy { display: grid; min-width: 0; gap: 3px; }
++.ui-map-page-copy strong { color: #263129; font-size: 8px; line-height: 1.35; }
++.ui-map-page-copy small { color: #758079; font-size: 5.8px; line-height: 1.35; }
++.ui-map-page-progress { color: #657269; font-size: 6px; white-space: nowrap; }
++
++.ui-map-page-snapshot {
++  display: grid;
++  height: 96px;
++  place-items: center;
++  overflow: hidden;
++  border-top: 1px solid #d6dbd6;
++  background: #1a211c;
++}
++
++.ui-map-page-snapshot img { width: 100%; height: 100%; object-fit: cover; object-position: top center; }
++.ui-map-page-snapshot span { padding: 8px; color: #96a298; font-size: 5.7px; font-weight: 900; letter-spacing: .55px; text-align: center; }
++.ui-map-page-snapshot.attached + .ui-map-page-body { border-top-color: #aab6ad; }
++
++.ui-map-page-body { display: grid; gap: 10px; padding: 10px; border-top: 1px solid #d6dbd6; background: #f4f5f1; }
++.ui-map-page-body dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
++.ui-map-page-body dl div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 5px; }
++.ui-map-page-body dt,
++.ui-map-page-body h3 { color: #5a7461; font-size: 5.8px; font-weight: 900; letter-spacing: .5px; text-transform: uppercase; }
++.ui-map-page-body dd { margin: 0; color: #38423b; font-size: 6.3px; }
++.ui-map-page-body section { display: grid; gap: 4px; }
++.ui-map-page-body code { overflow-wrap: anywhere; color: #3f5946; font-size: 6px; }
++.ui-map-page-body p,
++.ui-map-page-body li { color: #6f7671; font-size: 6.2px; line-height: 1.45; }
++.ui-map-page-body ul { padding-left: 14px; }
++
++.ui-map-branch-empty {
++  margin-top: 30px;
++  padding: 12px;
++  border: 1px dashed #b1aaa0;
++  color: #756d63;
++  background: rgba(248, 246, 240, .8);
++  font-size: 7px;
++  text-align: center;
++}
++
++.ui-map-orphans {
++  max-width: 1360px;
++  margin: 16px auto 0;
++  padding: 10px 12px;
++  border: 1px solid #c28850;
++  color: #765020;
++  background: #fff7e8;
++  font-size: 7px;
++}
++
++.ui-navigation-map-empty {
++  display: grid;
++  min-width: 0;
++  min-height: 100%;
++  place-content: center;
++  gap: 8px;
++  text-align: center;
++}
++
++/* ---------- snapshot artboard canvas ---------- */
++
++.stage-workspace.mapping {
++  overflow: hidden;
++  background: #c5c8cc;
++}
++
++.ui-navigation-map {
++  display: flex;
++  width: 100%;
++  height: 100%;
++  min-width: 0;
++  min-height: 0;
++  padding: 0;
++  overflow: hidden;
++  flex-direction: column;
++  color: #25282c;
++  background: #c5c8cc;
++  background-image:
++    radial-gradient(circle at 1px 1px, rgba(74, 79, 86, .22) 1px, transparent 1px);
++  background-size: 20px 20px;
++  font-family: var(--mono);
++}
++
++.ui-map-toolbar {
++  position: relative;
++  z-index: 5;
++  display: grid;
++  min-height: 66px;
++  grid-template-columns: minmax(220px, 1fr) auto auto;
++  align-items: center;
++  gap: 18px;
++  padding: 9px 18px;
++  border: 0;
++  border-bottom: 1px solid #aeb2b7;
++  background: rgba(247, 248, 249, .98);
++  box-shadow: 0 2px 8px rgba(43, 47, 52, .12);
++}
++
++.ui-map-toolbar-title { display: grid; min-width: 0; grid-template-columns: auto 1fr; align-items: baseline; gap: 2px 10px; }
++.ui-map-toolbar-title > span { color: #687078; font-size: 7px; font-weight: 900; letter-spacing: 1.15px; }
++.ui-map-toolbar-title h2 { overflow: hidden; font-size: 14px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
++.ui-map-toolbar-title p { grid-column: 1 / -1; overflow: hidden; color: #737980; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
++
++.ui-map-proof-state { display: flex; align-items: center; gap: 5px; }
++.ui-map-proof-state span { padding: 5px 7px; border: 1px solid #d0d3d6; border-radius: 4px; color: #737980; background: #fff; font-size: 5.8px; white-space: nowrap; }
++.ui-map-proof-state b { color: #3c454d; font-weight: 900; }
++.ui-map-proof-state [data-proof-method="last-run"] b { color: #86662e; }
++
++.ui-map-zoom-controls {
++  display: inline-flex;
++  min-height: 34px;
++  align-items: center;
++  gap: 2px;
++  padding: 3px;
++  border: 1px solid #c3c7cb;
++  border-radius: 7px;
++  background: #fff;
++  box-shadow: 0 1px 3px rgba(45, 49, 54, .08);
++}
++
++.ui-map-zoom-controls button {
++  min-width: 30px;
++  min-height: 26px;
++  padding: 0 8px;
++  border: 0;
++  border-radius: 4px;
++  color: #30353a;
++  background: transparent;
++  font: 800 9px var(--mono);
++  cursor: pointer;
++}
++
++.ui-map-zoom-controls button:hover { background: #e9ebed; }
++.ui-map-zoom-controls label { display: grid; width: 72px; place-items: center; }
++.ui-map-zoom-controls input { width: 64px; accent-color: #4c7657; cursor: ew-resize; }
++.ui-map-zoom-controls output { min-width: 34px; color: #555c63; font-size: 7px; text-align: center; }
++#pp-btn-ui-map-fit,
++#pp-btn-ui-map-actual { border-left: 1px solid #e0e2e4; border-radius: 0 4px 4px 0; }
++
++.ui-map-viewport {
++  position: relative;
++  min-width: 0;
++  min-height: 0;
++  flex: 1;
++  overflow: auto;
++  overscroll-behavior: contain;
++  cursor: grab;
++  scrollbar-color: #8e949a #d5d7da;
++  scrollbar-width: thin;
++  touch-action: none;
++}
++
++.ui-map-viewport.panning { cursor: grabbing; user-select: none; }
++.ui-map-viewport:focus-visible { outline: 2px solid #4d7b59; outline-offset: -3px; }
++
++.ui-map-world {
++  display: flex;
++  width: max-content;
++  min-width: 100%;
++  min-height: 100%;
++  align-items: flex-start;
++  gap: 96px;
++  padding: 72px 84px 108px;
++  transform-origin: 0 0;
++}
++
++.ui-map-phase {
++  display: grid;
++  width: max-content;
++  align-content: start;
++  gap: 18px;
++}
++
++.ui-map-phase > header {
++  display: grid;
++  width: 520px;
++  gap: 4px;
++  padding: 0 2px 10px;
++  border-bottom: 1px solid rgba(82, 88, 95, .45);
++}
++
++.ui-map-phase > header > span { color: #565d64; font-size: 7px; font-weight: 900; letter-spacing: 1px; }
++.ui-map-phase > header h3 { color: #25292d; font-size: 13px; line-height: 1.25; }
++.ui-map-phase > header p { max-width: 500px; color: #636970; font-size: 7px; line-height: 1.5; }
++.ui-map-orphan-phase > header { border-bottom-color: #a56e42; }
++.ui-map-orphan-phase > header > span { color: #8a542b; }
++
++.ui-map-artboards { display: flex; align-items: flex-start; gap: 32px; }
++
++.ui-map-artboard {
++  width: 520px;
++  flex: 0 0 520px;
++}
++
++.ui-map-artboard-select {
++  display: grid;
++  width: 100%;
++  gap: 10px;
++  padding: 0;
++  border: 0;
++  color: inherit;
++  background: transparent;
++  text-align: left;
++  cursor: default;
++}
++
++.ui-map-artboard-frame {
++  position: relative;
++  display: grid;
++  width: 100%;
++  aspect-ratio: var(--artboard-ratio, 1440 / 1000);
++  place-items: center;
++  overflow: hidden;
++  border: 1px solid #aeb3b9;
++  background: #fff;
++  box-shadow:
++    0 0 0 1px rgba(255, 255, 255, .72),
++    0 13px 30px rgba(44, 48, 53, .19),
++    0 2px 6px rgba(44, 48, 53, .16);
++  transition: border-color 130ms ease, box-shadow 130ms ease;
++}
++
++.ui-map-artboard-frame::after {
++  position: absolute;
++  inset: 0;
++  border: 1px solid rgba(255, 255, 255, .7);
++  content: "";
++  pointer-events: none;
++}
++
++.ui-map-artboard-frame img {
++  display: block;
++  width: 100%;
++  height: 100%;
++  object-fit: contain;
++  object-position: top center;
++  background: #fff;
++}
++
++.ui-map-artboard-index {
++  position: absolute;
++  top: 10px;
++  left: 10px;
++  z-index: 2;
++  padding: 5px 7px;
++  border: 1px solid rgba(255, 255, 255, .7);
++  border-radius: 4px;
++  color: #fff;
++  background: rgba(35, 40, 45, .82);
++  box-shadow: 0 2px 6px rgba(0, 0, 0, .18);
++  font-size: 7px;
++  font-weight: 900;
++  letter-spacing: .7px;
++}
++
++.ui-map-artboard-empty {
++  display: grid;
++  max-width: 300px;
++  place-items: center;
++  gap: 8px;
++  color: #7a8187;
++  text-align: center;
++}
++
++.ui-map-artboard-empty i { color: #bbc0c5; font: normal 42px/1 sans-serif; }
++.ui-map-artboard-empty b { color: #646b72; font-size: 10px; }
++.ui-map-artboard-empty small { max-width: 260px; overflow: hidden; font-size: 7px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
++
++.ui-map-artboard-caption {
++  display: flex;
++  min-width: 0;
++  align-items: flex-start;
++  justify-content: space-between;
++  gap: 16px;
++  padding: 0 2px;
++}
++
++.ui-map-artboard-caption > span:first-child { display: grid; min-width: 0; gap: 3px; }
++.ui-map-artboard-caption b { overflow: hidden; color: #252a2f; font-size: 10px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
++.ui-map-artboard-caption small { overflow: hidden; color: #616970; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
++.ui-map-artboard-meta { display: inline-flex; align-items: center; gap: 5px; color: #596168; white-space: nowrap; }
++.ui-map-artboard-meta i { font: normal 11px/1 sans-serif; }
++.ui-map-artboard-meta em { font-size: 6.5px; font-style: normal; }
++
++.ui-map-artboard.selected .ui-map-artboard-frame {
++  border-color: #356c43;
++  box-shadow:
++    0 0 0 4px #4b8d5b,
++    0 0 0 7px rgba(255, 255, 255, .68),
++    0 18px 36px rgba(38, 65, 45, .25);
++}
++
++.ui-map-artboard-select:focus-visible { outline: 0; }
++.ui-map-artboard-select:focus-visible .ui-map-artboard-frame { outline: 4px solid #2f6fa8; outline-offset: 5px; }
++.ui-map-artboard.support-work .ui-map-artboard-index { background: rgba(102, 81, 50, .84); }
++
++.ui-map-empty-phase {
++  display: grid;
++  width: 520px;
++  min-height: 320px;
++  place-content: center;
++  gap: 7px;
++  border: 1px dashed #989ea4;
++  color: #686f76;
++  background: rgba(237, 239, 241, .58);
++  text-align: center;
++}
++
++.ui-map-empty-phase b { font-size: 10px; }
++.ui-map-empty-phase span { font-size: 7px; }
++
++.ui-map-statusbar {
++  position: relative;
++  z-index: 5;
++  display: flex;
++  min-height: 28px;
++  align-items: center;
++  gap: 16px;
++  padding: 0 16px;
++  border-top: 1px solid #aaafb4;
++  color: #626970;
++  background: rgba(242, 243, 244, .98);
++  font-size: 6.5px;
++}
++
++.ui-map-statusbar span:last-child { margin-left: auto; }
++.ui-map-statusbar b { color: #30363b; }
++.ui-map-statusbar [data-state="warning"] b { color: #93592e; }
++
++.ui-navigation-map-empty { min-height: 100%; padding: 24px; }
++
++@media (max-width: 1120px) {
++  .ui-map-toolbar { grid-template-columns: minmax(180px, 1fr) auto; }
++  .ui-map-proof-state { display: none; }
++  .ui-map-artboard,
++  .ui-map-phase > header,
++  .ui-map-empty-phase { width: 460px; }
++  .ui-map-artboard { flex-basis: 460px; }
++}
++
++@media (max-width: 720px) {
++  .ui-map-toolbar { grid-template-columns: 1fr; gap: 7px; padding: 8px; }
++  .ui-map-zoom-controls { width: 100%; justify-content: center; }
++  .ui-map-toolbar-title p { display: none; }
++  .ui-map-world { gap: 56px; padding: 48px 40px 84px; }
++  .ui-map-artboard,
++  .ui-map-phase > header,
++  .ui-map-empty-phase { width: 380px; }
++  .ui-map-artboard { flex-basis: 380px; }
++  .ui-map-statusbar span:not(:first-child):not(:last-child) { display: none; }
++}
++
+ /* ---------- stored localhost witness ---------- */
+ 
+ .local-output {
+@@ -2999,10 +3598,21 @@ button[data-context-kind="plan"] { cursor: pointer; }
+   .truth-summary-grid { grid-template-columns: 1fr; }
+   .operational-truth-head { align-items: stretch; flex-direction: column; }
+   .truth-release-verdict { align-self: flex-start; }
++  .ui-navigation-map-head { align-items: flex-start; flex-direction: column; }
++  .ui-map-proof-routing { align-items: stretch; flex-direction: column; }
++  .ui-map-proof-routing dl { justify-content: flex-start; }
++  .ui-map-counts { justify-content: flex-start; }
+   .repository-scope-tabs { padding-inline: 4px; }
+   .repository-scope-tabs button { min-width: 136px; }
+   .diagnostics-status-grid { grid-template-columns: 1fr; }
+   .diagnostics-console { right: 6px; bottom: 6px; width: calc(100vw - 12px); }
+   .diagnostics-log article { grid-template-columns: 62px 70px 1fr; }
+   .context-action-hint { display: none; }
++  .snapshot-mode-pill { right: 6px; min-width: 92px; }
++}
++
++@media (prefers-reduced-motion: reduce) {
++  .snapshot-mode-pill,
++  .ui-map-page,
++  .ui-map-canvas { scroll-behavior: auto; transition: none; }
+ }
+diff --git a/tests/repository_rail_e2e.py b/tests/repository_rail_e2e.py
+index 95c8da8..ef3f8a0 100644
+--- a/tests/repository_rail_e2e.py
++++ b/tests/repository_rail_e2e.py
+@@ -102,8 +102,7 @@ def main():
+                 lambda route: route.fulfill(body="<html><title>board</title></html>"),
+             )
+ 
+-        page.goto(APP_URL)
+-        page.wait_for_load_state("networkidle")
++        page.goto(APP_URL, wait_until="domcontentloaded")
+         print("repository rail: loaded", flush=True)
+ 
+         rail = page.locator("#pp-region-board-rail")
+@@ -131,8 +130,7 @@ def main():
+         assert page.evaluate(
+             "localStorage.getItem('perfect-planner:repository-rail-collapsed')"
+         ) == "true"
+-        page.reload()
+-        page.wait_for_load_state("networkidle")
++        page.reload(wait_until="domcontentloaded")
+         expect(rail).to_have_class(re.compile(r"\bcollapsed\b"))
+         expect(rail_toggle).to_have_attribute("aria-expanded", "false")
+         rail_toggle.evaluate("element => element.focus()")
+@@ -227,8 +225,7 @@ def main():
+         page.locator("#pp-btn-rescan-boards").evaluate("element => element.click()")
+         expect(page.locator("#pp-btn-rescan-boards")).to_have_text("rescan", timeout=10_000)
+ 
+-        page.reload()
+-        page.wait_for_load_state("networkidle")
++        page.reload(wait_until="domcontentloaded")
+         print("repository rail: reloaded", flush=True)
+         expect(page.locator('.repo-section[data-repository-name="Looplet CRM"]')).to_have_attribute(
+             "data-repository-call-sign", "A"
+@@ -289,8 +286,7 @@ def main():
+             }))
+             """
+         )
+-        page.reload()
+-        page.wait_for_load_state("networkidle")
++        page.reload(wait_until="domcontentloaded")
+         expect(page.locator("#pp-region-empty-stage")).to_contain_text("Saved plan unavailable")
+         expect(page.locator("#pp-frame-active-board")).to_have_count(0)
+         expect(page.locator(".rail-item[aria-pressed='true']")).to_have_count(0)
+@@ -337,6 +333,12 @@ def main():
+         expect(page.locator(".diagnostics-source-summary")).to_contain_text("MESSAGING")
+         expect(page.locator(".diagnostics-source-summary")).to_contain_text("PLAN / RUN")
+         expect(page.locator(".diagnostics-source-summary")).to_contain_text("BROWSER CONSOLE · NOT COLLECTED HERE")
++        diagnostic_ids = page.locator("[data-diagnostic-id]").evaluate_all(
++            "nodes => nodes.map(node => node.getAttribute('data-diagnostic-id'))"
++        )
++        assert len(diagnostic_ids) == len(set(diagnostic_ids)), (
++            f"diagnostic event IDs must remain unique under batched updates: {diagnostic_ids}"
++        )
+ 
+         page.screenshot(path=str(SCREENSHOT), full_page=True)
+         print("repository rail: screenshot captured", flush=True)
+diff --git a/tests/ui_navigation_map_e2e.py b/tests/ui_navigation_map_e2e.py
+new file mode 100644
+index 0000000..8a64268
+--- /dev/null
++++ b/tests/ui_navigation_map_e2e.py
+@@ -0,0 +1,225 @@
++from pathlib import Path
++from urllib.parse import urlparse
++
++from playwright.sync_api import expect, sync_playwright
++
++
++ROOT = Path(__file__).resolve().parents[1]
++APP_URL = "http://127.0.0.1:5180/"
++SCREENSHOT = ROOT / "artifacts" / "ui-navigation-map.png"
++
++BOARD = {
++    "planPath": r"C:\repos\perfect-planner-tauri\.claude\scratch\perfect-plan\ui-map.json",
++    "number": "PP-UI",
++    "topic": "Application page system",
++    "repoName": "Perfect Planner",
++    "repoRoot": r"C:\repos\perfect-planner-tauri",
++    "project": "Perfect Planner Desktop",
++    "worktreeName": "perfect-planner-tauri",
++    "branch": "feature/ui-map",
++}
++
++PLAN = {
++    "title": "Application page system",
++    "approved": "yes @ test",
++    "meta": {
++        "number": "PP-UI",
++        "project": "Perfect Planner Desktop",
++        "branch": "feature/ui-map",
++        "topic": "Application page system",
++    },
++    "spine": [
++        {"id": "P1", "title": "Command workspace", "summary": "Select and inspect work."},
++        {"id": "P2", "title": "Evidence and release", "summary": "Prove readiness."},
++    ],
++    "vertebrae": [
++        {
++            "id": "A01",
++            "spineId": "P1",
++            "side": "L",
++            "title": "Repository selection page",
++            "status": "done",
++            "files": ["src/App.tsx"],
++            "checklist": [{
++                "text": "Repository scope stays visible",
++                "ui": True,
++                "built": True,
++                "tested": True,
++                "proof": {
++                    "at": "2026-08-28T00:00:00Z",
++                    "screenshot": "PP-UI-A01.png",
++                    "shotNote": "Previous repository selection screen",
++                    "screenshotCheck": {"ok": True, "width": 1440, "height": 900},
++                },
++            }],
++        },
++        {
++            "id": "A02",
++            "spineId": "P1",
++            "side": "R",
++            "title": "Native lease service",
++            "status": "in-progress",
++            "files": ["src-tauri/src/orchestrator.rs"],
++            "checklist": [{"text": "Lease stays fenced", "built": True, "tested": False}],
++        },
++        {
++            "id": "A03",
++            "spineId": "P2",
++            "side": "R",
++            "title": "Release evidence page",
++            "status": "pending",
++            "files": ["src/components/OperationalTruth.tsx"],
++            "checklist": [{"text": "Release evidence is visible", "ui": True, "built": False, "tested": False}],
++        },
++        {
++            "id": "A99",
++            "spineId": "P9",
++            "side": "L",
++            "title": "Unassigned legacy page",
++            "status": "pending",
++            "files": ["src/legacy.tsx"],
++            "checklist": [],
++        },
++    ],
++}
++
++
++def main():
++    SCREENSHOT.parent.mkdir(parents=True, exist_ok=True)
++    console_errors = []
++    page_errors = []
++    with sync_playwright() as playwright:
++        browser = playwright.chromium.launch(headless=True)
++        page = browser.new_page(viewport={"width": 1440, "height": 900}, device_scale_factor=3)
++        page.set_default_timeout(10_000)
++        page.set_default_navigation_timeout(30_000)
++        page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
++        page.on("pageerror", lambda error: page_errors.append(str(error)))
++
++        def mock_probe(route):
++            parsed = urlparse(route.request.url)
++            pieces = parsed.path.strip("/").split("/")
++            if len(pieces) == 4 and pieces[:3] == ["board-probe", "5230", "evidence"]:
++                route.fulfill(
++                    status=200,
++                    json={
++                        "name": pieces[3],
++                        "mime": "image/png",
++                        "dataBase64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
++                    },
++                )
++                return
++            if len(pieces) != 3 or pieces[0] != "board-probe" or int(pieces[1]) != 5230:
++                route.fulfill(status=200, json={"ok": False})
++                return
++            endpoint = pieces[2]
++            if endpoint == "whoami":
++                route.fulfill(status=200, json={"ok": True, **BOARD, "approved": "yes @ test", "awaiting": None, "port": 5230, "pid": 5230})
++            elif endpoint == "plan":
++                route.fulfill(status=200, json=PLAN)
++            elif endpoint == "workers":
++                route.fulfill(status=200, json={"workers": {}})
++            else:
++                route.fulfill(status=404, json={"ok": False})
++
++        page.route("**/board-probe/**", mock_probe)
++        page.route("http://127.0.0.1:5230/", lambda route: route.fulfill(body="<html><title>board</title></html>"))
++        page.goto(APP_URL, wait_until="domcontentloaded")
++
++        mode = page.locator("#pp-btn-toggle-ui-navigation-map")
++        expect(mode).to_have_attribute("aria-pressed", "false")
++        mode_box = mode.bounding_box()
++        assert mode_box and mode_box["x"] + mode_box["width"] >= 1420, (
++            f"Snapshots pill is not attached to the right edge: {mode_box}"
++        )
++        expect(mode).to_have_accessible_name("Snapshots")
++        mode.evaluate("element => element.focus()")
++        expect(mode).to_be_focused()
++        mode.evaluate("element => element.click()")
++        expect(mode).to_have_attribute("aria-pressed", "true")
++        expect(page.locator("#pp-frame-active-board")).to_have_count(0)
++
++        ui_map = page.locator("#pp-region-ui-navigation-map")
++        expect(ui_map).to_be_visible()
++        expect(ui_map).to_have_attribute("data-plan-id", "PP-UI")
++        expect(ui_map).to_contain_text("SNAPSHOT CANVAS")
++        expect(page.locator('[data-proof-method="chrome-mcp"]')).to_contain_text("preferred")
++        expect(page.locator('[data-proof-method="playwright-script"]')).to_contain_text("ready")
++        expect(page.locator('[data-proof-method="last-run"]')).to_contain_text("unknown")
++        expect(page.locator('.ui-map-phase[data-spine-id="P1"]')).to_be_visible()
++        expect(page.locator('.ui-map-phase[data-spine-id="P2"]')).to_be_visible()
++        expect(page.locator('.ui-map-phase[data-spine-id="unmapped"]')).to_contain_text("Nodes outside the spine")
++
++        zoom_out = page.locator("#pp-btn-ui-map-zoom-out")
++        zoom_in = page.locator("#pp-btn-ui-map-zoom-in")
++        fit = page.locator("#pp-btn-ui-map-fit")
++        actual = page.locator("#pp-btn-ui-map-actual")
++        expect(zoom_out).to_have_accessible_name("Zoom out")
++        expect(zoom_in).to_have_accessible_name("Zoom in")
++        zoom_in.focus()
++        expect(zoom_in).to_be_focused()
++        initial_zoom = int(ui_map.get_attribute("data-zoom"))
++        zoom_in.click()
++        expect(ui_map).not_to_have_attribute("data-zoom", str(initial_zoom))
++        actual.click()
++        expect(ui_map).to_have_attribute("data-zoom", "100")
++        zoom_out.click()
++        expect(ui_map).to_have_attribute("data-zoom", "90")
++        fit.click()
++        assert int(ui_map.get_attribute("data-zoom")) < 100
++
++        left_page = page.locator("#pp-ui-page-A01")
++        expect(left_page).to_be_visible()
++        expect(left_page).to_have_attribute("data-spine-id", "P1")
++        expect(left_page).to_have_attribute("data-page-id", "A01")
++        expect(left_page).to_have_attribute("data-page-side", "L")
++        expect(left_page).to_have_attribute("data-page-kind", "ui-capable")
++        expect(left_page).to_have_attribute("data-snapshot-state", "attached")
++        expect(left_page.locator(".ui-map-artboard-frame img")).to_have_attribute(
++            "alt", "Previous repository selection screen"
++        )
++        assert left_page.locator(".ui-map-artboard-frame img").evaluate(
++            "image => image.complete && image.naturalWidth > 0"
++        ), "attached node screenshot did not decode"
++        left_page.locator(".ui-map-artboard-select").evaluate("element => element.click()")
++        expect(ui_map).to_have_attribute("data-focus-page", "A01")
++        expect(ui_map).to_have_attribute("data-focus-side", "L")
++        expect(left_page).to_have_attribute("data-selected", "true")
++
++        support_page = page.locator("#pp-ui-page-A02")
++        expect(support_page).to_be_visible()
++        expect(support_page).to_have_attribute("data-page-kind", "support-work")
++        expect(support_page).to_have_attribute("data-snapshot-state", "missing")
++        support_page.locator(".ui-map-artboard-select").evaluate("element => element.click()")
++        expect(ui_map).to_have_attribute("data-focus-page", "A02")
++        expect(ui_map).to_have_attribute("data-focus-side", "R")
++        expect(support_page).to_contain_text("No screenshot yet")
++
++        p1 = page.locator('.ui-map-phase[data-spine-id="P1"]')
++        p2 = page.locator('.ui-map-phase[data-spine-id="P2"]')
++        p1_box = p1.bounding_box()
++        p2_box = p2.bounding_box()
++        assert p1_box and p2_box and p2_box["x"] > p1_box["x"] + p1_box["width"], (
++            f"phase artboards are not laid out horizontally: P1={p1_box}, P2={p2_box}"
++        )
++        expect(page.locator(".ui-map-artboard")).to_have_count(4)
++
++        page.screenshot(path=str(SCREENSHOT), full_page=True, animations="disabled")
++
++        comparison = page.locator("#pp-btn-toggle-ui-comparison")
++        comparison.evaluate("element => element.click()")
++        expect(mode).to_have_attribute("aria-pressed", "false")
++        expect(ui_map).to_have_count(0)
++        expect(page.locator("#pp-frame-active-board")).to_be_visible()
++        expect(page.locator("#pp-region-ui-comparison")).to_be_visible()
++
++        assert not console_errors, f"browser console errors: {console_errors}"
++        assert not page_errors, f"uncaught page errors: {page_errors}"
++        browser.close()
++
++    print("ui_navigation_map_e2e: PASS")
++    print(f"screenshot: {SCREENSHOT}")
++
++
++if __name__ == "__main__":
++    main()

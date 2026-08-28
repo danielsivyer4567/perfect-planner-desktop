@@ -1,0 +1,50 @@
+# perfect-planning proof artifact
+item: A09:2 — The map distinguishes UI-capable pages from support work, names missing mappings honestly, and remains keyboard, focus, reduced-motion, and narrow-screen usable
+command: npm run build
+cwd: C:\repos\perfect-planner-tauri
+exit: 0
+duration_ms: 9724
+at: 2026-08-28T09:36:34.695Z
+git: 312b7bfceb115274ec175021cea71c1d4c5f9dda (feature/tauri-orchestrator-messaging-20260821-223935, dirty)
+shot: PP-001-A09-2-1787909784537.png
+shot_note: Viewed the 4320x2700 capture: attached and empty frames are structurally distinct, unmapped work has its own labelled group, Fit/100%/slider/minus/plus controls are visible, and the selected artboard has a non-colour-only outline.
+shot_check: ok (4320x2700, blankScore 0.4268)
+before_shot: PP-001-A09-baseline-1787905440415.before.png
+before_shot_note: Viewed the 4320x2700 baseline: the workspace offers the embedded plan board and UI comparison only; there is no separate application-page map, no spine-side expansion controls, and no plan-derived page ID inventory.
+before_shot_check: ok (4320x2700, blankScore 0.4017)
+before_ocr: PP-001-A09-baseline-1787905440415.before.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 73, 5237ms)
+before_ocr_alarms: none
+after_ocr: PP-001-A09-2-1787909784537.ocr.txt (tesseract.js 5.1.1, eng, OEM 1, confidence 78, 4627ms)
+after_ocr_alarms: none
+diff: PP-001-A09-2-1787909784537.diff
+diff_baseline: 8316d934a569ff7732039e11d3b8e4dc29b317fe
+
+## stdout
+
+> perfect-planner-desktop@1.0.0 prebuild
+> npm run security:check
+
+
+> perfect-planner-desktop@1.0.0 security:check
+> python tests/repository_security_e2e.py
+
+repository_security_e2e: PASS
+proved: build configuration is exact, bounded, declarative, and loader-free
+
+> perfect-planner-desktop@1.0.0 build
+> tsc && vite build
+
+vite v8.2.2 building client environment for production...
+transforming...
+✓ 1596 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.47 kB │ gzip:  0.31 kB
+dist/assets/index-BMv9-Zyl.css   82.80 kB │ gzip: 18.27 kB
+dist/assets/core-CwxXejkd.js      0.09 kB │ gzip:  0.10 kB
+dist/assets/index-BP2Km6so.js   325.28 kB │ gzip: 97.94 kB
+
+✓ built in 1.53s
+
+## stderr
+(empty)

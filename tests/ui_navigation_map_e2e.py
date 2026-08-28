@@ -92,6 +92,7 @@ def main():
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 900}, device_scale_factor=3)
         page.set_default_timeout(10_000)
+        page.set_default_navigation_timeout(30_000)
         page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
         page.on("pageerror", lambda error: page_errors.append(str(error)))
 
@@ -141,20 +142,32 @@ def main():
         ui_map = page.locator("#pp-region-ui-navigation-map")
         expect(ui_map).to_be_visible()
         expect(ui_map).to_have_attribute("data-plan-id", "PP-UI")
-        expect(ui_map).to_contain_text("PLAN-DERIVED PAGE INVENTORY")
-        expect(ui_map).to_contain_text("not a runtime route crawl")
-        expect(page.locator('[data-proof-method="chrome-mcp"]')).to_contain_text("PREFERRED")
-        expect(page.locator('[data-proof-method="playwright-script"]')).to_contain_text("READY")
-        expect(page.locator('[data-proof-method="last-run"]')).to_contain_text("UNKNOWN")
-        expect(page.locator(".ui-map-spine-row")).to_have_count(2)
-        expect(page.locator(".ui-map-orphans")).to_contain_text("A99 → missing spine P9")
+        expect(ui_map).to_contain_text("SNAPSHOT CANVAS")
+        expect(page.locator('[data-proof-method="chrome-mcp"]')).to_contain_text("preferred")
+        expect(page.locator('[data-proof-method="playwright-script"]')).to_contain_text("ready")
+        expect(page.locator('[data-proof-method="last-run"]')).to_contain_text("unknown")
+        expect(page.locator('.ui-map-phase[data-spine-id="P1"]')).to_be_visible()
+        expect(page.locator('.ui-map-phase[data-spine-id="P2"]')).to_be_visible()
+        expect(page.locator('.ui-map-phase[data-spine-id="unmapped"]')).to_contain_text("Nodes outside the spine")
 
-        left = page.locator("#pp-btn-ui-map-P1-left")
-        right = page.locator("#pp-btn-ui-map-P1-right")
-        expect(left).to_have_attribute("aria-expanded", "true")
-        expect(right).to_have_attribute("aria-expanded", "true")
-        left.evaluate("element => element.focus()")
-        expect(left).to_be_focused()
+        zoom_out = page.locator("#pp-btn-ui-map-zoom-out")
+        zoom_in = page.locator("#pp-btn-ui-map-zoom-in")
+        fit = page.locator("#pp-btn-ui-map-fit")
+        actual = page.locator("#pp-btn-ui-map-actual")
+        expect(zoom_out).to_have_accessible_name("Zoom out")
+        expect(zoom_in).to_have_accessible_name("Zoom in")
+        zoom_in.focus()
+        expect(zoom_in).to_be_focused()
+        initial_zoom = int(ui_map.get_attribute("data-zoom"))
+        zoom_in.click()
+        expect(ui_map).not_to_have_attribute("data-zoom", str(initial_zoom))
+        actual.click()
+        expect(ui_map).to_have_attribute("data-zoom", "100")
+        zoom_out.click()
+        expect(ui_map).to_have_attribute("data-zoom", "90")
+        fit.click()
+        assert int(ui_map.get_attribute("data-zoom")) < 100
+
         left_page = page.locator("#pp-ui-page-A01")
         expect(left_page).to_be_visible()
         expect(left_page).to_have_attribute("data-spine-id", "P1")
@@ -162,14 +175,13 @@ def main():
         expect(left_page).to_have_attribute("data-page-side", "L")
         expect(left_page).to_have_attribute("data-page-kind", "ui-capable")
         expect(left_page).to_have_attribute("data-snapshot-state", "attached")
-        expect(left_page.locator(".ui-map-page-snapshot img")).to_have_attribute(
+        expect(left_page.locator(".ui-map-artboard-frame img")).to_have_attribute(
             "alt", "Previous repository selection screen"
         )
-        expect(left_page.locator("summary .ui-map-page-thumb img")).to_be_visible()
-        assert left_page.locator(".ui-map-page-snapshot img").evaluate(
+        assert left_page.locator(".ui-map-artboard-frame img").evaluate(
             "image => image.complete && image.naturalWidth > 0"
         ), "attached node screenshot did not decode"
-        left_page.locator("summary").evaluate("element => element.click()")
+        left_page.locator(".ui-map-artboard-select").evaluate("element => element.click()")
         expect(ui_map).to_have_attribute("data-focus-page", "A01")
         expect(ui_map).to_have_attribute("data-focus-side", "L")
         expect(left_page).to_have_attribute("data-selected", "true")
@@ -178,14 +190,19 @@ def main():
         expect(support_page).to_be_visible()
         expect(support_page).to_have_attribute("data-page-kind", "support-work")
         expect(support_page).to_have_attribute("data-snapshot-state", "missing")
-        support_page.locator("summary").evaluate("element => element.click()")
+        support_page.locator(".ui-map-artboard-select").evaluate("element => element.click()")
         expect(ui_map).to_have_attribute("data-focus-page", "A02")
         expect(ui_map).to_have_attribute("data-focus-side", "R")
-        expect(support_page).to_contain_text("Unknown — no frontend file is recorded")
+        expect(support_page).to_contain_text("No screenshot yet")
 
-        empty_left = page.locator("#pp-btn-ui-map-P2-left")
-        expect(empty_left).to_have_attribute("aria-expanded", "true")
-        expect(page.locator("#pp-ui-branch-P2-left")).to_contain_text("No left-side page IDs are recorded")
+        p1 = page.locator('.ui-map-phase[data-spine-id="P1"]')
+        p2 = page.locator('.ui-map-phase[data-spine-id="P2"]')
+        p1_box = p1.bounding_box()
+        p2_box = p2.bounding_box()
+        assert p1_box and p2_box and p2_box["x"] > p1_box["x"] + p1_box["width"], (
+            f"phase artboards are not laid out horizontally: P1={p1_box}, P2={p2_box}"
+        )
+        expect(page.locator(".ui-map-artboard")).to_have_count(4)
 
         page.screenshot(path=str(SCREENSHOT), full_page=True, animations="disabled")
 
