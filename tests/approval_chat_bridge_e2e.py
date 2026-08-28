@@ -60,6 +60,7 @@ def main():
         context = browser.new_context(
             viewport={"width": 1440, "height": 900},
             device_scale_factor=3,
+            reduced_motion="no-preference",
         )
         page = context.new_page()
         console_errors = []
@@ -168,9 +169,14 @@ def main():
         expect(live_mark).to_be_visible()
         expect(live_mark).to_have_attribute("data-feed-state", "live")
         first_frame = live_mark.locator("pre").text_content()
-        page.wait_for_timeout(350)
+        assert first_frame, "Looplet live mark did not render"
+        page.wait_for_function(
+            """first => document.querySelector('#pp-status-looplet-live-feed pre')?.textContent !== first""",
+            arg=first_frame,
+            timeout=3_000,
+        )
         second_frame = live_mark.locator("pre").text_content()
-        assert first_frame and second_frame and first_frame != second_frame, "Looplet live mark did not advance"
+        assert second_frame and first_frame != second_frame, "Looplet live mark did not advance"
         page.screenshot(path=str(BEFORE), full_page=True)
 
         frame = page.frame(url=lambda url: url.startswith("http://127.0.0.1:5230/"))
