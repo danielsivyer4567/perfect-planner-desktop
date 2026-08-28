@@ -33,7 +33,11 @@ def main() -> None:
         ".ui-map-viewport",
     ]
     completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, timeout=90)
-    assert completed.returncode == 0, f"{completed.stdout}\n{completed.stderr}"
+    if completed.returncode != 0:
+        report_text = REPORT.read_text(encoding="utf-8") if REPORT.is_file() else "report missing"
+        raise AssertionError(
+            f"{completed.stdout}\n{completed.stderr}\n--- browser proof report ---\n{report_text}"
+        )
     report = json.loads(REPORT.read_text(encoding="utf-8"))
     assert report["controller"]["id"] == "playwright-script"
     assert report["controller"]["chromeMcpClaimed"] is False
