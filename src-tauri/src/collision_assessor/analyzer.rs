@@ -2142,7 +2142,7 @@ mod tests {
 
     #[test]
     fn complete_registry_analysis_input_is_sealed_in_production() {
-        let registry_source = include_str!("registry.rs");
+        let registry_source = include_str!("registry.rs").replace("\r\n", "\n");
         assert!(
             registry_source.contains("pub(crate) struct CompleteRegistryRead(RegistryDocument);")
         );
@@ -2150,10 +2150,8 @@ mod tests {
         assert!(registry_source.contains("fn complete(document: RegistryDocument) -> Self"));
         assert!(registry_source.contains("#[cfg(test)]\nimpl std::ops::DerefMut"));
 
-        let analyzer_production = include_str!("analyzer.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap();
+        let analyzer_source = include_str!("analyzer.rs").replace("\r\n", "\n");
+        let analyzer_production = analyzer_source.split("#[cfg(test)]").next().unwrap();
         assert!(!analyzer_production.contains("RegistryRead::complete_for_test"));
         assert!(!analyzer_production.contains("RegistryRead::Complete(RegistryDocument"));
     }

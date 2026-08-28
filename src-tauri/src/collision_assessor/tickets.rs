@@ -1268,7 +1268,7 @@ mod tests {
 
     #[test]
     fn broker_authority_replaces_the_boolean_gate_and_is_not_cloneable() {
-        let source = include_str!("tickets.rs");
+        let source = include_str!("tickets.rs").replace("\r\n", "\n");
         assert!(!source.contains(&["enabled", ": bool"].concat()));
         assert!(!source.contains(&["impl Clone for ", "TicketBrokerAuthority"].concat()));
         let declaration = source

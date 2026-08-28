@@ -72,13 +72,8 @@ pub fn deliver_run(
         .join("scratch")
         .join("orchestrator");
     let expected_run_dir = orchestrator_root.join(&request.run_id);
-    let supplied_run_dir = if run_dir.exists() {
-        run_dir
-            .canonicalize()
-            .map_err(|error| format!("cannot resolve run directory: {error}"))?
-    } else {
-        run_dir.to_path_buf()
-    };
+    let supplied_run_dir = canonicalize_with_missing_tail(run_dir)
+        .map_err(|error| format!("cannot resolve run directory: {error}"))?;
     if !same_path(&supplied_run_dir, &expected_run_dir) {
         return Err(
             "run directory does not exactly match the repository-scoped run ID".to_string(),
@@ -345,6 +340,31 @@ fn validate_identity(value: &str, field: &str) -> Result<(), String> {
         return Err(format!("invalid {field}"));
     }
     Ok(())
+}
+
+fn canonicalize_with_missing_tail(path: &Path) -> std::io::Result<PathBuf> {
+    let mut existing = path;
+    let mut missing = Vec::new();
+    while !existing.exists() {
+        let name = existing.file_name().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "path has no existing ancestor",
+            )
+        })?;
+        missing.push(name.to_os_string());
+        existing = existing.parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "path has no existing ancestor",
+            )
+        })?;
+    }
+    let mut resolved = existing.canonicalize()?;
+    for component in missing.iter().rev() {
+        resolved.push(component);
+    }
+    Ok(resolved)
 }
 
 #[cfg(not(windows))]
