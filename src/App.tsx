@@ -55,6 +55,7 @@ import { deriveWorkspaceStatus } from "./services/orchestrationWorkspace";
 
 const SOUND_KEY = "perfect-planner:stall-sound";
 const VOLUME_KEY = "perfect-planner:stall-volume";
+const PARALLEL_AGENTS_KEY = "perfect-planner:parallel-agents";
 const DISMISSED_BOARDS_KEY = "perfect-planner:dismissed-plans";
 const ACTIVE_BOARD_KEY = "perfect-planner:active-board";
 
@@ -73,6 +74,15 @@ interface WorkerReport {
   resources: string[];
   disposition: LeaseDisposition;
   fence: number;
+}
+
+function storedParallelAgents(): boolean {
+  try {
+    const stored = localStorage.getItem(PARALLEL_AGENTS_KEY);
+    return stored === null ? true : stored === "true";
+  } catch {
+    return true;
+  }
 }
 
 type HeadOrchestratorActorState = "working" | "holding" | "standby" | "stopped";
@@ -285,6 +295,8 @@ export const App: React.FC = () => {
   const [dismissedPlans, setDismissedPlans] = useState<Set<string>>(storedDismissedPlans);
   const [unavailableSelection, setUnavailableSelection] = useState<ActiveBoardIdentity | null>(null);
   const [orchestratorMinimized, setOrchestratorMinimized] = useState(true);
+  const [parallelAgents, setParallelAgents] = useState(storedParallelAgents);
+  const [comparisonOpen, setComparisonOpen] = useState(false);
   const [resourceGuard, setResourceGuard] = useState<ResourceGuardState>({
     status: "checking",
     result: null,
@@ -1254,7 +1266,7 @@ export const App: React.FC = () => {
           )}
         </div>
 
-        <LocalOutputWitness board={active} plan={activePlan} />
+        {!comparisonOpen ? <LocalOutputWitness board={active} plan={activePlan} /> : null}
 
         <div
           className={`alarm-panel${stalledCount ? " stalled" : ""}`}
@@ -1404,6 +1416,23 @@ export const App: React.FC = () => {
             <span className={`head-stat${scopedStalled ? " bad" : ""}`} id="pp-stat-held"><b>{scopedStalled}</b> {boundPipelineSnapshot ? "blocked" : "grace"}</span>
             <span className="head-stat" id="pp-stat-completed"><b>{scopedCleared}</b> {boundPipelineSnapshot ? "done" : "cleared"}</span>
             <span className={`head-stat${decisionBoards.length ? " needs" : ""}`}><b>{decisionBoards.length}</b> decisions</span>
+            <button
+              id="pp-btn-toggle-parallel-agents"
+              type="button"
+              className={`parallel-agents-toggle${parallelAgents ? " enabled" : ""}`}
+              role="switch"
+              aria-checked={parallelAgents}
+              data-active-run-limit={boundPipelineSnapshot?.scheduler.maxParallelWorkers ?? "none"}
+              title={`${parallelAgents ? "Allow up to four" : "Allow one"} active agent${parallelAgents ? "s" : ""} in each new run${boundPipelineSnapshot ? `. Current run limit: ${boundPipelineSnapshot.scheduler.maxParallelWorkers ?? 1}.` : "."}`}
+              onClick={() => setParallelAgents((current) => {
+                const next = !current;
+                try { localStorage.setItem(PARALLEL_AGENTS_KEY, String(next)); } catch { /* preference remains session-local */ }
+                return next;
+              })}
+            >
+              <span className="parallel-agents-switch" aria-hidden="true"><i /></span>
+              <span><b>Parallel agents</b><small>{parallelAgents ? "ON · NEW RUNS ×4" : "OFF · NEW RUNS ×1"}{boundPipelineSnapshot ? ` · ACTIVE ×${boundPipelineSnapshot.scheduler.maxParallelWorkers ?? 1}` : ""}</small></span>
+            </button>
             <ResourceGuard state={resourceGuard} onRefresh={refreshResourceGuard} />
             <button
               ref={orchestratorToggleRef}
@@ -1570,6 +1599,7 @@ export const App: React.FC = () => {
             runId={pipelineScope?.runId}
             repositoryRoot={pipelineScope?.repositoryRoot || active?.repoRoot}
             planPath={active?.planPath}
+            parallelAgents={parallelAgents}
             snapshotSeed={pipelineSnapshotSeed}
             onSelectRun={selectPipelineRun}
             onRunCreated={selectCreatedPipelineRun}
@@ -1613,6 +1643,16 @@ export const App: React.FC = () => {
               <span className="stage-actions">
                 <span className="context-action-hint" id="pp-hint-plan-context-actions">right-click plan for actions</span>
                 <button
+                  id="pp-btn-toggle-ui-comparison"
+                  type="button"
+                  className={`chip${comparisonOpen ? " active" : ""}`}
+                  aria-expanded={comparisonOpen}
+                  aria-controls="pp-region-ui-comparison"
+                  onClick={() => setComparisonOpen((current) => !current)}
+                >
+                  {comparisonOpen ? "close comparison" : "compare UI"}
+                </button>
+                <button
                   id="pp-btn-reload-active-board"
                   type="button"
                   className="chip"
@@ -1636,14 +1676,17 @@ export const App: React.FC = () => {
                 </a>
               </span>
             </div>
-            <iframe
-              id="pp-frame-active-board"
-              key={`${active.port}:${nonce}`}
-              ref={frameRef}
-              className="board"
-              src={active.url}
-              title={boardLabel(active)}
-            />
+            <div className={`stage-workspace${comparisonOpen ? " comparing" : ""}`}>
+              <iframe
+                id="pp-frame-active-board"
+                key={`${active.port}:${nonce}`}
+                ref={frameRef}
+                className="board"
+                src={active.url}
+                title={boardLabel(active)}
+              />
+              {comparisonOpen ? <LocalOutputWitness board={active} plan={activePlan} variant="comparison" /> : null}
+            </div>
           </>
         ) : (
           <div className="stage-empty" id="pp-region-empty-stage">

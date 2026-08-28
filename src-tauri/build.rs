@@ -1,6 +1,9 @@
 fn main() {
-    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
-        tauri_build::AppManifest::new().commands(&[
+    let windows = tauri_build::WindowsAttributes::new()
+        .app_manifest(include_str!("windows-app.manifest.xml"));
+    let attributes = tauri_build::Attributes::new()
+        .windows_attributes(windows)
+        .app_manifest(tauri_build::AppManifest::new().commands(&[
             "discover_boards",
             "read_board_workers",
             "read_board_plan",
@@ -23,7 +26,6 @@ fn main() {
             "orchestrator_fail_worker",
             "orchestrator_recover_workers",
             "orchestrator_validate_worker",
-        ]),
-    ))
-    .expect("failed to build Perfect Planner Desktop");
+        ]));
+    tauri_build::try_build(attributes).expect("failed to build Perfect Planner Desktop");
 }

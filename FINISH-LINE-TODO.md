@@ -25,6 +25,10 @@ signed Windows installer has been installed and exercised successfully.
       workflow canvas remains dominant, and diagnostics stay in a collapsed inspector/drawer.
 - [x] Recheck explicit terminal states: every task ends completed, blocked with a reason, or
       awaiting a named human decision; no task silently disappears.
+- [x] Add a prominent, persistent Parallel agents switch that defaults new runs to bounded
+      four-agent admission, keeps existing runs unchanged, and enforces serial admission when off.
+- [x] Add a canvas-preserving two-pane live/captured UI comparison with UI/code-evidence switching,
+      capture timestamps, and an explicit comparison-grade threshold of 1280x720.
 
 ## 2. Reconcile the current working tree
 
@@ -73,6 +77,8 @@ signed Windows installer has been installed and exercised successfully.
   - [x] Prove DOM keyboard navigation, visible focus return, narrow-window layout, and 300% WebView
         device-scale emulation in the installed app.
   - [x] Confirm physical Windows Escape/Tab input against the installed packaged app.
+  - [x] Embed and inspect a Per-Monitor V2 Windows manifest; prove the installed process is
+        `PER_MONITOR_DPI_AWARE` and its WebView inherits the active monitor scale.
   - [ ] Confirm Windows OS-level 300% scaling on the target display.
 - [x] Install both MSI and NSIS candidates on Windows x64; verify launch, upgrade/reinstall,
       uninstall, retained user data, and no orphan background processes.

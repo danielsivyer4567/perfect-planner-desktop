@@ -12,7 +12,14 @@ candidates pass locally, including a resolved simulation against the exact remot
 branch integration still has one known `.gitignore` conflict. Production promotion remains blocked
 by that unresolved integration, an unrun hosted CI build, absent Windows signing identity, untested
 OS-level 300% Windows scale, and absent clean-VM smoke. Real Windows Escape and Tab behavior now
-passes against the installed candidate.
+passes against the installed candidate. The installed executable is now Per-Monitor V2 aware; the
+active physical monitor was 100%, so the separate 300% target-display gate remains open.
+
+The final local UI slice adds a prominent Parallel agents switch that defaults new runs to four
+native-enforced active workers and creates serial one-worker runs when off. Existing runs retain
+their stored limit. The workflow canvas can split into live UI and captured evidence, switch the
+evidence pane between UI and attached text/code output, and refuses to label captures below
+1280x720 or without dimensions as comparison-grade.
 
 The Graphify architecture map influenced this review by separating the Session Recovery, Control
 Plane Messaging, Collision Registry/Census, Repository Identity, Verification Evidence, and Release
@@ -65,6 +72,20 @@ never identity.
 - `docs/handovers/PERFECT-PLANNER-FINISH-LINE-20260827/WINDOWS-DISTRIBUTION.md`
 - `docs/handovers/PERFECT-PLANNER-FINISH-LINE-20260827/FINAL-REPORT.md`
 
+Latest parallel/comparison/DPI finish slice additionally changes:
+
+- `src-tauri/build.rs`
+- `src-tauri/windows-app.manifest.xml`
+- `src-tauri/tests/windows_manifest_contract.rs`
+- `src-tauri/src/orchestrator/api.rs`
+- `src-tauri/src/orchestrator/scheduler.rs`
+- `src/components/LocalOutputWitness.tsx`
+- `src/components/PipelineConsole.tsx`
+- `src/index.css`
+- `src/services/orchestratorPipeline.ts`
+- `tests/evidence_e2e.py`
+- `docs/handovers/PERFECT-PLANNER-FINISH-LINE-20260827/WINDOWS-DISTRIBUTION.md`
+
 ## Durable planner state and evidence retained
 
 - `.claude/scratch/ledger.md`
@@ -82,7 +103,7 @@ The exact final committed inventory is available with `git show --name-status --
 - `npm run build`: passed.
 - `npm run test:e2e`: all eight suites passed.
 - `cargo fmt --all -- --check`: passed.
-- `cargo test --all-targets`: 307 unit tests passed, 3 intentionally ignored; all 15 native
+- `cargo test --all-targets`: 309 unit tests passed, 3 intentionally ignored; all 17 native
   collision-authority/census/claim contract tests passed.
 - `cargo clippy --all-targets -- -D warnings`: passed.
 - `npm run tauri build`: passed; x64 MSI and NSIS candidates produced.
@@ -100,12 +121,20 @@ The exact final committed inventory is available with `git show --name-status --
   represented at device scale factor 3 produced a
   1152x686 CSS viewport without overflowing the Perfect Planner shell; the embedded plan remains
   horizontally pannable. This is WebView emulation, not an OS-setting claim.
+- Native DPI contract: the release and installed executable manifests contain Common Controls v6
+  and `PerMonitorV2, PerMonitor`; the installed process reported `PER_MONITOR_DPI_AWARE`. On the
+  active physical 96-DPI/100% monitor the WebView reported device pixel ratio 1. No 300% physical
+  monitor claim is made.
+- Parallel and comparison UI: the browser suite proved the switch defaults on, persists off/on,
+  communicates “new runs x4/x1,” opens a side-by-side live/captured UI, switches to real attached
+  text/code evidence, labels a recorded 1440x900 capture comparison-grade, and records no console
+  or page errors.
 - Native lifecycle records: real run `run-mt4oo7z4` durably records preflight, approval, admission,
   heartbeat, stale-lease recovery, and evidence-gated fenced completion. The record hashes and
   timeline are in `NATIVE-EVIDENCE.md`.
-- Packaged native routing: synthetic evidence message `pp-message-1787880851152-4`, isolated under
+- Packaged native routing: synthetic evidence message `pp-message-1787883016705-5`, isolated under
   repository ID `pp-finish-line-native-evidence`, progressed exactly queued, claimed, delivered,
-  acknowledged through Tauri IPC. Product session `pp-app-1787880849487-20364` recorded one
+  acknowledged through Tauri IPC. Product session `pp-app-1787883015005-39004` recorded one
   correlated launch/exit pair. The packaged WebView console, page-error list, and unexpected failed
   request list were empty.
 - NSIS: install, installed-app native smoke, reinstall, uninstall, retained app data, and zero
@@ -143,6 +172,8 @@ The exact final committed inventory is available with `git show --name-status --
 - `artifacts/native-tauri/native-routed-message-lifecycle.json`
 - `artifacts/native-tauri/native-routed-message-lifecycle.png`
 - `artifacts/native-tauri/native-physical-keyboard.png`
+- `artifacts/left-rail-output.png` (split live/captured UI comparison proof)
+- `artifacts/native-tauri/installed-app.manifest.xml`
 - `artifacts/native-tauri/msi-install-per-user.log`
 - `artifacts/native-tauri/msi-reinstall.log`
 - `artifacts/native-tauri/msi-uninstall.log`
@@ -191,9 +222,22 @@ reinstalled and its installed executable
 product launch/exit, physical keyboard, screenshot, and clean-console proof. These remain unsigned
 local candidates, not production release artifacts.
 
+The subsequent Parallel agents, UI comparison, and Per-Monitor V2 package produced these latest
+**unsigned local** fingerprints:
+
+- release app EXE: `D5C6C7E09E5CDC0AF7BDFA89B370DCFF07458611C4C1D6C27700D617987BABED`
+- MSI: `3D1AA4DB6825F26D889A865C5A26FB64F8739F1B13BB2BDBE9D6A2C650101296`
+- NSIS: `CA6C57FB43745BF9E58C7BC9EFFA8677027AA92682738062B187482112CE5C9C`
+- installed NSIS executable: `9E9A9156D0DE65CC9F324CC17641D6A318F757E760A4597A8E9A63C7695A1183`
+
+The NSIS candidate was reinstalled and passed native routing, correlated launch/exit, physical
+Escape/Tab, per-monitor awareness/active-scale inheritance, screenshot, and clean-console proof.
+These artifacts remain unsigned and were not tested on a clean VM.
+
 ## Known gaps deliberately left open
 
-1. The final local handoff branch is 17 commits ahead and 1 behind the remote feature branch. The
+1. The final local handoff branch will be 18 commits ahead and 1 behind the remote feature branch
+   after this local evidence commit. The
    resolved simulation used the source/test head before the final documentation-only commit and
    passes, but the real integration still requires an authorized resolution of the `.gitignore`
    conflict and verification on the resulting commit.

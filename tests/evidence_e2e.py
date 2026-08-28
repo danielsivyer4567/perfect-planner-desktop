@@ -70,6 +70,10 @@ def main():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1600, "height": 1000})
+        console_errors = []
+        page_errors = []
+        page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+        page.on("pageerror", lambda error: page_errors.append(str(error)))
 
         def route_probe(route):
             parsed = urlparse(route.request.url)
@@ -115,6 +119,32 @@ def main():
         expect(page.locator("#pp-region-local-output")).to_contain_text("Not shown in captured UI: A02")
         expect(page.locator("#pp-region-local-output img")).to_be_visible()
 
+        parallel = page.locator("#pp-btn-toggle-parallel-agents")
+        expect(parallel).to_have_attribute("role", "switch")
+        expect(parallel).to_have_attribute("aria-checked", "true")
+        expect(parallel).to_contain_text("ON · NEW RUNS ×4")
+        parallel.evaluate("element => element.click()")
+        expect(parallel).to_have_attribute("aria-checked", "false")
+        assert page.evaluate("localStorage.getItem('perfect-planner:parallel-agents')") == "false"
+        page.reload(wait_until="networkidle")
+        parallel = page.locator("#pp-btn-toggle-parallel-agents")
+        expect(parallel).to_have_attribute("aria-checked", "false")
+        parallel.evaluate("element => element.click()")
+        expect(parallel).to_have_attribute("aria-checked", "true")
+
+        comparison_toggle = page.locator("#pp-btn-toggle-ui-comparison")
+        comparison_toggle.evaluate("element => element.click()")
+        expect(comparison_toggle).to_have_attribute("aria-expanded", "true")
+        comparison = page.locator("#pp-region-ui-comparison")
+        expect(comparison).to_be_visible()
+        expect(comparison.locator(".capture-standard")).to_contain_text("COMPARISON-GRADE CAPTURE")
+        expect(comparison.locator(".capture-standard")).to_contain_text("1440 × 900")
+        expect(comparison.locator("img")).to_be_visible()
+        comparison.get_by_role("button", name="Code").evaluate("element => element.click()")
+        expect(comparison.locator(".code-evidence")).to_contain_text("ALL UI TESTS PASSED")
+        comparison.get_by_role("button", name="UI").evaluate("element => element.click()")
+        expect(comparison.locator("img")).to_be_visible()
+
         active_row = page.locator('.rail-item[data-board-port="5230"]')
         expect(page.locator('[data-plan-status="progress"] .plan-status-divider')).to_contain_text("IN PROGRESS")
         expect(page.locator('[data-plan-status="complete"] .plan-status-divider')).to_contain_text("COMPLETED")
@@ -126,10 +156,13 @@ def main():
         expect(completed_row.locator(".complete-flag")).to_have_text("✓ COMPLETE")
 
         page.screenshot(path=str(SCREENSHOT), full_page=True)
+        assert not console_errors, f"browser console errors: {console_errors}"
+        assert not page_errors, f"browser page errors: {page_errors}"
         browser.close()
 
     print("evidence_e2e: PASS")
     print(f"screenshot: {SCREENSHOT}")
+    print("proved: persistent parallel default plus split live/captured UI and code-evidence switching")
 
 
 if __name__ == "__main__":

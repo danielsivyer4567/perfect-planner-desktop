@@ -131,6 +131,76 @@ def send_windows_key(process_id: int, virtual_key: int) -> None:
             user32.AttachThreadInput(current_thread, thread_id, False)
 
 
+def collect_windows_display_scale(process_id: int, page) -> dict:
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    shcore = ctypes.windll.shcore
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    user32.MonitorFromWindow.restype = ctypes.c_void_p
+    shcore.GetProcessDpiAwareness.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)]
+    shcore.GetDpiForMonitor.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.POINTER(ctypes.c_uint),
+        ctypes.POINTER(ctypes.c_uint),
+    ]
+    shcore.GetScaleFactorForMonitor.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)]
+    window = find_window_for_process(process_id)
+    window_dpi = int(user32.GetDpiForWindow(window))
+    system_dpi = int(user32.GetDpiForSystem())
+    scale_percent = round(window_dpi * 100 / 96)
+    process_handle = kernel32.OpenProcess(0x1000, False, process_id)
+    assert process_handle, f"could not open process {process_id} for DPI-awareness inspection"
+    awareness = ctypes.c_int(-1)
+    try:
+        awareness_result = shcore.GetProcessDpiAwareness(process_handle, ctypes.byref(awareness))
+    finally:
+        kernel32.CloseHandle(process_handle)
+    assert awareness_result == 0, f"GetProcessDpiAwareness failed: {awareness_result}"
+    assert awareness.value == 2, (
+        f"installed app is not per-monitor DPI aware; process awareness={awareness.value}"
+    )
+    monitor = user32.MonitorFromWindow(window, 2)  # MONITOR_DEFAULTTONEAREST
+    monitor_dpi_x = ctypes.c_uint()
+    monitor_dpi_y = ctypes.c_uint()
+    monitor_dpi_result = shcore.GetDpiForMonitor(
+        monitor, 0, ctypes.byref(monitor_dpi_x), ctypes.byref(monitor_dpi_y)
+    )
+    assert monitor_dpi_result == 0, f"GetDpiForMonitor failed: {monitor_dpi_result}"
+    monitor_scale = ctypes.c_int()
+    monitor_scale_result = shcore.GetScaleFactorForMonitor(monitor, ctypes.byref(monitor_scale))
+    assert monitor_scale_result == 0, f"GetScaleFactorForMonitor failed: {monitor_scale_result}"
+    webview = page.evaluate(
+        """({
+          devicePixelRatio: window.devicePixelRatio,
+          innerWidth: window.innerWidth,
+          innerHeight: window.innerHeight,
+          screenWidth: window.screen.width,
+          screenHeight: window.screen.height,
+        })"""
+    )
+    assert window_dpi == monitor_dpi_x.value == monitor_dpi_y.value
+    assert monitor_scale.value == scale_percent
+    assert abs(webview["devicePixelRatio"] - window_dpi / 96) < 0.01, (
+        f"installed WebView did not inherit the active Windows monitor scale: {webview}"
+    )
+    expected_dpi = os.environ.get("PP_NATIVE_EXPECT_DPI")
+    if expected_dpi:
+        assert window_dpi == int(expected_dpi), (
+            f"expected installed app window at {expected_dpi} DPI, found {window_dpi}"
+        )
+    return {
+        "processAwareness": "PER_MONITOR_DPI_AWARE",
+        "windowDpi": window_dpi,
+        "systemDpi": system_dpi,
+        "monitorDpi": {"x": monitor_dpi_x.value, "y": monitor_dpi_y.value},
+        "scalePercent": scale_percent,
+        "expectedDpi": int(expected_dpi) if expected_dpi else None,
+        "webview": webview,
+    }
+
+
 def close_native_window() -> None:
     user32 = ctypes.windll.user32
     window = user32.FindWindowW(None, WINDOW_TITLE)
@@ -160,6 +230,7 @@ def main() -> None:
     process = subprocess.Popen([str(EXECUTABLE)], env=launch_environment)
     result: dict | None = None
     physical_keyboard: dict | None = None
+    windows_display_scale: dict | None = None
     screenshot = ARTIFACTS / "native-routed-message-lifecycle.png"
     keyboard_screenshot = ARTIFACTS / "native-physical-keyboard.png"
     try:
@@ -183,6 +254,7 @@ def main() -> None:
             page.wait_for_function(
                 "document.readyState === 'complete' && Boolean(window.__TAURI_INTERNALS__)"
             )
+            windows_display_scale = collect_windows_display_scale(process.pid, page)
             toggle = page.locator("#pp-btn-toggle-orchestrator")
             toggle.click()
             inspector = page.locator("#pp-panel-orchestrator-inspector")
@@ -358,6 +430,7 @@ def main() -> None:
         "processId": process.pid,
         "messageLifecycle": result,
         "physicalKeyboard": physical_keyboard,
+        "windowsDisplayScale": windows_display_scale,
         "appLifecycle": lifecycle_pair,
         "lifecycleLedger": str(LIFECYCLE_LEDGER),
         "lifecycleLedgerSha256": sha256(LIFECYCLE_LEDGER),

@@ -12,6 +12,7 @@ use super::evidence::{EvidenceArtifact, VerificationResult};
 use super::worker::WorkerGateResult;
 
 const MAX_ATTEMPTS: u32 = 3;
+const MAX_PARALLEL_WORKERS: u16 = 4;
 const AUTHORITY_SCHEMA_VERSION: u32 = 1;
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -93,7 +94,7 @@ pub struct LegacyLeaseRevocation {
     pub previous_expires_at_ms: u64,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchedulerState {
     #[serde(default)]
@@ -104,18 +105,48 @@ pub struct SchedulerState {
     pub consumed_authorization_ids: BTreeSet<String>,
     #[serde(default)]
     pub completions: BTreeMap<String, NodeCompletion>,
+    #[serde(default = "serial_worker_limit")]
+    pub max_parallel_workers: u16,
     pub next_fence: u64,
     pub nodes: BTreeMap<String, ScheduledNode>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicSchedulerState {
     pub authority_schema_version: u32,
     pub pending_legacy_revocations: Vec<LegacyLeaseRevocation>,
     pub completions: BTreeMap<String, NodeCompletion>,
+    pub max_parallel_workers: u16,
     pub next_fence: u64,
     pub nodes: BTreeMap<String, PublicScheduledNode>,
+}
+
+impl Default for SchedulerState {
+    fn default() -> Self {
+        Self {
+            authority_schema_version: 0,
+            pending_legacy_revocations: Vec::new(),
+            consumed_authorization_ids: BTreeSet::new(),
+            completions: BTreeMap::new(),
+            max_parallel_workers: serial_worker_limit(),
+            next_fence: 1,
+            nodes: BTreeMap::new(),
+        }
+    }
+}
+
+impl Default for PublicSchedulerState {
+    fn default() -> Self {
+        Self {
+            authority_schema_version: 0,
+            pending_legacy_revocations: Vec::new(),
+            completions: BTreeMap::new(),
+            max_parallel_workers: serial_worker_limit(),
+            next_fence: 1,
+            nodes: BTreeMap::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -152,6 +183,7 @@ impl From<&SchedulerState> for PublicSchedulerState {
             authority_schema_version: state.authority_schema_version,
             pending_legacy_revocations: state.pending_legacy_revocations.clone(),
             completions: state.completions.clone(),
+            max_parallel_workers: state.max_parallel_workers,
             next_fence: state.next_fence,
             nodes: state
                 .nodes
@@ -201,6 +233,20 @@ impl SchedulerStore {
         run_dir: PathBuf,
         nodes: Vec<ScheduledNode>,
     ) -> Result<Self, String> {
+        Self::open_with_limit(state_path, run_dir, nodes, serial_worker_limit())
+    }
+
+    pub fn open_with_limit(
+        state_path: PathBuf,
+        run_dir: PathBuf,
+        nodes: Vec<ScheduledNode>,
+        max_parallel_workers: u16,
+    ) -> Result<Self, String> {
+        if !(1..=MAX_PARALLEL_WORKERS).contains(&max_parallel_workers) {
+            return Err(format!(
+                "parallel worker limit must be between 1 and {MAX_PARALLEL_WORKERS}"
+            ));
+        }
         let mut state = if state_path.exists() {
             let bytes = fs::read(&state_path)
                 .map_err(|error| format!("cannot read scheduler state: {error}"))?;
@@ -212,6 +258,7 @@ impl SchedulerStore {
                 pending_legacy_revocations: Vec::new(),
                 consumed_authorization_ids: BTreeSet::new(),
                 completions: BTreeMap::new(),
+                max_parallel_workers,
                 next_fence: 1,
                 nodes: nodes
                     .into_iter()
@@ -298,6 +345,7 @@ impl SchedulerStore {
             return Err("claim requires a worker and lease of at least one second".to_string());
         }
         self.mutate(|state| {
+            enforce_parallel_limit(state)?;
             let dependencies_ready = {
                 let node = state
                     .nodes
@@ -358,6 +406,7 @@ impl SchedulerStore {
         let node_id = authorization.binding.node_id.as_str();
         let worker_id = authorization.worker_id.as_str();
         self.mutate(|state| {
+            enforce_parallel_limit(state)?;
             if state
                 .consumed_authorization_ids
                 .contains(&authorization.authorization_id)
@@ -659,7 +708,39 @@ impl SchedulerStore {
     }
 }
 
+fn serial_worker_limit() -> u16 {
+    1
+}
+
+fn enforce_parallel_limit(state: &SchedulerState) -> Result<(), String> {
+    let active = state
+        .nodes
+        .values()
+        .filter(|node| node.status == NodeStatus::Running && node.lease.is_some())
+        .count();
+    if active >= usize::from(state.max_parallel_workers) {
+        return Err(format!(
+            "parallel worker limit reached ({}/{})",
+            active, state.max_parallel_workers
+        ));
+    }
+    Ok(())
+}
+
 fn validate_state(state: &SchedulerState) -> Result<(), String> {
+    if !(1..=MAX_PARALLEL_WORKERS).contains(&state.max_parallel_workers) {
+        return Err(format!(
+            "scheduler parallel worker limit must be between 1 and {MAX_PARALLEL_WORKERS}"
+        ));
+    }
+    let active = state
+        .nodes
+        .values()
+        .filter(|node| node.status == NodeStatus::Running && node.lease.is_some())
+        .count();
+    if active > usize::from(state.max_parallel_workers) {
+        return Err("scheduler state exceeds its parallel worker limit".to_string());
+    }
     if state.completions.iter().any(|(node_id, completion)| {
         completion.node_id != *node_id
             || !state
@@ -872,8 +953,12 @@ mod tests {
     }
 
     fn node() -> ScheduledNode {
+        node_named("B01")
+    }
+
+    fn node_named(id: &str) -> ScheduledNode {
         ScheduledNode {
-            id: "B01".to_string(),
+            id: id.to_string(),
             wave: 1,
             depends_on: Vec::new(),
             attempts: 0,
@@ -881,6 +966,53 @@ mod tests {
             lease: None,
             stall_alarm_fence: None,
         }
+    }
+
+    #[test]
+    fn persisted_parallel_limit_enforces_serial_and_bounded_parallel_admission() {
+        let serial_root = temp_dir("serial-limit");
+        let serial = SchedulerStore::open_with_limit(
+            serial_root.join("leases.json"),
+            serial_root.clone(),
+            vec![node_named("A01"), node_named("A02")],
+            1,
+        )
+        .expect("serial scheduler");
+        serial
+            .claim("A01", "worker-a", 100, 1_000)
+            .expect("first claim");
+        let serial_error = serial
+            .claim("A02", "worker-b", 100, 1_000)
+            .expect_err("serial scheduler must refuse a second active lease");
+        assert!(serial_error.contains("parallel worker limit reached (1/1)"));
+
+        let parallel_root = temp_dir("parallel-limit");
+        let parallel = SchedulerStore::open_with_limit(
+            parallel_root.join("leases.json"),
+            parallel_root.clone(),
+            vec![node_named("A01"), node_named("A02")],
+            4,
+        )
+        .expect("parallel scheduler");
+        parallel
+            .claim("A01", "worker-a", 100, 1_000)
+            .expect("first claim");
+        parallel
+            .claim("A02", "worker-b", 100, 1_000)
+            .expect("parallel claim");
+        assert_eq!(parallel.public_snapshot().unwrap().max_parallel_workers, 4);
+
+        drop(parallel);
+        let reopened = SchedulerStore::open(
+            parallel_root.join("leases.json"),
+            parallel_root.clone(),
+            Vec::new(),
+        )
+        .expect("reopen persisted scheduler");
+        assert_eq!(reopened.snapshot().unwrap().max_parallel_workers, 4);
+
+        let _ = fs::remove_dir_all(serial_root);
+        let _ = fs::remove_dir_all(parallel_root);
     }
 
     #[test]

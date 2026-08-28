@@ -59,6 +59,13 @@ preflight, explicit approval, unchanged collision registry/census, registered ap
 clean target files, and an authority-backed preclaim. The scheduler issues a bounded lease and the
 worker can only heartbeat, submit evidence, complete, or fail through that lease.
 
+Every new scheduler persists a native-owned `maxParallelWorkers` limit. The renderer's prominent
+Parallel agents preference maps only at run creation: on creates a four-worker bound; off creates a
+one-worker serial bound. Both ordinary and authority-backed claim paths count active native leases
+under the scheduler lock and refuse admission at the stored limit. Reopening a run preserves its
+limit, so changing the preference never silently mutates active work. Legacy scheduler records that
+predate the field fail safely to one worker.
+
 Completion passes through `orchestrator_complete_worker`. `worker.rs` and `evidence.rs` validate the
 manifest, claimed outputs, required test/build/runtime evidence, unresolved risks, Git baseline, and
 lease authority before the scheduler records completion. Failure is explicit through
@@ -137,6 +144,7 @@ bounded identity census
   -> native preflight + dirty/prerequisite/conflict checks
   -> explicit whole-run approval + collision clearance
   -> authority-backed worker admission and scoped messaging
+     (serial x1 or bounded parallel x4, fixed for that run)
   -> heartbeat / actionable interruption / explicit failure
   -> evidence-gated completion
   -> reconciliation
@@ -156,6 +164,15 @@ bounded identity census
    honest empty state.
 3. Recovery delivery errors previously appeared as a stopped supervisor. Supervisor availability
    and exact-task delivery failure are now separate, actionable states.
+4. Parallel scheduling previously had no persisted run-level capacity. Native scheduler state now
+   enforces a safe serial/four-worker bound and exposes the active limit without exposing lease
+   tokens.
+5. Screenshot comparison was confined to a small rail thumbnail. The canvas can now split into a
+   live UI and evidence pane, switch between captured UI and attached text/code evidence, and labels
+   captures below 1280x720 or without recorded dimensions instead of presenting them as standard.
+6. The packaged executable previously lacked a DPI-awareness manifest. The final package embeds
+   Common Controls v6 and Per-Monitor V2; the installed process reports per-monitor awareness and
+   inherits the active monitor DPI. A physical 300% target-display pass is still external evidence.
 
 ### P1 — release blockers outside the completed product changes
 
@@ -193,3 +210,8 @@ bounded identity census
   `tests/native_finish_line_e2e.py`
 - Installed packaged routing, product launch/exit correlation, and real Windows Escape/Tab:
   `tests/native_release_evidence_e2e.py`
+- Parallel preference, split UI/code evidence comparison, capture-quality labels, and clean browser
+  console: `tests/evidence_e2e.py`; serial/parallel native capacity and persisted run configuration:
+  Rust tests in `orchestrator/scheduler.rs` and `orchestrator/api.rs`
+- Windows manifest embedding and Per-Monitor V2 contract:
+  `src-tauri/tests/windows_manifest_contract.rs`

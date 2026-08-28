@@ -9,8 +9,11 @@ Perfect Planner 1.0.0 provides a repository-isolated Tauri workspace for Perfect
 and a native orchestration lifecycle. The finish pass adds exact repository/plan restoration,
 fail-closed missing selection, same-port foreign-board rejection, stale recovery classification,
 actionable recovery-delivery status, compact canvas-first layout verification, Windows CI, and
-packaged restart/installer regression coverage. Product-owned process launch/exit evidence,
-packaged routed-message proof, and real Windows Escape/Tab verification are also present.
+packaged restart/installer regression coverage. New runs default to a native-enforced four-agent
+parallel limit (switchable to serial before creation), and the workspace offers a live/captured UI
+comparison with code-evidence switching and explicit screenshot-quality labels. Product-owned
+process launch/exit evidence, packaged routed-message proof, Per-Monitor V2 awareness, and real
+Windows Escape/Tab verification are also present.
 
 The critical safety correction prevents a durable recovery event from being written to any board
 other than the explicitly selected repository and plan held by the original worker session.
@@ -61,8 +64,10 @@ then, the app must never download or apply an update automatically.
   no push was authorized. GitHub branch protection/rulesets are unavailable on the current private
   repository account plan.
 - No Windows code-signing identity is installed; current binaries report `NotSigned`.
-- Real Windows Escape/Tab behavior and native narrow-window layout pass. Windows OS-level 300%
-  display scaling remains untested; only WebView device-scale emulation is proven.
+- Real Windows Escape/Tab behavior and native narrow-window layout pass. The installed executable
+  is Per-Monitor V2 aware and the WebView matches the active monitor's 100% scale. Windows OS-level
+  300% display scaling remains untested on a physically configured target display; 300% WebView
+  emulation is supplementary evidence only.
 - No clean Windows VM smoke test has been performed.
 - Windows 10 and ARM64 are not verified.
 

@@ -45,24 +45,28 @@ Local artifact hashes:
 `C:\Users\danie\AppData\Local\Perfect Planner\perfect-planner-desktop.exe`.
 
 - Installed executable SHA-256:
-  `70BABB6DB337837DA8C5DCF8DF071BD0629138A48D003498CCBFBDE0EE9DC155`.
-- Synthetic proof message `pp-message-1787880851152-4` used the dedicated repository ID
+  `9E9A9156D0DE65CC9F324CC17641D6A318F757E760A4597A8E9A63C7695A1183`.
+- Synthetic proof message `pp-message-1787883016705-5` used the dedicated repository ID
   `pp-finish-line-native-evidence`; it progressed exactly
   `queued -> claimed -> delivered -> acknowledged` through the native Tauri IPC boundary.
 - The message was labelled synthetic evidence and did not represent or mutate live project work.
-- Process `20364` recorded correlated session `pp-app-1787880849487-20364` with exactly one
+- Process `39004` recorded correlated session `pp-app-1787883015005-39004` with exactly one
   `LAUNCH` and one later `EXIT` event in the product-owned append-only lifecycle ledger.
 - The physical keyboard proof observed exactly one Windows Escape event, closed the inspector,
   restored focus, and advanced focus with Windows Tab to a repository button.
+- The installed executable manifest contains `PerMonitorV2, PerMonitor`; the running process
+  reported `PER_MONITOR_DPI_AWARE`. The active monitor was physically 96 DPI/100%, and the WebView
+  reported device pixel ratio 1. A 288 DPI/300% target-monitor pass remains unclaimed.
 - Console errors, page errors, and unexpected request failures were all empty.
 
 | Artifact or ledger | SHA-256 |
 |---|---|
-| `artifacts/native-tauri/native-routed-message-lifecycle.json` | `7102B305CF95A375AD4D704349C9090D8E610B306559A6CA0D0372E0D5717A68` |
-| `artifacts/native-tauri/native-routed-message-lifecycle.png` | `3876DE6949D20C519E0F19ECD6032530F85D98AD5258CEC7E923BCA1B769C40B` |
-| `artifacts/native-tauri/native-physical-keyboard.png` | `3876DE6949D20C519E0F19ECD6032530F85D98AD5258CEC7E923BCA1B769C40B` |
-| `%APPDATA%/com.looplet.perfectplanner/app-lifecycle.jsonl` after proof | `3D03AAFB3316677F34A0F1209CFF1B5B017FE41ED0004734C5E1AD1DF2BCC53A` |
-| `%APPDATA%/com.looplet.perfectplanner/control-plane.jsonl` after proof | `3E05125BC90DF9FDE47CA69A74A00263C4C3B4BBB686E1C0DDEE26DEBA3C0A09` |
+| `artifacts/native-tauri/native-routed-message-lifecycle.json` | `91A48DA9D6E4E61033793FC1B039DBA5178E79C31F52C74E1BC1493761CD51F2` |
+| `artifacts/native-tauri/native-routed-message-lifecycle.png` | `A638BF71B732986BB5B796C45F5F040E064DA2457776BD2FEC96E63982125108` |
+| `artifacts/native-tauri/native-physical-keyboard.png` | `A638BF71B732986BB5B796C45F5F040E064DA2457776BD2FEC96E63982125108` |
+| `artifacts/native-tauri/installed-app.manifest.xml` | `8D0777C126B337DE5F030315E3C4B0A189781099EF54FF155C0EFA2D7B432CE9` |
+| `%APPDATA%/com.looplet.perfectplanner/app-lifecycle.jsonl` after proof | `37F9CABFDDF56B74A08D7FC76896872BD24BCD2CF085360583F023D941BF8687` |
+| `%APPDATA%/com.looplet.perfectplanner/control-plane.jsonl` after proof | `5A303635806DADB823EC8FC178058027C240438ABAC3DB55F266237086CAF3FC` |
 
 The screenshot hashes are identical because the routing operation does not invent visible live-work
 state and the second capture retained the same focused, inspector-closed workspace.

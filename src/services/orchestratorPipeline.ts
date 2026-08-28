@@ -193,6 +193,7 @@ export interface SchedulerState {
     previousExpiresAtMs: number;
   }>;
   completions: Record<string, NodeCompletion>;
+  maxParallelWorkers: number;
   nextFence: number;
   nodes: Record<string, ScheduledNode>;
 }
@@ -907,6 +908,7 @@ export interface ScopedRunRequest {
 export interface CreateRunRequest extends ScopedRunRequest {
   planPath: string;
   nextActions: string[];
+  parallelAgents: boolean;
 }
 
 export interface CreateRunResult {

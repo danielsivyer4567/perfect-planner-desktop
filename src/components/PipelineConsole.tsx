@@ -55,6 +55,7 @@ export interface PipelineConsoleProps {
   runId?: string;
   repositoryRoot?: string;
   planPath?: string;
+  parallelAgents?: boolean;
   snapshotSeed?: PipelineSnapshotSeed;
   snapshot?: OrchestratorSnapshot | null;
   pollIntervalMs?: number;
@@ -1187,6 +1188,7 @@ export function PipelineConsole({
   runId,
   repositoryRoot,
   planPath,
+  parallelAgents = true,
   snapshotSeed,
   snapshot: suppliedSnapshot,
   pollIntervalMs = 5_000,
@@ -1408,9 +1410,12 @@ export function PipelineConsole({
         repositoryRoot,
         runId,
         planPath,
+        parallelAgents,
         nextActions: [
           "Run the native system and collision preflight",
-          "Admit one dependency-ready worker through the native scheduler",
+          parallelAgents
+            ? "Admit dependency-ready workers through the bounded parallel scheduler"
+            : "Admit one dependency-ready worker at a time through the serial scheduler",
           "Validate and durably record evidence before completion",
         ],
       });
@@ -1423,7 +1428,7 @@ export function PipelineConsole({
     } finally {
       setCreating(false);
     }
-  }, [creating, onDiagnostic, onRunCreated, planPath, repositoryRoot]);
+  }, [creating, onDiagnostic, onRunCreated, parallelAgents, planPath, repositoryRoot]);
 
   const reapExpired = useCallback(async () => {
     if (!repositoryRoot || !runId || reaping) return;

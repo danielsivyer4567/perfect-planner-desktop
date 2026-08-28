@@ -74,6 +74,8 @@ pub struct CreateRunApiRequest {
     pub plan_path: PathBuf,
     #[serde(default)]
     pub next_actions: Vec<String>,
+    #[serde(default)]
+    pub parallel_agents: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -632,7 +634,9 @@ pub fn orchestrator_create_run(
         repository_root,
         run_id: request.run_id,
     })?;
-    let scheduler = open_scheduler(&context, nodes)?.public_snapshot()?;
+    let max_parallel_workers = if request.parallel_agents { 4 } else { 1 };
+    let scheduler =
+        open_scheduler_with_limit(&context, nodes, max_parallel_workers)?.public_snapshot()?;
     let hot_resume = scope.read_hot_resume()?;
 
     Ok(CreateRunApiResponse {
@@ -2107,6 +2111,14 @@ fn open_scheduler(
     context: &ScopedContext,
     nodes: Vec<ScheduledNode>,
 ) -> Result<SchedulerStore, String> {
+    open_scheduler_with_limit(context, nodes, 1)
+}
+
+fn open_scheduler_with_limit(
+    context: &ScopedContext,
+    nodes: Vec<ScheduledNode>,
+    max_parallel_workers: u16,
+) -> Result<SchedulerStore, String> {
     let state_path = context.run_dir.join(SCHEDULER_FILE);
     if state_path.exists() {
         let resolved = state_path
@@ -2118,7 +2130,12 @@ fn open_scheduler(
     } else if nodes.is_empty() {
         return Err("scheduler state is missing; refusing implicit reinitialization".to_string());
     }
-    let scheduler = SchedulerStore::open(state_path, context.run_dir.clone(), nodes)?;
+    let scheduler = SchedulerStore::open_with_limit(
+        state_path,
+        context.run_dir.clone(),
+        nodes,
+        max_parallel_workers,
+    )?;
     let pending_revocations = scheduler.pending_legacy_revocations()?;
     for revocation in &pending_revocations {
         append_event(
@@ -3184,6 +3201,31 @@ mod tests {
     }
 
     #[test]
+    fn create_run_persists_the_requested_parallel_agent_limit() {
+        let repository = TempRepo::new();
+        let repository_root = repository.0.canonicalize().unwrap();
+        let parallel = orchestrator_create_run(CreateRunApiRequest {
+            repository_root: repository_root.clone(),
+            run_id: "run-parallel-default".to_string(),
+            plan_path: PathBuf::from(".claude/scratch/perfect-plan/api-plan.json"),
+            next_actions: vec!["preflight".to_string()],
+            parallel_agents: true,
+        })
+        .unwrap();
+        assert_eq!(parallel.scheduler.max_parallel_workers, 4);
+
+        let serial = orchestrator_create_run(CreateRunApiRequest {
+            repository_root,
+            run_id: "run-serial-default".to_string(),
+            plan_path: PathBuf::from(".claude/scratch/perfect-plan/api-plan.json"),
+            next_actions: vec!["preflight".to_string()],
+            parallel_agents: false,
+        })
+        .unwrap();
+        assert_eq!(serial.scheduler.max_parallel_workers, 1);
+    }
+
+    #[test]
     fn scoped_context_accepts_only_direct_repository_run_child() {
         let repository = TempRepo::new();
         repository.create_scope("run-1");
@@ -4011,6 +4053,7 @@ mod tests {
             run_id: scope_request.run_id.clone(),
             plan_path: PathBuf::from(".claude/scratch/perfect-plan/api-plan.json"),
             next_actions: vec!["claim A01".to_string()],
+            parallel_agents: false,
         })
         .unwrap();
         assert!(create.run_dir.starts_with(&repository_root));
@@ -4151,6 +4194,7 @@ mod tests {
             run_id: scope_request.run_id.clone(),
             plan_path: PathBuf::from(".claude/scratch/perfect-plan/api-plan.json"),
             next_actions: vec!["preflight".to_string()],
+            parallel_agents: false,
         })
         .unwrap();
         let context = open_context(&scope_request).unwrap();
